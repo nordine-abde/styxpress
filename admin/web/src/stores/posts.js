@@ -14,6 +14,14 @@ const emptyPost = {
     updatedAt: ''
 }
 
+function normalizePost(post = {}) {
+    return {
+        ...emptyPost,
+        ...post,
+        assets: Array.isArray(post.assets) ? post.assets : []
+    }
+}
+
 export const usePostsStore = defineStore('posts', () => {
     const posts = ref([])
     const featuredSlugs = ref([])
@@ -33,7 +41,7 @@ export const usePostsStore = defineStore('posts', () => {
         error.value = ''
         try {
             const payload = await apiRequest('/api/posts')
-            posts.value = payload.posts || []
+            posts.value = (payload.posts || []).map(normalizePost)
             if (!selectedSlug.value && posts.value.length > 0) {
                 await selectPost(posts.value[0].slug)
             }
@@ -60,7 +68,7 @@ export const usePostsStore = defineStore('posts', () => {
         loading.value = true
         error.value = ''
         try {
-            draft.value = await apiRequest(`/api/posts/${encodeURIComponent(slug)}`)
+            draft.value = normalizePost(await apiRequest(`/api/posts/${encodeURIComponent(slug)}`))
             selectedSlug.value = slug
         } catch (err) {
             error.value = err.message
@@ -72,7 +80,7 @@ export const usePostsStore = defineStore('posts', () => {
 
     function newPost() {
         selectedSlug.value = ''
-        draft.value = { ...emptyPost, assets: [] }
+        draft.value = normalizePost()
     }
 
     async function saveDraft() {
@@ -89,7 +97,7 @@ export const usePostsStore = defineStore('posts', () => {
                     slug
                 }
             })
-            draft.value = saved
+            draft.value = normalizePost(saved)
             selectedSlug.value = saved.slug
             await loadPosts()
             await selectPost(saved.slug)

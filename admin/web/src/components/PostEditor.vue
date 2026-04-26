@@ -90,7 +90,7 @@ async function preview() {
                 Save the post before uploading files.
             </p>
 
-            <ul v-if="postsStore.draft.assets.length > 0" class="list">
+            <ul v-if="postsStore.draft.assets?.length > 0" class="list">
                 <li v-for="asset in postsStore.draft.assets" :key="asset" class="asset-item">
                     <code>{{ asset }}</code>
                     <ConfirmPrompt label="Remove" confirm-label="Remove" @confirm="postsStore.deleteAsset(asset)" />
