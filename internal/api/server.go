@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strings"
 
 	"github.com/nordine-abde/styxpress/internal/config"
+	"github.com/nordine-abde/styxpress/internal/publishing"
 )
 
 const SessionHeader = "X-Styxpress-Session"
@@ -18,6 +20,7 @@ type Server struct {
 	configPath string
 	token      string
 	logger     *log.Logger
+	sshTester  func(*http.Request, config.Config, string) error
 }
 
 type ErrorResponse struct {
@@ -41,6 +44,9 @@ func New(configPath string, logger *log.Logger) (*Server, error) {
 		configPath: configPath,
 		token:      token,
 		logger:     logger,
+		sshTester: func(r *http.Request, cfg config.Config, passphrase string) error {
+			return publishing.TestSSH(r.Context(), cfg, passphrase)
+		},
 	}, nil
 }
 
@@ -53,6 +59,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/health", s.withAuth(s.health))
 	mux.HandleFunc("GET /api/config", s.withAuth(s.getConfig))
 	mux.HandleFunc("POST /api/config", s.withAuth(s.saveConfig))
+	mux.HandleFunc("POST /api/test-ssh", s.withAuth(s.testSSH))
 	return mux
 }
 
@@ -112,6 +119,43 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg)
+}
+
+type testSSHRequest struct {
+	Passphrase string `json:"passphrase"`
+}
+
+func (s *Server) testSSH(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	var req testSSHRequest
+	if r.Body != http.NoBody {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			WriteError(w, http.StatusBadRequest, "invalid_json", "request body must be an object with an optional passphrase")
+			return
+		}
+	}
+
+	cfg, err := config.LoadOrDefault(s.configPath)
+	if err != nil {
+		s.logger.Printf("load config: %v", err)
+		WriteError(w, http.StatusInternalServerError, "config_load_failed", "failed to load config")
+		return
+	}
+
+	if err := s.sshTester(r, cfg, req.Passphrase); err != nil {
+		if errors.Is(err, publishing.ErrInvalidPublishConfig) {
+			WriteError(w, http.StatusBadRequest, "invalid_publish_config", err.Error())
+			return
+		}
+		s.logger.Printf("test SSH: %v", err)
+		WriteError(w, http.StatusBadGateway, "ssh_test_failed", "failed to connect to the configured SSH server")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func WriteError(w http.ResponseWriter, status int, code string, message string) {
