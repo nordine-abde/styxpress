@@ -39,6 +39,10 @@ Private source content and public rendered output should be stored separately.
 
 Private post content lives under `content/`. Public files served by Caddy, Nginx, or another reverse proxy live under `public/`.
 
+The `content/` directory may exist on the server or only on the administrator's local machine, depending on the publishing profile. In server-backed content mode, the admin client uploads source Markdown, metadata, covers, and source assets to remote `content/` as well as rendered output to remote `public/`. In local-only content mode, the admin client keeps `content/` on the administrator's machine and uploads only generated `public/` files to the server.
+
+In both modes, `content/` remains the source of truth for rendering, and `public/` remains the only directory that should be served to readers.
+
 Posts are directories. The post slug is the directory name.
 
 Example:
@@ -593,18 +597,19 @@ The admin client publishes files to the server using SSH-based file operations.
 V1 publish flow for a new post:
 
 1. Render the post locally.
-2. Create the final private remote post directory under `content/posts/{slug}/`.
-3. Create the final public remote post directory under `public/posts/{slug}/`.
-4. Upload source, metadata, cover image, and source assets directly into `content/posts/{slug}/`.
-5. Upload rendered HTML, copied cover image, and copied assets directly into `public/posts/{slug}/`.
-6. Regenerate the homepage, feed, and sitemap locally.
-7. Upload the regenerated homepage, `feed.xml`, and `sitemap.xml` directly into their final remote paths under `public/`.
+2. Write or update the local source post directory under `content/posts/{slug}/`.
+3. If the publishing profile uses server-backed content, create the final private remote post directory under `content/posts/{slug}/`.
+4. Create the final public remote post directory under `public/posts/{slug}/`.
+5. If server-backed content is enabled, upload source, metadata, cover image, and source assets directly into remote `content/posts/{slug}/`.
+6. Upload rendered HTML, copied cover image, and copied assets directly into remote `public/posts/{slug}/`.
+7. Regenerate the homepage, feed, and sitemap locally.
+8. Upload the regenerated homepage, `feed.xml`, and `sitemap.xml` directly into their final remote paths under `public/`.
 
 Example final paths:
 
 ```text
-content/posts/hello-world/
-public/posts/hello-world/
+content/posts/hello-world/  optional remote source copy
+public/posts/hello-world/   required remote public output
 ```
 
 For the first version, the admin client should not require server-side shell operations, remote temporary directories, remote atomic moves, or backup rotation.
@@ -713,6 +718,8 @@ Expected fields:
 - SSH key path.
 - Remote site directory.
 - Site base URL.
+- Content storage mode: `server` or `local`.
+- Local content directory path when using local-only content mode.
 
 The admin config should be stored locally on the admin machine. It should not be uploaded into the public site directory by default.
 

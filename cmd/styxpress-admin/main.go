@@ -10,6 +10,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/nordine-abde/styxpress/internal/api"
+	"github.com/nordine-abde/styxpress/internal/config"
 )
 
 //go:embed all:web
@@ -17,7 +20,21 @@ var webFiles embed.FS
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:0", "admin server listen address")
+	configPath := flag.String("config", "", "admin config path")
 	flag.Parse()
+
+	if *configPath == "" {
+		path, err := config.DefaultPath()
+		if err != nil {
+			log.Fatal(err)
+		}
+		*configPath = path
+	}
+
+	apiServer, err := api.New(*configPath, log.Default())
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	listener, err := net.Listen("tcp", *addr)
 	if err != nil {
@@ -25,19 +42,21 @@ func main() {
 	}
 
 	server := &http.Server{
-		Handler:           newHandler(),
+		Handler:           newHandler(apiServer.Handler()),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	log.Printf("styxpress-admin listening on http://%s", listener.Addr())
+	log.Printf("styxpress-admin API session token: %s", apiServer.Token())
 
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }
 
-func newHandler() http.Handler {
+func newHandler(apiHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	mux.Handle("/api/", apiHandler)
 	mux.Handle("/", embeddedSPA())
 
 	return mux
