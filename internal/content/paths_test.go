@@ -28,8 +28,11 @@ func TestValidateAssetPath(t *testing.T) {
 	tests := map[string]bool{
 		"image.jpg":          true,
 		"gallery/image.jpg":  true,
+		"gallery\\image.jpg": true,
 		"":                   false,
 		"/image.jpg":         false,
+		"gallery//x.jpg":     false,
+		"gallery/./x.jpg":    false,
 		"..":                 false,
 		"../secret.txt":      false,
 		"gallery/../x.jpg":   false,

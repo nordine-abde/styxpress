@@ -31,22 +31,26 @@ func ValidateSlug(slug string) error {
 }
 
 func ValidateAssetPath(assetPath string) error {
+	_, err := CleanAssetPath(assetPath)
+	return err
+}
+
+func CleanAssetPath(assetPath string) (string, error) {
 	if assetPath == "" || strings.HasPrefix(assetPath, "/") || strings.HasPrefix(assetPath, "\\") {
-		return ErrInvalidAssetPath
+		return "", ErrInvalidAssetPath
 	}
 
-	parts := strings.FieldsFunc(assetPath, func(r rune) bool {
-		return r == '/' || r == '\\'
-	})
+	normalized := strings.ReplaceAll(assetPath, "\\", "/")
+	parts := strings.Split(normalized, "/")
 	for _, part := range parts {
 		if part == "" || part == "." || part == ".." {
-			return ErrInvalidAssetPath
+			return "", ErrInvalidAssetPath
 		}
 	}
 
-	cleaned := path.Clean(strings.ReplaceAll(assetPath, "\\", "/"))
+	cleaned := path.Clean(normalized)
 	if cleaned == "." || strings.HasPrefix(cleaned, "../") || cleaned == ".." {
-		return ErrInvalidAssetPath
+		return "", ErrInvalidAssetPath
 	}
-	return nil
+	return cleaned, nil
 }
