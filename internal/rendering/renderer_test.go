@@ -207,6 +207,89 @@ func TestRenderPreviewDoesNotWritePublicFiles(t *testing.T) {
 	}
 }
 
+func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	repo := content.NewRepository(contentRoot)
+	first := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
+	second := time.Date(2026, 4, 2, 9, 30, 0, 0, time.UTC)
+
+	if err := repo.WriteCover("alpha", "cover.jpg", strings.NewReader("cover")); err != nil {
+		t.Fatalf("write cover: %v", err)
+	}
+	if err := repo.WriteAsset("alpha", "diagram.png", strings.NewReader("diagram")); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+	posts := []content.Post{
+		{Slug: "zulu", Title: "Zulu", Description: "Last alphabetically", Source: "Zulu", PublishedAt: second, UpdatedAt: second},
+		{Slug: "alpha", Title: "Alpha & Friends", Description: "Featured <post>", Source: "Alpha", PublishedAt: second, UpdatedAt: second, Cover: "cover.jpg"},
+		{Slug: "older", Title: "Older", Source: "Older", PublishedAt: first, UpdatedAt: first},
+	}
+	for _, post := range posts {
+		if _, err := repo.WritePost(post, content.WritePostOptions{}); err != nil {
+			t.Fatalf("write post %s: %v", post.Slug, err)
+		}
+	}
+	if err := repo.WriteFeatured([]string{"older", "alpha"}); err != nil {
+		t.Fatalf("write featured: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot, Options{SiteBaseURL: "https://blog.example.com"})
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	result, err := renderer.RenderSite()
+	if err != nil {
+		t.Fatalf("render site: %v", err)
+	}
+
+	assertFileContent(t, result.IndexPath, []string{
+		`<h1 id="featured-posts">Featured Posts</h1>`,
+		`<a href="/posts/older/">Older</a>`,
+		`<a href="/posts/alpha/">Alpha &amp; Friends</a>`,
+		`<p>Featured &lt;post&gt;</p>`,
+		`<img src="/posts/alpha/cover.jpg" alt="">`,
+	})
+	assertOrderAfter(t, result.IndexPath, `<h1 id="latest-posts">Latest Posts</h1>`, []string{
+		`<a href="/posts/alpha/">Alpha &amp; Friends</a>`,
+		`<a href="/posts/zulu/">Zulu</a>`,
+		`<a href="/posts/older/">Older</a>`,
+	})
+	assertFileContent(t, result.FeedPath, []string{
+		`<link>https://blog.example.com/posts/alpha/</link>`,
+		`<guid isPermaLink="true">https://blog.example.com/posts/zulu/</guid>`,
+		`<description>Featured &lt;post&gt;</description>`,
+	})
+	assertFileContent(t, result.SitemapPath, []string{
+		`<loc>https://blog.example.com/</loc>`,
+		`<loc>https://blog.example.com/posts/alpha/</loc>`,
+		`<lastmod>2026-04-02</lastmod>`,
+	})
+
+	sitemap, err := os.ReadFile(result.SitemapPath)
+	if err != nil {
+		t.Fatalf("read sitemap: %v", err)
+	}
+	for _, excluded := range []string{"feed.xml", "cover.jpg", "diagram.png", "source.md"} {
+		if strings.Contains(string(sitemap), excluded) {
+			t.Fatalf("sitemap contains excluded path %q:\n%s", excluded, sitemap)
+		}
+	}
+}
+
+func TestRenderSiteRequiresAbsoluteBaseURL(t *testing.T) {
+	renderer, err := New(filepath.Join(t.TempDir(), "content"), filepath.Join(t.TempDir(), "public"), Options{})
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	if _, err := renderer.RenderSite(); !errors.Is(err, ErrInvalidRenderConfig) {
+		t.Fatalf("RenderSite error = %v, want ErrInvalidRenderConfig", err)
+	}
+	if _, err := New(filepath.Join(t.TempDir(), "content"), filepath.Join(t.TempDir(), "public"), Options{SiteBaseURL: "/relative"}); !errors.Is(err, ErrInvalidRenderConfig) {
+		t.Fatalf("New relative base URL error = %v, want ErrInvalidRenderConfig", err)
+	}
+}
+
 func assertFileContent(t *testing.T, path string, values []string) {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -217,6 +300,31 @@ func assertFileContent(t *testing.T, path string, values []string) {
 		if !strings.Contains(string(data), value) {
 			t.Fatalf("expected %q in %s:\n%s", value, path, string(data))
 		}
+	}
+}
+
+func assertOrderAfter(t *testing.T, path string, marker string, values []string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	content := string(data)
+	markerIndex := strings.Index(content, marker)
+	if markerIndex == -1 {
+		t.Fatalf("expected marker %q in %s:\n%s", marker, path, content)
+	}
+	content = content[markerIndex:]
+	previous := -1
+	for _, value := range values {
+		current := strings.Index(content, value)
+		if current == -1 {
+			t.Fatalf("expected %q in %s:\n%s", value, path, content)
+		}
+		if current <= previous {
+			t.Fatalf("expected %q after previous value in %s:\n%s", value, path, content)
+		}
+		previous = current
 	}
 }
 

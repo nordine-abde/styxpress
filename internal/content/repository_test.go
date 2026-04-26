@@ -187,6 +187,36 @@ func TestRepositoryAssetOperations(t *testing.T) {
 	}
 }
 
+func TestRepositoryListPostsOrdersByPublishedAtThenSlug(t *testing.T) {
+	repo := NewRepository(t.TempDir())
+	older := time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 4, 2, 9, 0, 0, 0, time.UTC)
+	for _, post := range []Post{
+		{Slug: "z-post", Title: "Z", Source: "Z", PublishedAt: newer, UpdatedAt: newer},
+		{Slug: "a-post", Title: "A", Source: "A", PublishedAt: newer, UpdatedAt: newer},
+		{Slug: "old-post", Title: "Old", Source: "Old", PublishedAt: older, UpdatedAt: older},
+	} {
+		if _, err := repo.WritePost(post, WritePostOptions{}); err != nil {
+			t.Fatalf("WritePost(%s) returned error: %v", post.Slug, err)
+		}
+	}
+
+	posts, err := repo.ListPosts()
+	if err != nil {
+		t.Fatalf("ListPosts returned error: %v", err)
+	}
+	got := make([]string, len(posts))
+	for i, post := range posts {
+		got[i] = post.Slug
+	}
+	want := []string{"a-post", "z-post", "old-post"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ListPosts order = %#v, want %#v", got, want)
+		}
+	}
+}
+
 func TestRepositoryRejectsAssetSymlink(t *testing.T) {
 	root := t.TempDir()
 	repo := NewRepository(root)

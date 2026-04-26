@@ -2,6 +2,7 @@ package rendering
 
 import (
 	"bytes"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	stdhtml "html"
@@ -27,6 +28,7 @@ const (
 	indexFileName = "index.html"
 	directoryMode = 0o755
 	fileMode      = 0o644
+	timeFormatRSS = "Mon, 02 Jan 2006 15:04:05 GMT"
 )
 
 var (
@@ -53,6 +55,12 @@ type Result struct {
 	Assets    []string
 }
 
+type SiteResult struct {
+	IndexPath   string
+	FeedPath    string
+	SitemapPath string
+}
+
 type pageData struct {
 	Title          string
 	Description    string
@@ -62,6 +70,59 @@ type pageData struct {
 	PublishedAt    string
 	UpdatedAt      string
 	ArticleHTML    template.HTML
+}
+
+type sitePageData struct {
+	Title    string
+	Featured []postSummary
+	Latest   []postSummary
+}
+
+type postSummary struct {
+	Slug        string
+	Title       string
+	Description string
+	URL         string
+	CoverURL    string
+	PublishedAt string
+	UpdatedAt   string
+}
+
+type rssDocument struct {
+	XMLName xml.Name   `xml:"rss"`
+	Version string     `xml:"version,attr"`
+	Channel rssChannel `xml:"channel"`
+}
+
+type rssChannel struct {
+	Title       string    `xml:"title"`
+	Link        string    `xml:"link"`
+	Description string    `xml:"description"`
+	Items       []rssItem `xml:"item"`
+}
+
+type rssItem struct {
+	Title       string  `xml:"title"`
+	Link        string  `xml:"link"`
+	GUID        rssGUID `xml:"guid"`
+	Description string  `xml:"description,omitempty"`
+	PubDate     string  `xml:"pubDate"`
+}
+
+type rssGUID struct {
+	IsPermaLink string `xml:"isPermaLink,attr"`
+	Value       string `xml:",chardata"`
+}
+
+type sitemap struct {
+	XMLName xml.Name     `xml:"urlset"`
+	XMLNS   string       `xml:"xmlns,attr"`
+	URLs    []sitemapURL `xml:"url"`
+}
+
+type sitemapURL struct {
+	Location     string `xml:"loc"`
+	LastModified string `xml:"lastmod,omitempty"`
 }
 
 func New(contentRoot string, publicRoot string, opts Options) (*Renderer, error) {
@@ -89,6 +150,67 @@ func New(contentRoot string, publicRoot string, opts Options) (*Renderer, error)
 				renderer.WithNodeRenderers(util.Prioritized(escapedHTMLRenderer{}, 900)),
 			),
 		),
+	}, nil
+}
+
+func (r *Renderer) RenderSite() (SiteResult, error) {
+	if r.siteBaseURL == "" {
+		return SiteResult{}, fmt.Errorf("%w: site base URL is required for site rendering", ErrInvalidRenderConfig)
+	}
+
+	repo := content.NewRepository(r.contentRoot)
+	posts, err := repo.ListPosts()
+	if err != nil {
+		return SiteResult{}, err
+	}
+	featuredSlugs, err := repo.ReadFeatured()
+	if err != nil {
+		return SiteResult{}, err
+	}
+
+	postBySlug := make(map[string]content.Post, len(posts))
+	for _, post := range posts {
+		postBySlug[post.Slug] = post
+	}
+	featured := make([]content.Post, 0, len(featuredSlugs))
+	for _, slug := range featuredSlugs {
+		post, ok := postBySlug[slug]
+		if !ok {
+			return SiteResult{}, fmt.Errorf("%w: featured post %q does not exist", content.ErrPostNotFound, slug)
+		}
+		featured = append(featured, post)
+	}
+
+	indexHTML, err := r.renderHomepage(posts, featured)
+	if err != nil {
+		return SiteResult{}, err
+	}
+	feedXML, err := r.renderFeed(posts)
+	if err != nil {
+		return SiteResult{}, err
+	}
+	sitemapXML, err := r.renderSitemap(posts)
+	if err != nil {
+		return SiteResult{}, err
+	}
+
+	indexPath := filepath.Join(r.publicRoot, indexFileName)
+	feedPath := filepath.Join(r.publicRoot, "feed.xml")
+	sitemapPath := filepath.Join(r.publicRoot, "sitemap.xml")
+	if err := writeAtomic(indexPath, []byte(indexHTML)); err != nil {
+		return SiteResult{}, err
+	}
+	if err := writeAtomic(feedPath, feedXML); err != nil {
+		return SiteResult{}, err
+	}
+	if err := writeAtomic(sitemapPath, sitemapXML); err != nil {
+		return SiteResult{}, err
+	}
+
+	return SiteResult{
+		IndexPath:   indexPath,
+		FeedPath:    feedPath,
+		SitemapPath: sitemapPath,
 	}, nil
 }
 
@@ -166,6 +288,94 @@ func (r *Renderer) RenderPreview(post content.Post) (string, error) {
 	return document.String(), nil
 }
 
+func (r *Renderer) renderHomepage(latestPosts []content.Post, featuredPosts []content.Post) (string, error) {
+	data := sitePageData{
+		Title:    "Styxpress",
+		Featured: r.summarizePosts(featuredPosts, false),
+		Latest:   r.summarizePosts(latestPosts, false),
+	}
+
+	var document bytes.Buffer
+	if err := homepageTemplate.Execute(&document, data); err != nil {
+		return "", err
+	}
+	return document.String(), nil
+}
+
+func (r *Renderer) renderFeed(posts []content.Post) ([]byte, error) {
+	channel := rssChannel{
+		Title:       "Styxpress",
+		Link:        r.absoluteURL("/"),
+		Description: "Latest posts",
+		Items:       make([]rssItem, 0, len(posts)),
+	}
+	for _, post := range posts {
+		channel.Items = append(channel.Items, rssItem{
+			Title:       post.Title,
+			Link:        r.postURL(post.Slug),
+			GUID:        rssGUID{Value: r.postURL(post.Slug), IsPermaLink: "true"},
+			Description: post.Description,
+			PubDate:     post.PublishedAt.UTC().Format(timeFormatRSS),
+		})
+	}
+	data, err := xml.MarshalIndent(rssDocument{
+		Version: "2.0",
+		Channel: channel,
+	}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(xml.Header), data...), nil
+}
+
+func (r *Renderer) renderSitemap(posts []content.Post) ([]byte, error) {
+	urls := []sitemapURL{{
+		Location: r.absoluteURL("/"),
+	}}
+	for _, post := range posts {
+		urls = append(urls, sitemapURL{
+			Location:     r.postURL(post.Slug),
+			LastModified: post.UpdatedAt.UTC().Format("2006-01-02"),
+		})
+	}
+	data, err := xml.MarshalIndent(sitemap{
+		XMLNS: "http://www.sitemaps.org/schemas/sitemap/0.9",
+		URLs:  urls,
+	}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(xml.Header), data...), nil
+}
+
+func (r *Renderer) summarizePosts(posts []content.Post, absolute bool) []postSummary {
+	summaries := make([]postSummary, 0, len(posts))
+	for _, post := range posts {
+		postPath := "/posts/" + post.Slug + "/"
+		coverURL := ""
+		if post.Cover != "" {
+			coverURL = postPath + post.Cover
+			if absolute {
+				coverURL = r.absoluteURL(coverURL)
+			}
+		}
+		url := postPath
+		if absolute {
+			url = r.absoluteURL(url)
+		}
+		summaries = append(summaries, postSummary{
+			Slug:        post.Slug,
+			Title:       post.Title,
+			Description: post.Description,
+			URL:         url,
+			CoverURL:    coverURL,
+			PublishedAt: post.PublishedAt.UTC().Format("2006-01-02"),
+			UpdatedAt:   post.UpdatedAt.UTC().Format("2006-01-02"),
+		})
+	}
+	return summaries
+}
+
 func (r *Renderer) reconcileCover(post content.Post, publicDir string) (string, error) {
 	entries, err := os.ReadDir(publicDir)
 	if err != nil {
@@ -227,6 +437,10 @@ func (r *Renderer) absoluteURL(path string) string {
 		return path
 	}
 	return r.siteBaseURL + path
+}
+
+func (r *Renderer) postURL(slug string) string {
+	return r.absoluteURL("/posts/" + slug + "/")
 }
 
 func copyFile(destination string, source string) error {
@@ -391,6 +605,56 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 </header>
 {{ .ArticleHTML }}
 </article>
+</main>
+</body>
+</html>
+`))
+
+var homepageTemplate = template.Must(template.New("homepage").Parse(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ .Title }}</title>
+</head>
+<body>
+<main>
+{{- if .Featured }}
+<section aria-labelledby="featured-posts">
+<h1 id="featured-posts">Featured Posts</h1>
+{{- range .Featured }}
+<article>
+<h2><a href="{{ .URL }}">{{ .Title }}</a></h2>
+{{- if .CoverURL }}
+<img src="{{ .CoverURL }}" alt="">
+{{- end }}
+{{- if .Description }}
+<p>{{ .Description }}</p>
+{{- end }}
+<time datetime="{{ .PublishedAt }}">{{ .PublishedAt }}</time>
+</article>
+{{- end }}
+</section>
+{{- end }}
+<section aria-labelledby="latest-posts">
+<h1 id="latest-posts">Latest Posts</h1>
+{{- if .Latest }}
+{{- range .Latest }}
+<article>
+<h2><a href="{{ .URL }}">{{ .Title }}</a></h2>
+{{- if .CoverURL }}
+<img src="{{ .CoverURL }}" alt="">
+{{- end }}
+{{- if .Description }}
+<p>{{ .Description }}</p>
+{{- end }}
+<time datetime="{{ .PublishedAt }}">{{ .PublishedAt }}</time>
+</article>
+{{- end }}
+{{- else }}
+<p>No posts yet.</p>
+{{- end }}
+</section>
 </main>
 </body>
 </html>

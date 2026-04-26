@@ -153,6 +153,35 @@ func (r *Repository) LoadPost(slug string) (Post, error) {
 	return post, nil
 }
 
+func (r *Repository) ListPosts() ([]Post, error) {
+	root := filepath.Join(r.root, postsDirName)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var posts []Post
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		slug := entry.Name()
+		if err := ValidateSlug(slug); err != nil {
+			return nil, fmt.Errorf("%w: stored post directory %q", err, slug)
+		}
+		post, err := r.LoadPost(slug)
+		if err != nil {
+			return nil, err
+		}
+		posts = append(posts, post)
+	}
+	sortPosts(posts)
+	return posts, nil
+}
+
 func (r *Repository) ReadFeatured() ([]string, error) {
 	path := filepath.Join(r.root, featuredFileName)
 	data, err := os.ReadFile(path)
@@ -343,6 +372,15 @@ func validatePost(post Post) error {
 		return ErrUnsupportedCover
 	}
 	return nil
+}
+
+func sortPosts(posts []Post) {
+	sort.Slice(posts, func(i, j int) bool {
+		if !posts[i].PublishedAt.Equal(posts[j].PublishedAt) {
+			return posts[i].PublishedAt.After(posts[j].PublishedAt)
+		}
+		return posts[i].Slug < posts[j].Slug
+	})
 }
 
 func findCover(dir string) (string, error) {
