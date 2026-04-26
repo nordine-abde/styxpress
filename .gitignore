@@ -11,6 +11,7 @@ logs/
 # Go
 bin/
 coverage.out
+/styxpress-admin
 
 # Frontend dependencies and build output
 node_modules/
