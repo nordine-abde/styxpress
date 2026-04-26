@@ -19,7 +19,7 @@ The frontend production build is expected at `cmd/styxpress-admin/web/dist` so i
 
 Use standard Go formatting with `gofmt`; keep packages small and named for behavior, not layers. Prefer explicit error handling and conservative defaults, especially around local files and network binding.
 
-Frontend code uses Vue 3 single-file components, the Composition API, ES modules, and Pinia. Match the existing style in `admin/web/src/App.vue`: two-space indentation in templates/styles, single quotes in JavaScript imports, and PascalCase component names. Keep CSS scoped when component-specific.
+Frontend code uses Vue 3 single-file components, the Composition API, ES modules, and Pinia. Use four-space indentation in Vue templates, scripts, and styles; use single quotes in JavaScript imports and PascalCase component names. Keep CSS scoped when component-specific.
 
 ## Admin UI Guidelines
 
