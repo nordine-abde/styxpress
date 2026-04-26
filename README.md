@@ -166,9 +166,11 @@ The public server should:
 - Serve post covers and post-local assets from `public/posts/{slug}/`.
 - Return 404 for everything else by default.
 - Disable directory listings.
+- Avoid serving hidden files.
 - Avoid following symlinks that escape `public/`.
+- Keep the reverse proxy user read-only against `public/`.
 
-Safe Caddy and Nginx examples are planned.
+Copyable Caddy and Nginx examples are available in `docs/reverse-proxy.md`.
 
 ## Admin Configuration
 

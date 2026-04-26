@@ -1,0 +1,52 @@
+# Styxpress public site example for Caddy 2.
+#
+# Replace example.com and /var/lib/styxpress/site/public before use.
+# The root is the generated public directory, not the whole site directory.
+
+example.com {
+    root * /var/lib/styxpress/site/public
+    encode zstd gzip
+
+    # Hidden files and dot-directories are never public.
+    @hidden {
+        path /.*
+        path */.*
+    }
+    respond @hidden 404
+
+    # Homepage and top-level generated XML files.
+    handle / {
+        rewrite * /index.html
+        file_server
+    }
+
+    handle /feed.xml {
+        file_server
+    }
+
+    handle /sitemap.xml {
+        file_server
+    }
+
+    # Canonical post pages: /posts/{slug}
+    @postPage path_regexp postPage ^/posts/(?P<slug>[a-z0-9][a-z0-9-]*)/?$
+    handle @postPage {
+        rewrite * /posts/{re.postPage.slug}/index.html
+        file_server
+    }
+
+    # Public post cover images copied by the renderer.
+    @postCover path_regexp postCover ^/posts/[a-z0-9][a-z0-9-]*/cover\.(jpg|jpeg|png|webp|avif)$
+    handle @postCover {
+        file_server
+    }
+
+    # Public post-local assets copied by the renderer.
+    @postAsset path_regexp postAsset ^/posts/[a-z0-9][a-z0-9-]*/assets/.+$
+    handle @postAsset {
+        file_server
+    }
+
+    # No generic static fallback. Unknown paths stay private by default.
+    respond 404
+}
