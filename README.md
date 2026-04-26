@@ -197,6 +197,31 @@ contentStorageMode = local
 
 After rendering, inspect `site/public/index.html`, `site/public/feed.xml`, `site/public/sitemap.xml`, and `site/public/posts/hello-world/index.html`.
 
+## Docker Test Setup
+
+A local Docker setup is available for end-to-end testing without a real VPS. It
+starts:
+
+- an SSH/SFTP publishing target on `127.0.0.1:2222`
+- an Nginx public server on `127.0.0.1:8088`
+
+Prepare local test data and keys:
+
+```bash
+scripts/setup-docker-test.sh
+```
+
+Start the test services:
+
+```bash
+docker compose -f docker-compose.test.yml up --build
+```
+
+Then configure the admin UI with the values printed by the setup script, render
+a post, publish it, and open `http://127.0.0.1:8088/`.
+
+Full instructions are in `docs/docker-test.md`.
+
 ## Frontend Development
 
 Run the Vite dev server from `admin/web`:

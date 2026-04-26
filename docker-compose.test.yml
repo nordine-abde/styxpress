@@ -1,0 +1,19 @@
+services:
+  publisher-ssh:
+    build:
+      context: ./docker/test/sshd
+    ports:
+      - "127.0.0.1:2222:22"
+    volumes:
+      - ./site/docker-remote:/srv/site
+      - ./site/docker-ssh:/keys:ro
+
+  public-web:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:8088:80"
+    volumes:
+      - ./site/docker-remote/public:/srv/site/public:ro
+      - ./docker/test/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - publisher-ssh
