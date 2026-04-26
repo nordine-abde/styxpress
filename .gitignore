@@ -1,1 +1,24 @@
 .codex
+
+# Local runtime data
+site/
+*.local
+
+# Logs
+logs/
+*.log
+
+# Go
+bin/
+coverage.out
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+dist-ssr/
+coverage/
+
+# OS/editor files
+.DS_Store
+.idea/
+*.swp
