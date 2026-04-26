@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -160,6 +161,92 @@ func TestPostWorkflowPreviewAndFeaturedEndpoints(t *testing.T) {
 	}
 }
 
+func TestEndToEndFixtureSiteLocalAndServerContentModes(t *testing.T) {
+	tests := []struct {
+		name        string
+		storageMode string
+	}{
+		{name: "local content", storageMode: config.ContentStorageLocal},
+		{name: "server content", storageMode: config.ContentStorageServer},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, contentDir, publicDir := newTestServerWithMode(t, tt.storageMode)
+			copyDir(t, filepath.Join("..", "..", "fixtures", "local-site", "content"), contentDir)
+
+			detail := authedRequest(t, server, http.MethodGet, "/api/posts/hello-world", "")
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, detail)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("detail status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			var original postResponse
+			if err := json.Unmarshal(recorder.Body.Bytes(), &original); err != nil {
+				t.Fatalf("decode detail: %v", err)
+			}
+
+			update := authedRequest(t, server, http.MethodPost, "/api/posts/hello-world", `{
+				"title":"Hello World Revised",
+				"description":"Updated intro",
+				"source":"# Hello World Revised\n\nEdited body.",
+				"assets":["diagram.txt"]
+			}`)
+			recorder = httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, update)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("update status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			var edited postResponse
+			if err := json.Unmarshal(recorder.Body.Bytes(), &edited); err != nil {
+				t.Fatalf("decode edited post: %v", err)
+			}
+			if edited.PublishedAt != original.PublishedAt {
+				t.Fatalf("PublishedAt = %q, want existing %q", edited.PublishedAt, original.PublishedAt)
+			}
+			if !strings.Contains(edited.Source, "Edited body") {
+				t.Fatalf("edited source = %q, want updated body", edited.Source)
+			}
+
+			var gotConfig config.Config
+			server.publishRunner = func(_ *http.Request, cfg config.Config, _ string) (publishing.Result, error) {
+				gotConfig = cfg
+				return publishing.Result{
+					UploadedPaths: []string{
+						"/srv/styxpress/public/index.html",
+						"/srv/styxpress/public/posts/hello-world/index.html",
+					},
+				}, nil
+			}
+
+			publish := authedRequest(t, server, http.MethodPost, "/api/posts/hello-world/publish", `{}`)
+			recorder = httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, publish)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if gotConfig.ContentStorageMode != tt.storageMode {
+				t.Fatalf("ContentStorageMode = %q, want %q", gotConfig.ContentStorageMode, tt.storageMode)
+			}
+			if gotConfig.ContentDir != contentDir || gotConfig.PublicDir != publicDir {
+				t.Fatalf("publish config paths = %q %q, want %q %q", gotConfig.ContentDir, gotConfig.PublicDir, contentDir, publicDir)
+			}
+
+			for _, path := range []string{
+				filepath.Join(publicDir, "index.html"),
+				filepath.Join(publicDir, "feed.xml"),
+				filepath.Join(publicDir, "sitemap.xml"),
+				filepath.Join(publicDir, "posts", "hello-world", "index.html"),
+				filepath.Join(publicDir, "posts", "hello-world", "assets", "diagram.txt"),
+			} {
+				if _, err := os.Stat(path); err != nil {
+					t.Fatalf("expected rendered file %s: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
 func TestPublishEndpointRendersAndPublishesConfiguredPaths(t *testing.T) {
 	server, contentDir, publicDir := newTestServer(t)
 	var gotPassphrase string
@@ -201,6 +288,45 @@ func TestPublishEndpointRendersAndPublishesConfiguredPaths(t *testing.T) {
 	}
 }
 
+func TestPublishEndpointReportsCleanupPathsOnUploadFailure(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	server.publishRunner = func(_ *http.Request, _ config.Config, _ string) (publishing.Result, error) {
+		return publishing.Result{CleanupPaths: []string{"/srv/site/public/index.html"}}, &publishing.UploadError{
+			Path:         "/srv/site/public/feed.xml",
+			CleanupPaths: []string{"/srv/site/public/index.html", "/srv/site/public/feed.xml"},
+			Err:          errors.New("create failed"),
+		}
+	}
+
+	save := authedRequest(t, server, http.MethodPost, "/api/posts", `{
+		"slug":"cleanup-message",
+		"title":"Cleanup Message",
+		"source":"# Cleanup"
+	}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, save)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("save status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	publish := authedRequest(t, server, http.MethodPost, "/api/posts/cleanup-message/publish", `{}`)
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, publish)
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Error.Code != "publish_upload_failed" {
+		t.Fatalf("error code = %q, want publish_upload_failed", response.Error.Code)
+	}
+	if !strings.Contains(response.Error.Message, "/srv/site/public/index.html") || !strings.Contains(response.Error.Message, "/srv/site/public/feed.xml") {
+		t.Fatalf("error message = %q, want cleanup paths", response.Error.Message)
+	}
+}
+
 func TestAssetUploadRejectsTraversalPath(t *testing.T) {
 	server, _, _ := newTestServer(t)
 	var body bytes.Buffer
@@ -232,6 +358,11 @@ func TestAssetUploadRejectsTraversalPath(t *testing.T) {
 
 func newTestServer(t *testing.T) (*Server, string, string) {
 	t.Helper()
+	return newTestServerWithMode(t, config.ContentStorageLocal)
+}
+
+func newTestServerWithMode(t *testing.T, storageMode string) (*Server, string, string) {
+	t.Helper()
 	root := t.TempDir()
 	contentDir := filepath.Join(root, "content")
 	publicDir := filepath.Join(root, "public")
@@ -240,11 +371,12 @@ func newTestServer(t *testing.T) (*Server, string, string) {
 		SiteBaseURL:        "https://blog.example.com",
 		ContentDir:         contentDir,
 		PublicDir:          publicDir,
-		ContentStorageMode: config.ContentStorageLocal,
+		ContentStorageMode: storageMode,
 		RemoteHost:         "example.com",
 		RemoteUser:         "deploy",
 		SSHKeyPath:         filepath.Join(root, "id_ed25519"),
 		RemotePublicDir:    "/srv/site/public",
+		RemoteContentDir:   "/srv/site/content",
 	}
 	if err := config.Save(configPath, cfg); err != nil {
 		t.Fatalf("Save config: %v", err)
@@ -254,6 +386,30 @@ func newTestServer(t *testing.T) (*Server, string, string) {
 		t.Fatalf("New server: %v", err)
 	}
 	return server, contentDir, publicDir
+}
+
+func copyDir(t *testing.T, source string, destination string) {
+	t.Helper()
+	if err := filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	}); err != nil {
+		t.Fatalf("copy fixture: %v", err)
+	}
 }
 
 func authedRequest(t *testing.T, server *Server, method string, path string, body string) *http.Request {
