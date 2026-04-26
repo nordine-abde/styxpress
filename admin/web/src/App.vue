@@ -1,98 +1,113 @@
+<script setup>
+import { computed, onMounted } from 'vue'
+import AuthBar from './components/AuthBar.vue'
+import ConfigScreen from './components/ConfigScreen.vue'
+import FeaturedManager from './components/FeaturedManager.vue'
+import PostEditor from './components/PostEditor.vue'
+import PostList from './components/PostList.vue'
+import PublishPanel from './components/PublishPanel.vue'
+import UiBadge from './components/ui/UiBadge.vue'
+import { useAuthStore } from './stores/auth'
+import { useConfigStore } from './stores/config'
+import { usePostsStore } from './stores/posts'
+import { useUiStore } from './stores/ui'
+
+const authStore = useAuthStore()
+const configStore = useConfigStore()
+const postsStore = usePostsStore()
+const uiStore = useUiStore()
+
+const activeLabel = computed(() => {
+    if (uiStore.activeView === 'config') {
+        return 'Configuration'
+    }
+    if (uiStore.activeView === 'featured') {
+        return 'Featured'
+    }
+    return 'Posts'
+})
+
+onMounted(async () => {
+    if (!authStore.hasToken) {
+        uiStore.setActiveView('config')
+        return
+    }
+    await Promise.all([
+        configStore.loadConfig(),
+        postsStore.loadPosts(),
+        postsStore.loadFeatured()
+    ])
+})
+</script>
+
 <template>
-  <main class="shell">
-    <section class="hero">
-      <p class="eyebrow">Styxpress Admin</p>
-      <h1>Local publishing control for a static Markdown blog.</h1>
-      <p class="summary">
-        This interface will render posts locally, manage content metadata, and publish generated files over SSH.
-      </p>
-    </section>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="mark" aria-hidden="true">S</span>
+                <div>
+                    <p class="eyebrow">Styxpress</p>
+                    <h1>Admin</h1>
+                </div>
+            </div>
 
-    <section class="panel" aria-labelledby="next-steps">
-      <h2 id="next-steps">Initial build targets</h2>
-      <ul>
-        <li>Configure a local publishing profile.</li>
-        <li>Create or import Markdown posts.</li>
-        <li>Preview rendered HTML before upload.</li>
-        <li>Publish content and public files over SSH.</li>
-      </ul>
-    </section>
-  </main>
+            <nav class="nav" aria-label="Admin sections">
+                <button
+                    type="button"
+                    :class="{ active: uiStore.activeView === 'posts' }"
+                    @click="uiStore.setActiveView('posts')"
+                >
+                    <span aria-hidden="true">#</span>
+                    Posts
+                </button>
+                <button
+                    type="button"
+                    :class="{ active: uiStore.activeView === 'featured' }"
+                    @click="uiStore.setActiveView('featured')"
+                >
+                    <span aria-hidden="true">*</span>
+                    Featured
+                </button>
+                <button
+                    type="button"
+                    :class="{ active: uiStore.activeView === 'config' }"
+                    @click="uiStore.setActiveView('config')"
+                >
+                    <span aria-hidden="true">~</span>
+                    Config
+                </button>
+            </nav>
+
+            <AuthBar />
+        </aside>
+
+        <main class="workspace">
+            <header class="topbar">
+                <div>
+                    <p class="eyebrow">{{ activeLabel }}</p>
+                    <h2>{{ activeLabel === 'Posts' ? 'Content workspace' : activeLabel }}</h2>
+                </div>
+                <div class="status-row">
+                    <UiBadge :tone="authStore.hasToken ? 'success' : 'warning'">
+                        {{ authStore.hasToken ? 'token set' : 'token needed' }}
+                    </UiBadge>
+                    <UiBadge>{{ postsStore.posts.length }} posts</UiBadge>
+                </div>
+            </header>
+
+            <section v-if="uiStore.activeView === 'posts'" class="posts-layout">
+                <PostList />
+                <PostEditor />
+                <PublishPanel />
+            </section>
+
+            <section v-else-if="uiStore.activeView === 'featured'" class="single-layout">
+                <FeaturedManager />
+            </section>
+
+            <section v-else class="single-layout">
+                <ConfigScreen />
+            </section>
+        </main>
+    </div>
 </template>
-
-<style scoped>
-.shell {
-  display: grid;
-  gap: 2rem;
-  width: min(100%, 1080px);
-  margin: 0 auto;
-  padding: 5rem 1.5rem;
-}
-
-.hero {
-  max-width: 760px;
-}
-
-.eyebrow {
-  margin-bottom: 1rem;
-  color: var(--color-accent);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-h1 {
-  margin: 0;
-  color: var(--color-heading);
-  font-size: clamp(2.5rem, 8vw, 6.5rem);
-  line-height: 0.9;
-  letter-spacing: -0.07em;
-}
-
-.summary {
-  max-width: 620px;
-  margin-top: 1.5rem;
-  color: var(--color-muted);
-  font-size: 1.15rem;
-}
-
-.panel {
-  border: 1px solid var(--color-border);
-  border-radius: 28px;
-  padding: 1.5rem;
-  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
-  box-shadow: 0 24px 80px rgb(31 24 15 / 12%);
-}
-
-h2 {
-  margin: 0 0 1rem;
-  color: var(--color-heading);
-  font-size: 1rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-ul {
-  display: grid;
-  gap: 0.75rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-li {
-  padding: 0.95rem 1rem;
-  border-radius: 18px;
-  background: var(--color-background);
-  color: var(--color-text);
-}
-
-@media (min-width: 900px) {
-  .shell {
-    grid-template-columns: minmax(0, 1fr) 360px;
-    align-items: end;
-  }
-}
-</style>
