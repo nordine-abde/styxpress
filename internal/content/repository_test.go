@@ -244,6 +244,15 @@ func TestRepositoryRejectsAssetSymlink(t *testing.T) {
 
 func TestRepositoryFeaturedRoundTrip(t *testing.T) {
 	repo := NewRepository(t.TempDir())
+	now := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	for _, post := range []Post{
+		{Slug: "hello-world", Title: "Hello World", Source: "Body"},
+		{Slug: "go-http-2", Title: "Go HTTP 2", Source: "Body"},
+	} {
+		if _, err := repo.WritePost(post, WritePostOptions{Now: now}); err != nil {
+			t.Fatalf("WritePost %q returned error: %v", post.Slug, err)
+		}
+	}
 
 	if err := repo.WriteFeatured([]string{"hello-world", "go-http-2"}); err != nil {
 		t.Fatalf("WriteFeatured returned error: %v", err)
@@ -264,5 +273,8 @@ func TestRepositoryFeaturedRoundTrip(t *testing.T) {
 
 	if err := repo.WriteFeatured([]string{"Hello"}); !errors.Is(err, ErrInvalidSlug) {
 		t.Fatalf("WriteFeatured invalid slug error = %v, want ErrInvalidSlug", err)
+	}
+	if err := repo.WriteFeatured([]string{"missing-post"}); !errors.Is(err, ErrPostNotFound) {
+		t.Fatalf("WriteFeatured missing post error = %v, want ErrPostNotFound", err)
 	}
 }

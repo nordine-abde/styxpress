@@ -159,6 +159,13 @@ func TestPostWorkflowPreviewAndFeaturedEndpoints(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(contentDir, "featured.txt")); err != nil {
 		t.Fatalf("featured.txt was not written: %v", err)
 	}
+
+	missingFeatured := authedRequest(t, server, http.MethodPost, "/api/featured", `{"slugs":["missing-post"]}`)
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, missingFeatured)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("missing featured status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
 }
 
 func TestEndToEndFixtureSiteLocalAndServerContentModes(t *testing.T) {

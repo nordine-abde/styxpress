@@ -212,6 +212,12 @@ func (r *Repository) WriteFeatured(slugs []string) error {
 		if err := ValidateSlug(slug); err != nil {
 			return fmt.Errorf("%w: featured slug %q", err, slug)
 		}
+		if _, err := r.LoadPost(slug); err != nil {
+			if errors.Is(err, ErrPostNotFound) {
+				return fmt.Errorf("%w: featured slug %q", ErrPostNotFound, slug)
+			}
+			return err
+		}
 		builder.WriteString(slug)
 		builder.WriteByte('\n')
 	}

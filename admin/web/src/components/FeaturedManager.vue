@@ -10,11 +10,12 @@ const postsStore = usePostsStore()
 const selected = ref([])
 
 const orderedPosts = computed(() => postsStore.posts)
+const availableSlugs = computed(() => new Set(orderedPosts.value.map((post) => post.slug)))
 
 watch(
-    () => postsStore.featuredSlugs,
-    (slugs) => {
-        selected.value = [...slugs]
+    () => [postsStore.featuredSlugs, orderedPosts.value],
+    ([slugs]) => {
+        selected.value = slugs.filter((slug) => availableSlugs.value.has(slug))
     },
     { immediate: true }
 )
@@ -25,6 +26,12 @@ function toggle(slug) {
         return
     }
     selected.value = [...selected.value, slug]
+}
+
+function saveFeatured() {
+    const slugs = selected.value.filter((slug) => availableSlugs.value.has(slug))
+    selected.value = slugs
+    return postsStore.saveFeatured(slugs)
 }
 </script>
 
@@ -56,7 +63,7 @@ function toggle(slug) {
         </ul>
 
         <div class="button-row">
-            <UiButton tone="primary" @click="postsStore.saveFeatured(selected)">
+            <UiButton tone="primary" @click="saveFeatured">
                 Save featured
             </UiButton>
             <UiButton tone="ghost" @click="postsStore.loadFeatured">
