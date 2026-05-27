@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nordine-abde/styxpress/internal/content"
+	"github.com/nordine-abde/styxpress/internal/siteconfig"
 )
 
 func TestRenderPostWritesDocumentAndAssets(t *testing.T) {
@@ -275,6 +276,84 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 			t.Fatalf("sitemap contains excluded path %q:\n%s", excluded, sitemap)
 		}
 	}
+}
+
+func TestRenderUsesSiteConfigThemeHeaderFooterAndStylesheet(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	repo := content.NewRepository(contentRoot)
+	publishedAt := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
+	if _, err := repo.WritePost(content.Post{
+		Slug:        "configured",
+		Title:       "Configured",
+		Description: "Theme-aware post",
+		Source:      "# Configured\n\nBody.",
+		PublishedAt: publishedAt,
+		UpdatedAt:   publishedAt,
+	}, content.WritePostOptions{}); err != nil {
+		t.Fatalf("write post: %v", err)
+	}
+	if err := siteconfig.Save(contentRoot, siteconfig.Config{
+		Title:       "Anordine",
+		Description: "Software notes",
+		Theme: siteconfig.ThemeConfig{
+			Palette: siteconfig.PaletteClay,
+			Font:    siteconfig.FontSerif,
+			Layout:  siteconfig.LayoutWide,
+			Radius:  siteconfig.RadiusNone,
+		},
+		Header: siteconfig.HeaderConfig{
+			Variant: siteconfig.HeaderCentered,
+			Title:   "Anordine Lab",
+			Tagline: "Local-first publishing",
+			Links: []siteconfig.Link{
+				{Label: "Home", Href: "/"},
+				{Label: "RSS", Href: "/feed.xml"},
+			},
+		},
+		Footer: siteconfig.FooterConfig{
+			Variant: siteconfig.FooterLinks,
+			Text:    "Built from Markdown files.",
+			Links: []siteconfig.Link{
+				{Label: "Email", Href: "mailto:hello@example.com"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save site config: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot, Options{SiteBaseURL: "https://blog.example.com"})
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	siteResult, err := renderer.RenderSite()
+	if err != nil {
+		t.Fatalf("render site: %v", err)
+	}
+	postResult, err := renderer.RenderPost("configured")
+	if err != nil {
+		t.Fatalf("render post: %v", err)
+	}
+
+	assertFileContent(t, siteResult.IndexPath, []string{
+		`<body class="theme-clay font-serif layout-wide radius-none">`,
+		`<header class="site-header site-header-centered">`,
+		`<a class="site-title" href="/">Anordine Lab</a>`,
+		`<p>Local-first publishing</p>`,
+		`<a href="/feed.xml">RSS</a>`,
+		`<footer class="site-footer site-footer-links">`,
+		`Built from Markdown files.`,
+		`<a href="mailto:hello@example.com">Email</a>`,
+	})
+	assertFileContent(t, postResult.IndexPath, []string{
+		`<link rel="stylesheet" href="/assets/styxpress.css">`,
+		`<body class="theme-clay font-serif layout-wide radius-none">`,
+		`<h1>Configured</h1>`,
+	})
+	assertFileContent(t, filepath.Join(publicRoot, "assets", "styxpress.css"), []string{
+		`.theme-clay`,
+		`.site-header-centered .site-header-inner`,
+	})
 }
 
 func TestRenderSiteRequiresAbsoluteBaseURL(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/nordine-abde/styxpress/internal/content"
+	"github.com/nordine-abde/styxpress/internal/siteconfig"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/renderer"
@@ -40,6 +41,7 @@ type Renderer struct {
 	contentRoot string
 	publicRoot  string
 	siteBaseURL string
+	siteConfig  siteconfig.Config
 	markdown    goldmark.Markdown
 }
 
@@ -62,6 +64,7 @@ type SiteResult struct {
 }
 
 type pageData struct {
+	Site           siteTemplateData
 	Title          string
 	Description    string
 	CanonicalURL   string
@@ -73,9 +76,33 @@ type pageData struct {
 }
 
 type sitePageData struct {
+	Site     siteTemplateData
 	Title    string
 	Featured []postSummary
 	Latest   []postSummary
+}
+
+type siteTemplateData struct {
+	Title       string
+	Description string
+	BodyClass   string
+	Header      headerTemplateData
+	Footer      footerTemplateData
+}
+
+type headerTemplateData struct {
+	Hidden       bool
+	VariantClass string
+	Title        string
+	Tagline      string
+	Links        []siteconfig.Link
+}
+
+type footerTemplateData struct {
+	Hidden       bool
+	VariantClass string
+	Text         string
+	Links        []siteconfig.Link
 }
 
 type postSummary struct {
@@ -139,11 +166,16 @@ func New(contentRoot string, publicRoot string, opts Options) (*Renderer, error)
 			return nil, fmt.Errorf("%w: site base URL must be absolute", ErrInvalidRenderConfig)
 		}
 	}
+	siteCfg, err := siteconfig.LoadOrDefault(contentRoot)
+	if err != nil {
+		return nil, fmt.Errorf("%w: site config: %v", ErrInvalidRenderConfig, err)
+	}
 
 	return &Renderer{
 		contentRoot: contentRoot,
 		publicRoot:  publicRoot,
 		siteBaseURL: siteBaseURL,
+		siteConfig:  siteCfg,
 		markdown: goldmark.New(
 			goldmark.WithRendererOptions(
 				goldmarkhtml.WithXHTML(),
@@ -193,6 +225,9 @@ func (r *Renderer) RenderSite() (SiteResult, error) {
 	if err != nil {
 		return SiteResult{}, err
 	}
+	if err := r.writeStyleSheet(); err != nil {
+		return SiteResult{}, err
+	}
 
 	indexPath := filepath.Join(r.publicRoot, indexFileName)
 	feedPath := filepath.Join(r.publicRoot, "feed.xml")
@@ -239,6 +274,9 @@ func (r *Renderer) RenderPost(slug string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if err := r.writeStyleSheet(); err != nil {
+		return Result{}, err
+	}
 
 	indexPath := filepath.Join(publicDir, indexFileName)
 	if err := writeAtomic(indexPath, []byte(document)); err != nil {
@@ -271,6 +309,7 @@ func (r *Renderer) RenderPreview(post content.Post) (string, error) {
 	}
 
 	data := pageData{
+		Site:           r.siteData(),
 		Title:          post.Title,
 		Description:    post.Description,
 		CanonicalURL:   r.absoluteURL(basePostURL),
@@ -290,7 +329,8 @@ func (r *Renderer) RenderPreview(post content.Post) (string, error) {
 
 func (r *Renderer) renderHomepage(latestPosts []content.Post, featuredPosts []content.Post) (string, error) {
 	data := sitePageData{
-		Title:    "Styxpress",
+		Site:     r.siteData(),
+		Title:    r.siteConfig.Title,
 		Featured: r.summarizePosts(featuredPosts, false),
 		Latest:   r.summarizePosts(latestPosts, false),
 	}
@@ -304,9 +344,9 @@ func (r *Renderer) renderHomepage(latestPosts []content.Post, featuredPosts []co
 
 func (r *Renderer) renderFeed(posts []content.Post) ([]byte, error) {
 	channel := rssChannel{
-		Title:       "Styxpress",
+		Title:       r.siteConfig.Title,
 		Link:        r.absoluteURL("/"),
-		Description: "Latest posts",
+		Description: r.siteConfig.Description,
 		Items:       make([]rssItem, 0, len(posts)),
 	}
 	for _, post := range posts {
@@ -443,6 +483,41 @@ func (r *Renderer) postURL(slug string) string {
 	return r.absoluteURL("/posts/" + slug + "/")
 }
 
+func (r *Renderer) siteData() siteTemplateData {
+	cfg := siteconfig.WithDefaults(r.siteConfig)
+	headerTitle := cfg.Header.Title
+	if headerTitle == "" {
+		headerTitle = cfg.Title
+	}
+	return siteTemplateData{
+		Title:       cfg.Title,
+		Description: cfg.Description,
+		BodyClass: strings.Join([]string{
+			"theme-" + cfg.Theme.Palette,
+			"font-" + cfg.Theme.Font,
+			"layout-" + cfg.Theme.Layout,
+			"radius-" + cfg.Theme.Radius,
+		}, " "),
+		Header: headerTemplateData{
+			Hidden:       cfg.Header.Variant == siteconfig.HeaderHidden,
+			VariantClass: "site-header-" + cfg.Header.Variant,
+			Title:        headerTitle,
+			Tagline:      cfg.Header.Tagline,
+			Links:        cfg.Header.Links,
+		},
+		Footer: footerTemplateData{
+			Hidden:       cfg.Footer.Variant == siteconfig.FooterHidden,
+			VariantClass: "site-footer-" + cfg.Footer.Variant,
+			Text:         cfg.Footer.Text,
+			Links:        cfg.Footer.Links,
+		},
+	}
+}
+
+func (r *Renderer) writeStyleSheet() error {
+	return writeAtomic(filepath.Join(r.publicRoot, "assets", "styxpress.css"), []byte(siteStyleSheet))
+}
+
 func copyFile(destination string, source string) error {
 	info, err := os.Lstat(source)
 	if err != nil {
@@ -567,6 +642,7 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ .Title }}</title>
+<link rel="stylesheet" href="/assets/styxpress.css">
 {{- if .Description }}
 <meta name="description" content="{{ .Description }}">
 {{- end }}
@@ -591,10 +667,30 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 <meta property="article:modified_time" content="{{ .UpdatedAt }}">
 {{- end }}
 </head>
-<body>
-<main>
-<article>
-<header>
+<body class="{{ .Site.BodyClass }}">
+<a class="skip-link" href="#content">Skip to content</a>
+{{- if not .Site.Header.Hidden }}
+<header class="site-header {{ .Site.Header.VariantClass }}">
+<div class="site-header-inner">
+<div class="site-branding">
+<a class="site-title" href="/">{{ .Site.Header.Title }}</a>
+{{- if .Site.Header.Tagline }}
+<p>{{ .Site.Header.Tagline }}</p>
+{{- end }}
+</div>
+{{- if .Site.Header.Links }}
+<nav class="site-nav" aria-label="Primary">
+{{- range .Site.Header.Links }}
+<a href="{{ .Href }}">{{ .Label }}</a>
+{{- end }}
+</nav>
+{{- end }}
+</div>
+</header>
+{{- end }}
+<main id="content" class="site-main post-main">
+<article class="post-article">
+<header class="post-header">
 <h1>{{ .Title }}</h1>
 {{- if .Description }}
 <p>{{ .Description }}</p>
@@ -603,9 +699,27 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 <img src="{{ .CoverURL }}" alt="">
 {{- end }}
 </header>
+<div class="post-content">
 {{ .ArticleHTML }}
+</div>
 </article>
 </main>
+{{- if not .Site.Footer.Hidden }}
+<footer class="site-footer {{ .Site.Footer.VariantClass }}">
+<div class="site-footer-inner">
+{{- if .Site.Footer.Text }}
+<p>{{ .Site.Footer.Text }}</p>
+{{- end }}
+{{- if .Site.Footer.Links }}
+<nav class="site-nav" aria-label="Footer">
+{{- range .Site.Footer.Links }}
+<a href="{{ .Href }}">{{ .Label }}</a>
+{{- end }}
+</nav>
+{{- end }}
+</div>
+</footer>
+{{- end }}
 </body>
 </html>
 `))
@@ -616,46 +730,373 @@ var homepageTemplate = template.Must(template.New("homepage").Parse(`<!doctype h
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ .Title }}</title>
+<link rel="stylesheet" href="/assets/styxpress.css">
+{{- if .Site.Description }}
+<meta name="description" content="{{ .Site.Description }}">
+{{- end }}
 </head>
-<body>
-<main>
+<body class="{{ .Site.BodyClass }}">
+<a class="skip-link" href="#content">Skip to content</a>
+{{- if not .Site.Header.Hidden }}
+<header class="site-header {{ .Site.Header.VariantClass }}">
+<div class="site-header-inner">
+<div class="site-branding">
+<a class="site-title" href="/">{{ .Site.Header.Title }}</a>
+{{- if .Site.Header.Tagline }}
+<p>{{ .Site.Header.Tagline }}</p>
+{{- end }}
+</div>
+{{- if .Site.Header.Links }}
+<nav class="site-nav" aria-label="Primary">
+{{- range .Site.Header.Links }}
+<a href="{{ .Href }}">{{ .Label }}</a>
+{{- end }}
+</nav>
+{{- end }}
+</div>
+</header>
+{{- end }}
+<main id="content" class="site-main home-main">
 {{- if .Featured }}
-<section aria-labelledby="featured-posts">
+<section class="post-section" aria-labelledby="featured-posts">
 <h1 id="featured-posts">Featured Posts</h1>
+<div class="post-list">
 {{- range .Featured }}
-<article>
-<h2><a href="{{ .URL }}">{{ .Title }}</a></h2>
+<article class="post-card">
 {{- if .CoverURL }}
 <img src="{{ .CoverURL }}" alt="">
 {{- end }}
+<div>
+<h2><a href="{{ .URL }}">{{ .Title }}</a></h2>
 {{- if .Description }}
 <p>{{ .Description }}</p>
 {{- end }}
 <time datetime="{{ .PublishedAt }}">{{ .PublishedAt }}</time>
+</div>
 </article>
 {{- end }}
+</div>
 </section>
 {{- end }}
-<section aria-labelledby="latest-posts">
+<section class="post-section" aria-labelledby="latest-posts">
 <h1 id="latest-posts">Latest Posts</h1>
 {{- if .Latest }}
+<div class="post-list">
 {{- range .Latest }}
-<article>
-<h2><a href="{{ .URL }}">{{ .Title }}</a></h2>
+<article class="post-card">
 {{- if .CoverURL }}
 <img src="{{ .CoverURL }}" alt="">
 {{- end }}
+<div>
+<h2><a href="{{ .URL }}">{{ .Title }}</a></h2>
 {{- if .Description }}
 <p>{{ .Description }}</p>
 {{- end }}
 <time datetime="{{ .PublishedAt }}">{{ .PublishedAt }}</time>
+</div>
 </article>
 {{- end }}
+</div>
 {{- else }}
 <p>No posts yet.</p>
 {{- end }}
 </section>
 </main>
+{{- if not .Site.Footer.Hidden }}
+<footer class="site-footer {{ .Site.Footer.VariantClass }}">
+<div class="site-footer-inner">
+{{- if .Site.Footer.Text }}
+<p>{{ .Site.Footer.Text }}</p>
+{{- end }}
+{{- if .Site.Footer.Links }}
+<nav class="site-nav" aria-label="Footer">
+{{- range .Site.Footer.Links }}
+<a href="{{ .Href }}">{{ .Label }}</a>
+{{- end }}
+</nav>
+{{- end }}
+</div>
+</footer>
+{{- end }}
 </body>
 </html>
 `))
+
+const siteStyleSheet = `:root {
+    color-scheme: light;
+    --site-bg: #f7f5ef;
+    --site-surface: #ffffff;
+    --site-text: #252a2e;
+    --site-muted: #657079;
+    --site-heading: #121619;
+    --site-accent: #2a6f73;
+    --site-border: #d9ddd8;
+    --site-radius: 8px;
+    --site-width: 760px;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+body {
+    min-width: 320px;
+    margin: 0;
+    background: var(--site-bg);
+    color: var(--site-text);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.65;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.theme-sage {
+    --site-bg: #f3f6f1;
+    --site-surface: #ffffff;
+    --site-text: #26342d;
+    --site-muted: #617068;
+    --site-heading: #142119;
+    --site-accent: #2f7158;
+    --site-border: #d7e0d5;
+}
+
+.theme-clay {
+    --site-bg: #f7f2ed;
+    --site-surface: #fffdf9;
+    --site-text: #342b27;
+    --site-muted: #74665f;
+    --site-heading: #1f1714;
+    --site-accent: #9a4f3d;
+    --site-border: #e5d8cf;
+}
+
+.theme-midnight {
+    color-scheme: dark;
+    --site-bg: #101416;
+    --site-surface: #171d20;
+    --site-text: #dce3df;
+    --site-muted: #97a39d;
+    --site-heading: #f5f7f4;
+    --site-accent: #7fc7b1;
+    --site-border: #2d3837;
+}
+
+.font-serif {
+    font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+}
+
+.font-mono {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.layout-wide {
+    --site-width: 1040px;
+}
+
+.radius-none {
+    --site-radius: 0;
+}
+
+a {
+    color: var(--site-accent);
+    text-decoration-thickness: 0.08em;
+    text-underline-offset: 0.16em;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+.skip-link {
+    position: absolute;
+    left: 1rem;
+    top: 0;
+    transform: translateY(-120%);
+    border-radius: var(--site-radius);
+    padding: 0.5rem 0.75rem;
+    background: var(--site-heading);
+    color: var(--site-bg);
+}
+
+.skip-link:focus {
+    transform: translateY(1rem);
+}
+
+.site-header,
+.site-footer {
+    border-color: var(--site-border);
+}
+
+.site-header {
+    border-bottom: 1px solid var(--site-border);
+}
+
+.site-footer {
+    border-top: 1px solid var(--site-border);
+}
+
+.site-header-inner,
+.site-footer-inner,
+.site-main {
+    width: min(calc(100% - 2rem), var(--site-width));
+    margin: 0 auto;
+}
+
+.site-header-inner,
+.site-footer-inner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.1rem 0;
+}
+
+.site-header-centered .site-header-inner,
+.site-footer-links .site-footer-inner {
+    justify-content: center;
+    text-align: center;
+}
+
+.site-header-minimal .site-nav,
+.site-footer-simple .site-nav {
+    display: none;
+}
+
+.site-branding {
+    display: grid;
+    gap: 0.1rem;
+}
+
+.site-title {
+    color: var(--site-heading);
+    font-size: 1.05rem;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+.site-branding p,
+.site-footer p,
+.post-card p,
+.post-header p {
+    margin: 0;
+    color: var(--site-muted);
+}
+
+.site-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.85rem;
+    align-items: center;
+}
+
+.site-nav a {
+    color: var(--site-text);
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.site-nav a:hover {
+    color: var(--site-accent);
+}
+
+.site-main {
+    padding: 3rem 0;
+}
+
+.post-section {
+    display: grid;
+    gap: 1rem;
+    margin-bottom: 3rem;
+}
+
+.post-section h1,
+.post-header h1 {
+    margin: 0;
+    color: var(--site-heading);
+    line-height: 1.1;
+}
+
+.post-header {
+    display: grid;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.post-header img,
+.post-card img {
+    border-radius: var(--site-radius);
+}
+
+.post-content > * + * {
+    margin-top: 1rem;
+}
+
+.post-content h1,
+.post-content h2,
+.post-content h3,
+.post-card h2 {
+    color: var(--site-heading);
+    line-height: 1.2;
+}
+
+.post-content pre,
+.post-content code {
+    border-radius: var(--site-radius);
+    background: color-mix(in srgb, var(--site-surface) 72%, var(--site-border));
+}
+
+.post-content code {
+    padding: 0.12rem 0.25rem;
+}
+
+.post-content pre {
+    overflow-x: auto;
+    padding: 1rem;
+}
+
+.post-content pre code {
+    padding: 0;
+    background: transparent;
+}
+
+.post-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.post-card {
+    display: grid;
+    gap: 1rem;
+    border: 1px solid var(--site-border);
+    border-radius: var(--site-radius);
+    padding: 1rem;
+    background: var(--site-surface);
+}
+
+.post-card h2 {
+    margin: 0 0 0.35rem;
+    font-size: 1.1rem;
+}
+
+.post-card time {
+    color: var(--site-muted);
+    font-size: 0.9rem;
+}
+
+@media (min-width: 760px) {
+    .post-card {
+        grid-template-columns: minmax(0, 10rem) minmax(0, 1fr);
+        align-items: start;
+    }
+
+    .post-card:not(:has(img)) {
+        grid-template-columns: 1fr;
+    }
+}
+`

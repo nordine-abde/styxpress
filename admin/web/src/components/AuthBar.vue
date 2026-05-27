@@ -5,11 +5,13 @@ import UiField from './ui/UiField.vue'
 import { useAuthStore } from '../stores/auth'
 import { useConfigStore } from '../stores/config'
 import { usePostsStore } from '../stores/posts'
+import { useSiteConfigStore } from '../stores/siteConfig'
 import { useUiStore } from '../stores/ui'
 
 const authStore = useAuthStore()
 const configStore = useConfigStore()
 const postsStore = usePostsStore()
+const siteConfigStore = useSiteConfigStore()
 const uiStore = useUiStore()
 const tokenInput = ref(authStore.token)
 
@@ -19,6 +21,7 @@ async function applyToken() {
     if (authStore.hasToken) {
         await Promise.all([
             configStore.loadConfig(),
+            siteConfigStore.loadSiteConfig(),
             postsStore.loadPosts(),
             postsStore.loadFeatured()
         ])

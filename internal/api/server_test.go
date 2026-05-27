@@ -15,6 +15,7 @@ import (
 
 	"github.com/nordine-abde/styxpress/internal/config"
 	"github.com/nordine-abde/styxpress/internal/publishing"
+	"github.com/nordine-abde/styxpress/internal/siteconfig"
 )
 
 func TestAPIRequiresSessionToken(t *testing.T) {
@@ -165,6 +166,49 @@ func TestPostWorkflowPreviewAndFeaturedEndpoints(t *testing.T) {
 	server.Handler().ServeHTTP(recorder, missingFeatured)
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("missing featured status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSiteConfigEndpointSavesUnderConfiguredContentDir(t *testing.T) {
+	server, contentDir, _ := newTestServer(t)
+
+	save := authedRequest(t, server, http.MethodPost, "/api/site-config", `{
+		"title":"Anordine",
+		"description":"Software notes",
+		"theme":{"palette":"sage","font":"serif","layout":"wide","radius":"soft"},
+		"header":{
+			"variant":"centered",
+			"title":"Anordine Lab",
+			"tagline":"Local-first publishing",
+			"links":[{"label":"Home","href":"/"},{"label":"RSS","href":"/feed.xml"}]
+		},
+		"footer":{
+			"variant":"links",
+			"text":"Built from Markdown files.",
+			"links":[{"label":"Email","href":"mailto:hello@example.com"}]
+		}
+	}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, save)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("save status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, siteconfig.FileName)); err != nil {
+		t.Fatalf("site config was not written: %v", err)
+	}
+
+	load := authedRequest(t, server, http.MethodGet, "/api/site-config", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, load)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("load status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body siteconfig.Config
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode site config: %v", err)
+	}
+	if body.Title != "Anordine" || body.Theme.Palette != siteconfig.PaletteSage || body.Header.Variant != siteconfig.HeaderCentered {
+		t.Fatalf("site config = %#v, want saved values", body)
 	}
 }
 

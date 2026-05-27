@@ -18,6 +18,7 @@ import (
 	"github.com/nordine-abde/styxpress/internal/content"
 	"github.com/nordine-abde/styxpress/internal/publishing"
 	"github.com/nordine-abde/styxpress/internal/rendering"
+	"github.com/nordine-abde/styxpress/internal/siteconfig"
 )
 
 const SessionHeader = "X-Styxpress-Session"
@@ -71,6 +72,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/health", s.withAuth(s.health))
 	mux.HandleFunc("GET /api/config", s.withAuth(s.getConfig))
 	mux.HandleFunc("POST /api/config", s.withAuth(s.saveConfig))
+	mux.HandleFunc("GET /api/site-config", s.withAuth(s.getSiteConfig))
+	mux.HandleFunc("POST /api/site-config", s.withAuth(s.saveSiteConfig))
 	mux.HandleFunc("POST /api/test-ssh", s.withAuth(s.testSSH))
 	mux.HandleFunc("GET /api/posts", s.withAuth(s.listPosts))
 	mux.HandleFunc("POST /api/posts", s.withAuth(s.savePost))
@@ -143,6 +146,40 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (s *Server) getSiteConfig(w http.ResponseWriter, _ *http.Request) {
+	contentDir, err := s.configuredContentDir()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	cfg, err := siteconfig.LoadOrDefault(contentDir)
+	if err != nil {
+		s.writeSiteConfigError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (s *Server) saveSiteConfig(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	var cfg siteconfig.Config
+	if err := decodeJSONBody(r, &cfg, "request body must be a valid site config object"); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	contentDir, err := s.configuredContentDir()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	if err := siteconfig.Save(contentDir, cfg); err != nil {
+		s.writeSiteConfigError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, siteconfig.WithDefaults(cfg))
 }
 
 type testSSHRequest struct {
@@ -515,15 +552,19 @@ func (s *Server) renderPostAndSite(slug string) (rendering.Result, rendering.Sit
 }
 
 func (s *Server) repository() (*content.Repository, error) {
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return nil, err
-	}
-	contentDir, err := configuredPath(cfg.ContentDir)
+	contentDir, err := s.configuredContentDir()
 	if err != nil {
 		return nil, err
 	}
 	return content.NewRepository(contentDir), nil
+}
+
+func (s *Server) configuredContentDir() (string, error) {
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return "", err
+	}
+	return configuredPath(cfg.ContentDir)
 }
 
 func (s *Server) renderer() (*rendering.Renderer, error) {
@@ -567,6 +608,15 @@ func (s *Server) writeConfigPathError(w http.ResponseWriter, err error) {
 	}
 	s.logger.Printf("config path error: %v", err)
 	WriteError(w, http.StatusInternalServerError, "config_load_failed", "failed to load config")
+}
+
+func (s *Server) writeSiteConfigError(w http.ResponseWriter, err error) {
+	if errors.Is(err, siteconfig.ErrInvalidConfig) {
+		WriteError(w, http.StatusBadRequest, "invalid_site_config", err.Error())
+		return
+	}
+	s.logger.Printf("site config error: %v", err)
+	WriteError(w, http.StatusInternalServerError, "site_config_failed", "failed to access site config")
 }
 
 func (s *Server) writeContentError(w http.ResponseWriter, err error) {

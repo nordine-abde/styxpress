@@ -6,15 +6,18 @@ import FeaturedManager from './components/FeaturedManager.vue'
 import PostEditor from './components/PostEditor.vue'
 import PostList from './components/PostList.vue'
 import PublishPanel from './components/PublishPanel.vue'
+import SiteConfigScreen from './components/SiteConfigScreen.vue'
 import UiBadge from './components/ui/UiBadge.vue'
 import { useAuthStore } from './stores/auth'
 import { useConfigStore } from './stores/config'
 import { usePostsStore } from './stores/posts'
+import { useSiteConfigStore } from './stores/siteConfig'
 import { useUiStore } from './stores/ui'
 
 const authStore = useAuthStore()
 const configStore = useConfigStore()
 const postsStore = usePostsStore()
+const siteConfigStore = useSiteConfigStore()
 const uiStore = useUiStore()
 
 const activeLabel = computed(() => {
@@ -23,6 +26,9 @@ const activeLabel = computed(() => {
     }
     if (uiStore.activeView === 'featured') {
         return 'Featured'
+    }
+    if (uiStore.activeView === 'site') {
+        return 'Site'
     }
     return 'Posts'
 })
@@ -34,6 +40,7 @@ onMounted(async () => {
     }
     await Promise.all([
         configStore.loadConfig(),
+        siteConfigStore.loadSiteConfig(),
         postsStore.loadPosts(),
         postsStore.loadFeatured()
     ])
@@ -70,6 +77,14 @@ onMounted(async () => {
                 </button>
                 <button
                     type="button"
+                    :class="{ active: uiStore.activeView === 'site' }"
+                    @click="uiStore.setActiveView('site')"
+                >
+                    <span aria-hidden="true">S</span>
+                    Site
+                </button>
+                <button
+                    type="button"
                     :class="{ active: uiStore.activeView === 'config' }"
                     @click="uiStore.setActiveView('config')"
                 >
@@ -103,6 +118,10 @@ onMounted(async () => {
 
             <section v-else-if="uiStore.activeView === 'featured'" class="single-layout">
                 <FeaturedManager />
+            </section>
+
+            <section v-else-if="uiStore.activeView === 'site'" class="single-layout">
+                <SiteConfigScreen />
             </section>
 
             <section v-else class="single-layout">
