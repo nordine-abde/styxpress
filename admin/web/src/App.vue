@@ -8,6 +8,7 @@ import PostList from './components/PostList.vue'
 import PublishPanel from './components/PublishPanel.vue'
 import SiteConfigScreen from './components/SiteConfigScreen.vue'
 import UiBadge from './components/ui/UiBadge.vue'
+import styxpressMarkUrl from './assets/styxpress-mark.png'
 import { useAuthStore } from './stores/auth'
 import { useConfigStore } from './stores/config'
 import { usePostsStore } from './stores/posts'
@@ -51,7 +52,14 @@ onMounted(async () => {
     <div class="app-shell">
         <aside class="sidebar">
             <div class="brand">
-                <span class="mark" aria-hidden="true">S</span>
+                <img
+                    class="mark"
+                    :src="styxpressMarkUrl"
+                    alt=""
+                    width="40"
+                    height="40"
+                    aria-hidden="true"
+                >
                 <div>
                     <p class="eyebrow">Styxpress</p>
                     <h1>Admin</h1>

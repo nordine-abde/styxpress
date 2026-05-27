@@ -1,5 +1,11 @@
 # Styxpress
 
+<p align="center">
+  <img src="styxpress.png" alt="Styxpress logo" width="500" height="500">
+  <br>
+  <em>Styx, my cat and the namesake of Styxpress.</em>
+</p>
+
 Styxpress is a lightweight self-hosted blog engine for Markdown-based sites with very low public runtime cost.
 
 The core idea is simple: keep source content as files, render pages ahead of time, and let a reverse proxy serve the generated `public/` directory directly. The admin and publishing workflow lives in a separate local application.

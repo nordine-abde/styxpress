@@ -83,14 +83,12 @@ a {
 }
 
 .mark {
-    display: inline-grid;
+    display: block;
+    flex: 0 0 auto;
     width: 2.5rem;
     height: 2.5rem;
-    place-items: center;
     border-radius: 8px;
-    background: var(--color-heading);
-    color: white;
-    font-weight: 800;
+    object-fit: cover;
 }
 
 .brand h1,
