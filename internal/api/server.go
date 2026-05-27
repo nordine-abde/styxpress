@@ -27,6 +27,7 @@ const maxUploadBytes = 64 << 20
 
 type Server struct {
 	configPath    string
+	siteStore     *config.SiteStore
 	token         string
 	logger        *log.Logger
 	sshTester     func(*http.Request, config.Config, string) error
@@ -43,6 +44,18 @@ type ErrorBody struct {
 }
 
 func New(configPath string, logger *log.Logger) (*Server, error) {
+	return newServer(configPath, nil, logger)
+}
+
+func NewDefault(logger *log.Logger) (*Server, error) {
+	store, err := config.DefaultSiteStore()
+	if err != nil {
+		return nil, err
+	}
+	return newServer("", store, logger)
+}
+
+func newServer(configPath string, siteStore *config.SiteStore, logger *log.Logger) (*Server, error) {
 	token, err := newSessionToken()
 	if err != nil {
 		return nil, err
@@ -52,6 +65,7 @@ func New(configPath string, logger *log.Logger) (*Server, error) {
 	}
 	return &Server{
 		configPath: configPath,
+		siteStore:  siteStore,
 		token:      token,
 		logger:     logger,
 		sshTester: func(r *http.Request, cfg config.Config, passphrase string) error {
@@ -70,6 +84,10 @@ func (s *Server) Token() string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.withAuth(s.health))
+	mux.HandleFunc("GET /api/sites", s.withAuth(s.listSites))
+	mux.HandleFunc("POST /api/sites", s.withAuth(s.createSite))
+	mux.HandleFunc("POST /api/sites/{id}/select", s.withAuth(s.selectSite))
+	mux.HandleFunc("DELETE /api/sites/{id}", s.withAuth(s.deleteSite))
 	mux.HandleFunc("GET /api/config", s.withAuth(s.getConfig))
 	mux.HandleFunc("POST /api/config", s.withAuth(s.saveConfig))
 	mux.HandleFunc("GET /api/site-config", s.withAuth(s.getSiteConfig))
@@ -117,8 +135,91 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+type sitesResponse struct {
+	Sites        []config.Site `json:"sites"`
+	ActiveSiteID string        `json:"activeSiteId"`
+	MultiSite    bool          `json:"multiSite"`
+}
+
+type siteRequest struct {
+	Name   string        `json:"name"`
+	Config config.Config `json:"config"`
+}
+
+func (s *Server) listSites(w http.ResponseWriter, _ *http.Request) {
+	sites, activeID, err := s.sites()
+	if err != nil {
+		s.writeSiteStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sitesResponse{
+		Sites:        sites,
+		ActiveSiteID: activeID,
+		MultiSite:    s.siteStore != nil,
+	})
+}
+
+func (s *Server) createSite(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	if s.siteStore == nil {
+		WriteError(w, http.StatusBadRequest, "site_registry_unavailable", "multiple sites are only available when styxpress-admin runs without -config")
+		return
+	}
+	var req siteRequest
+	if err := decodeJSONBody(r, &req, "request body must be an object with name and optional config"); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	cfg := req.Config
+	if strings.TrimSpace(req.Name) != "" {
+		cfg.Name = req.Name
+	}
+	site, err := s.siteStore.Create(cfg)
+	if err != nil {
+		s.writeSiteStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, site)
+}
+
+func (s *Server) selectSite(w http.ResponseWriter, r *http.Request) {
+	if s.siteStore == nil {
+		WriteError(w, http.StatusBadRequest, "site_registry_unavailable", "multiple sites are only available when styxpress-admin runs without -config")
+		return
+	}
+	site, err := s.siteStore.Select(r.PathValue("id"))
+	if err != nil {
+		s.writeSiteStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, site)
+}
+
+func (s *Server) deleteSite(w http.ResponseWriter, r *http.Request) {
+	if s.siteStore == nil {
+		WriteError(w, http.StatusBadRequest, "site_registry_unavailable", "multiple sites are only available when styxpress-admin runs without -config")
+		return
+	}
+	activeID, err := s.siteStore.Delete(r.PathValue("id"))
+	if err != nil {
+		s.writeSiteStoreError(w, err)
+		return
+	}
+	sites, _, err := s.siteStore.List()
+	if err != nil {
+		s.writeSiteStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sitesResponse{
+		Sites:        sites,
+		ActiveSiteID: activeID,
+		MultiSite:    true,
+	})
+}
+
 func (s *Server) getConfig(w http.ResponseWriter, _ *http.Request) {
-	cfg, err := config.LoadOrDefault(s.configPath)
+	cfg, err := s.loadConfig()
 	if err != nil {
 		s.logger.Printf("load config: %v", err)
 		WriteError(w, http.StatusInternalServerError, "config_load_failed", "failed to load config")
@@ -136,7 +237,8 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := config.Save(s.configPath, cfg); err != nil {
+	saved, err := s.saveActiveConfig(cfg)
+	if err != nil {
 		if errors.Is(err, config.ErrInvalidConfig) {
 			WriteError(w, http.StatusBadRequest, "invalid_config", err.Error())
 			return
@@ -145,7 +247,7 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "config_save_failed", "failed to save config")
 		return
 	}
-	writeJSON(w, http.StatusOK, cfg)
+	writeJSON(w, http.StatusOK, saved)
 }
 
 func (s *Server) getSiteConfig(w http.ResponseWriter, _ *http.Request) {
@@ -598,16 +700,72 @@ func normalizeLocalPaths(cfg config.Config) (config.Config, error) {
 }
 
 func (s *Server) loadConfig() (config.Config, error) {
+	if s.siteStore != nil {
+		site, err := s.siteStore.Active()
+		if err != nil {
+			return config.Config{}, err
+		}
+		return site.Config, nil
+	}
 	return config.LoadOrDefault(s.configPath)
 }
 
+func (s *Server) saveActiveConfig(cfg config.Config) (config.Config, error) {
+	if s.siteStore != nil {
+		site, err := s.siteStore.SaveActive(cfg)
+		if err != nil {
+			return config.Config{}, err
+		}
+		return site.Config, nil
+	}
+	if err := config.Save(s.configPath, cfg); err != nil {
+		return config.Config{}, err
+	}
+	return config.WithDefaults(cfg), nil
+}
+
+func (s *Server) sites() ([]config.Site, string, error) {
+	if s.siteStore != nil {
+		return s.siteStore.List()
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return nil, "", err
+	}
+	name := strings.TrimSpace(cfg.Name)
+	if name == "" {
+		name = "Configured site"
+	}
+	cfg.Name = name
+	site := config.Site{ID: "single", Name: name, Config: cfg}
+	return []config.Site{site}, site.ID, nil
+}
+
 func (s *Server) writeConfigPathError(w http.ResponseWriter, err error) {
-	if errors.Is(err, config.ErrInvalidConfig) || errors.Is(err, ErrInvalidLocalPath) {
+	if errors.Is(err, config.ErrInvalidConfig) || errors.Is(err, config.ErrInvalidSiteID) || errors.Is(err, ErrInvalidLocalPath) {
 		WriteError(w, http.StatusBadRequest, "invalid_config", err.Error())
+		return
+	}
+	if errors.Is(err, config.ErrSiteNotFound) {
+		WriteError(w, http.StatusNotFound, "site_not_found", err.Error())
 		return
 	}
 	s.logger.Printf("config path error: %v", err)
 	WriteError(w, http.StatusInternalServerError, "config_load_failed", "failed to load config")
+}
+
+func (s *Server) writeSiteStoreError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, config.ErrInvalidConfig), errors.Is(err, config.ErrInvalidSiteID):
+		WriteError(w, http.StatusBadRequest, "invalid_site", err.Error())
+	case errors.Is(err, config.ErrSiteNotFound):
+		WriteError(w, http.StatusNotFound, "site_not_found", err.Error())
+	case errors.Is(err, config.ErrLastSite):
+		WriteError(w, http.StatusBadRequest, "last_site", err.Error())
+	default:
+		s.logger.Printf("site store error: %v", err)
+		WriteError(w, http.StatusInternalServerError, "site_store_failed", "failed to access saved sites")
+	}
 }
 
 func (s *Server) writeSiteConfigError(w http.ResponseWriter, err error) {

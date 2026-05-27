@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/nordine-abde/styxpress/internal/api"
-	"github.com/nordine-abde/styxpress/internal/config"
 )
 
 //go:embed all:web
@@ -23,15 +22,13 @@ func main() {
 	configPath := flag.String("config", "", "admin config path")
 	flag.Parse()
 
+	var apiServer *api.Server
+	var err error
 	if *configPath == "" {
-		path, err := config.DefaultPath()
-		if err != nil {
-			log.Fatal(err)
-		}
-		*configPath = path
+		apiServer, err = api.NewDefault(log.Default())
+	} else {
+		apiServer, err = api.New(*configPath, log.Default())
 	}
-
-	apiServer, err := api.New(*configPath, log.Default())
 	if err != nil {
 		log.Fatal(err)
 	}

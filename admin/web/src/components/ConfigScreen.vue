@@ -1,5 +1,6 @@
 <script setup>
 import { reactive, ref, watch } from 'vue'
+import SiteSwitcher from './SiteSwitcher.vue'
 import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
@@ -29,9 +30,12 @@ async function save() {
 </script>
 
 <template>
+    <SiteSwitcher />
+
     <UiPanel title="Site configuration" subtitle="Local paths are resolved by the Go server. Passphrases are never saved.">
         <form class="field-grid" @submit.prevent="save">
             <div class="two-column">
+                <UiField v-model="form.name" label="Site name" placeholder="My site" />
                 <UiField v-model="form.siteBaseUrl" label="Site URL" placeholder="https://blog.example.com" />
                 <UiSelect v-model="form.contentStorageMode" label="Content storage" :options="storageOptions" />
                 <UiField v-model="form.contentDir" label="Content directory" />

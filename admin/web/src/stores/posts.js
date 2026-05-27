@@ -42,8 +42,13 @@ export const usePostsStore = defineStore('posts', () => {
         try {
             const payload = await apiRequest('/api/posts')
             posts.value = (payload.posts || []).map(normalizePost)
+            if (selectedSlug.value && !posts.value.some((post) => post.slug === selectedSlug.value)) {
+                selectedSlug.value = ''
+            }
             if (!selectedSlug.value && posts.value.length > 0) {
                 await selectPost(posts.value[0].slug)
+            } else if (!selectedSlug.value) {
+                newPost()
             }
         } catch (err) {
             error.value = err.message

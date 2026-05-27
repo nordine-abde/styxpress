@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -90,5 +91,112 @@ func TestValidateRejectsUnknownStorageMode(t *testing.T) {
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate returned nil, want error")
+	}
+}
+
+func TestSiteStoreMigratesLegacyConfig(t *testing.T) {
+	root := t.TempDir()
+	legacy := Config{
+		Name:               "Legacy site",
+		ContentDir:         "/tmp/legacy-content",
+		PublicDir:          "/tmp/legacy-public",
+		ContentStorageMode: ContentStorageServer,
+		RemoteHost:         "example.com",
+	}
+	if err := Save(filepath.Join(root, configFileName), legacy); err != nil {
+		t.Fatalf("Save legacy config: %v", err)
+	}
+
+	store := NewSiteStore(root)
+	sites, activeID, err := store.List()
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if activeID != defaultSiteID {
+		t.Fatalf("activeID = %q, want %q", activeID, defaultSiteID)
+	}
+	if len(sites) != 1 {
+		t.Fatalf("sites len = %d, want 1", len(sites))
+	}
+	if sites[0].ID != defaultSiteID || sites[0].Name != legacy.Name {
+		t.Fatalf("site = %#v, want migrated default legacy site", sites[0])
+	}
+	if sites[0].Config.ContentDir != legacy.ContentDir || sites[0].Config.RemoteHost != legacy.RemoteHost {
+		t.Fatalf("site config = %#v, want legacy values", sites[0].Config)
+	}
+}
+
+func TestSiteStoreCreatesSelectsSavesAndDeletesSites(t *testing.T) {
+	store := NewSiteStore(t.TempDir())
+
+	first, err := store.Create(Config{Name: "My Blog", ContentDir: "/tmp/blog-content", PublicDir: "/tmp/blog-public"})
+	if err != nil {
+		t.Fatalf("Create first returned error: %v", err)
+	}
+	if first.ID != "my-blog" {
+		t.Fatalf("first ID = %q, want my-blog", first.ID)
+	}
+	second, err := store.Create(Config{Name: "My Blog", ContentDir: "/tmp/second-content", PublicDir: "/tmp/second-public"})
+	if err != nil {
+		t.Fatalf("Create second returned error: %v", err)
+	}
+	if second.ID != "my-blog-2" {
+		t.Fatalf("second ID = %q, want my-blog-2", second.ID)
+	}
+
+	selected, err := store.Select(first.ID)
+	if err != nil {
+		t.Fatalf("Select returned error: %v", err)
+	}
+	if selected.ID != first.ID {
+		t.Fatalf("selected ID = %q, want %q", selected.ID, first.ID)
+	}
+
+	saved, err := store.SaveActive(Config{Name: "Renamed", ContentDir: "/tmp/renamed-content", PublicDir: "/tmp/renamed-public"})
+	if err != nil {
+		t.Fatalf("SaveActive returned error: %v", err)
+	}
+	if saved.ID != first.ID || saved.Name != "Renamed" || saved.Config.ContentDir != "/tmp/renamed-content" {
+		t.Fatalf("saved site = %#v, want updated active site", saved)
+	}
+
+	activeID, err := store.Delete(first.ID)
+	if err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+	if activeID == first.ID {
+		t.Fatalf("activeID = %q, want a remaining site", activeID)
+	}
+}
+
+func TestSiteStoreRefusesDeletingLastSite(t *testing.T) {
+	store := NewSiteStore(t.TempDir())
+	site, err := store.Active()
+	if err != nil {
+		t.Fatalf("Active returned error: %v", err)
+	}
+
+	_, err = store.Delete(site.ID)
+	if !errors.Is(err, ErrLastSite) {
+		t.Fatalf("Delete error = %v, want ErrLastSite", err)
+	}
+}
+
+func TestSiteStoreRecoversInvalidActiveSiteFile(t *testing.T) {
+	root := t.TempDir()
+	store := NewSiteStore(root)
+	if _, err := store.Create(Config{Name: "Recoverable site"}); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, activeSiteFileName), []byte("\n"), filePermission); err != nil {
+		t.Fatalf("Write active site: %v", err)
+	}
+
+	sites, activeID, err := store.List()
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if activeID == "" || !containsSite(sites, activeID) {
+		t.Fatalf("activeID = %q, sites = %#v; want recovered active site", activeID, sites)
 	}
 }

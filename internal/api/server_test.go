@@ -212,6 +212,88 @@ func TestSiteConfigEndpointSavesUnderConfiguredContentDir(t *testing.T) {
 	}
 }
 
+func TestSiteEndpointsManageActiveConfig(t *testing.T) {
+	root := t.TempDir()
+	server, err := newServer("", config.NewSiteStore(root), nil)
+	if err != nil {
+		t.Fatalf("newServer returned error: %v", err)
+	}
+
+	list := authedRequest(t, server, http.MethodGet, "/api/sites", "")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, list)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var listed sitesResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if !listed.MultiSite || listed.ActiveSiteID == "" || len(listed.Sites) != 1 {
+		t.Fatalf("sites response = %#v, want one active multi-site entry", listed)
+	}
+
+	create := authedRequest(t, server, http.MethodPost, "/api/sites", `{
+		"name":"Client Site",
+		"config":{
+			"contentDir":"/tmp/client-content",
+			"publicDir":"/tmp/client-public",
+			"contentStorageMode":"local"
+		}
+	}`)
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, create)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var created config.Site
+	if err := json.Unmarshal(recorder.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+	if created.ID != "client-site" || created.Config.Name != "Client Site" {
+		t.Fatalf("created site = %#v, want client-site", created)
+	}
+
+	saveConfig := authedRequest(t, server, http.MethodPost, "/api/config", `{
+		"name":"Client Live",
+		"siteBaseUrl":"https://client.example.com",
+		"contentDir":"/tmp/client-content",
+		"publicDir":"/tmp/client-public",
+		"contentStorageMode":"local",
+		"remoteHost":"",
+		"remoteUser":"",
+		"sshKeyPath":"",
+		"remotePublicDir":"",
+		"remoteContentDir":""
+	}`)
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, saveConfig)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("save config status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	getConfig := authedRequest(t, server, http.MethodGet, "/api/config", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, getConfig)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("get config status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var active config.Config
+	if err := json.Unmarshal(recorder.Body.Bytes(), &active); err != nil {
+		t.Fatalf("decode active config: %v", err)
+	}
+	if active.Name != "Client Live" || active.SiteBaseURL != "https://client.example.com" {
+		t.Fatalf("active config = %#v, want saved client config", active)
+	}
+
+	selectDefault := authedRequest(t, server, http.MethodPost, "/api/sites/default/select", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, selectDefault)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("select status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestEndToEndFixtureSiteLocalAndServerContentModes(t *testing.T) {
 	tests := []struct {
 		name        string

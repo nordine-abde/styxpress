@@ -25,6 +25,7 @@ const (
 var ErrInvalidConfig = errors.New("invalid config")
 
 type Config struct {
+	Name               string `json:"name"`
 	SiteBaseURL        string `json:"siteBaseUrl"`
 	ContentDir         string `json:"contentDir"`
 	PublicDir          string `json:"publicDir"`
@@ -45,11 +46,19 @@ func Default() Config {
 }
 
 func DefaultPath() (string, error) {
+	dir, err := DefaultDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, configFileName), nil
+}
+
+func DefaultDir() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, appDirName, configFileName), nil
+	return filepath.Join(dir, appDirName), nil
 }
 
 func Load(path string) (Config, error) {
@@ -103,6 +112,9 @@ func Save(path string, cfg Config) error {
 }
 
 func (c Config) Validate() error {
+	if strings.Contains(c.Name, "\x00") {
+		return fmt.Errorf("%w: name must not contain NUL bytes", ErrInvalidConfig)
+	}
 	switch c.ContentStorageMode {
 	case "", ContentStorageLocal, ContentStorageServer:
 	default:
@@ -113,6 +125,7 @@ func (c Config) Validate() error {
 
 func WithDefaults(cfg Config) Config {
 	defaults := Default()
+	cfg.Name = strings.TrimSpace(cfg.Name)
 	if cfg.ContentDir == "" {
 		cfg.ContentDir = defaults.ContentDir
 	}
@@ -127,6 +140,7 @@ func WithDefaults(cfg Config) Config {
 
 func encode(w io.Writer, cfg Config) error {
 	values := map[string]string{
+		"name":                 cfg.Name,
 		"site_base_url":        cfg.SiteBaseURL,
 		"content_dir":          cfg.ContentDir,
 		"public_dir":           cfg.PublicDir,
@@ -173,6 +187,8 @@ func decode(r io.Reader, cfg *Config) error {
 		}
 
 		switch key {
+		case "name":
+			cfg.Name = value
 		case "site_base_url":
 			cfg.SiteBaseURL = value
 		case "content_dir":
