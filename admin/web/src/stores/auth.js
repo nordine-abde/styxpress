@@ -1,20 +1,16 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
-const tokenKey = 'styxpress.sessionToken'
+const injectedToken = window.__STYXPRESS_SESSION__ || ''
 
 export const useAuthStore = defineStore('auth', () => {
-    const token = ref(window.localStorage.getItem(tokenKey) || '')
+    const token = ref(injectedToken)
 
     const hasToken = computed(() => token.value.trim() !== '')
+    const hasInjectedSession = computed(() => injectedToken.trim() !== '')
 
     function setToken(value) {
         token.value = value.trim()
-        if (token.value) {
-            window.localStorage.setItem(tokenKey, token.value)
-        } else {
-            window.localStorage.removeItem(tokenKey)
-        }
     }
 
     function logout() {
@@ -24,6 +20,7 @@ export const useAuthStore = defineStore('auth', () => {
     return {
         token,
         hasToken,
+        hasInjectedSession,
         setToken,
         logout
     }

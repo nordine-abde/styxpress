@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -39,7 +41,7 @@ func main() {
 	}
 
 	server := &http.Server{
-		Handler:           newHandler(apiServer.Handler()),
+		Handler:           newHandler(apiServer.Handler(), apiServer.Token()),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -51,29 +53,37 @@ func main() {
 	}
 }
 
-func newHandler(apiHandler http.Handler) http.Handler {
+func newHandler(apiHandler http.Handler, sessionToken string) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler)
-	mux.Handle("/", embeddedSPA())
+	mux.Handle("/", embeddedSPA(sessionToken))
 
 	return mux
 }
 
-func embeddedSPA() http.Handler {
+func embeddedSPA(sessionToken string) http.Handler {
 	dist, err := fs.Sub(webFiles, "web/dist")
 	if err != nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "admin frontend is not built; run npm run build in admin/web", http.StatusServiceUnavailable)
 		})
 	}
+	index, err := fs.ReadFile(dist, "index.html")
+	if err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "admin frontend index.html is missing; run npm run build in admin/web", http.StatusServiceUnavailable)
+		})
+	}
+	index = injectSessionBootstrap(index, sessionToken)
 
 	files := http.FS(dist)
 	fileServer := http.FileServer(files)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path == "" {
-			path = "index.html"
+		if path == "" || path == "index.html" {
+			serveIndex(w, r, index)
+			return
 		}
 
 		file, err := files.Open(path)
@@ -83,10 +93,27 @@ func embeddedSPA() http.Handler {
 			return
 		}
 
-		r = r.Clone(r.Context())
-		r.URL.Path = "/"
-		fileServer.ServeHTTP(w, r)
+		serveIndex(w, r, index)
 	})
+}
+
+func serveIndex(w http.ResponseWriter, r *http.Request, index []byte) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(index))
+}
+
+func injectSessionBootstrap(index []byte, sessionToken string) []byte {
+	tokenJSON, err := json.Marshal(sessionToken)
+	if err != nil {
+		tokenJSON = []byte(`""`)
+	}
+	script := []byte("<script>window.__STYXPRESS_SESSION__=" + string(tokenJSON) + ";</script>\n")
+	headClose := []byte("</head>")
+	if bytes.Contains(index, headClose) {
+		return bytes.Replace(index, headClose, append(script, headClose...), 1)
+	}
+	return append(script, index...)
 }
 
 func init() {

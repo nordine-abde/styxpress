@@ -28,7 +28,7 @@ async function applyToken() {
     }
 }
 
-function logout() {
+function clearToken() {
     authStore.logout()
     tokenInput.value = ''
     postsStore.newPost()
@@ -37,25 +37,33 @@ function logout() {
 </script>
 
 <template>
-    <section class="auth-box">
-        <UiField
-            v-model="tokenInput"
-            label="Session token"
-            type="password"
-            placeholder="Paste token"
-            help="Printed by the local admin server."
-            @keydown.enter.prevent="applyToken"
-        />
-        <div class="button-row">
-            <UiButton tone="primary" @click="applyToken">
-                Set
-            </UiButton>
-            <UiButton v-if="authStore.hasToken" tone="ghost" @click="logout">
-                Clear
-            </UiButton>
-        </div>
+    <section class="session-box">
+        <template v-if="authStore.hasInjectedSession">
+            <p class="label">Local session</p>
+            <p class="session-state">
+                connected
+            </p>
+        </template>
+        <template v-else>
+            <UiField
+                v-model="tokenInput"
+                label="Session token"
+                type="password"
+                placeholder="Paste token"
+                help="Printed by the local admin server."
+                @keydown.enter.prevent="applyToken"
+            />
+            <div class="button-row">
+                <UiButton tone="primary" @click="applyToken">
+                    Set
+                </UiButton>
+                <UiButton v-if="authStore.hasToken" tone="ghost" @click="clearToken">
+                    Clear
+                </UiButton>
+            </div>
+        </template>
         <p v-if="uiStore.unauthorized" class="error-text">
-            The saved token was rejected.
+            The local session was rejected. Restart the admin server and reload.
         </p>
         <p v-if="uiStore.notice" class="success-text">
             {{ uiStore.notice }}
@@ -67,9 +75,9 @@ function logout() {
 </template>
 
 <style scoped>
-.auth-box {
+.session-box {
     display: grid;
-    gap: 0.8rem;
+    gap: 0.45rem;
     border-top: 1px solid var(--color-border);
     padding-top: 1rem;
 }
@@ -77,5 +85,18 @@ function logout() {
 p {
     margin: 0;
     font-size: 0.86rem;
+}
+
+.label {
+    color: var(--color-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.session-state {
+    color: var(--color-text);
+    font-weight: 700;
 }
 </style>

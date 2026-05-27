@@ -112,7 +112,7 @@ onMounted(async () => {
                 </div>
                 <div class="status-row">
                     <UiBadge :tone="authStore.hasToken ? 'success' : 'warning'">
-                        {{ authStore.hasToken ? 'token set' : 'token needed' }}
+                        {{ authStore.hasToken ? 'session ready' : 'session missing' }}
                     </UiBadge>
                     <UiBadge>{{ postsStore.posts.length }} posts</UiBadge>
                 </div>

@@ -29,14 +29,14 @@ Tasks:
 - Define Go package layout under `internal/` for config, content, rendering, publishing, and HTTP API.
 - Add basic application config loading/saving from `~/.config/styxpress/config.toml`.
 - Add restrictive config file permissions where supported.
-- Add a startup session token and require it for API requests.
+- Add a startup session token, inject it into the embedded admin UI, and require it for API requests.
 - Add basic structured JSON error responses.
 - Add Go test scaffolding and a small set of unit tests for config and path validation.
 
 Done when:
 
 - `go test ./...` runs cleanly.
-- The admin server exposes authenticated local API routes.
+- The admin server exposes authenticated local API routes without requiring manual token entry in the embedded UI.
 
 ## Milestone 2: Content Model And Filesystem Operations
 

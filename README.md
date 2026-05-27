@@ -162,7 +162,8 @@ go build -o styxpress-admin ./cmd/styxpress-admin
 ./styxpress-admin
 ```
 
-3. Open the printed local URL and enter the printed API session token.
+3. Open the printed local URL. The embedded admin UI receives its local API
+   session automatically.
 
 4. Configure the site:
 

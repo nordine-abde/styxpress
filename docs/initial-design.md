@@ -573,6 +573,7 @@ Security rules for the local admin app:
 - Bind only to `127.0.0.1`.
 - Never bind to `0.0.0.0` by default.
 - Generate a random session token on startup.
+- Inject the session token into the embedded admin UI.
 - Require the token for API calls.
 - Disable or strictly limit CORS.
 - Do not expose a generic "read any local path" endpoint.
