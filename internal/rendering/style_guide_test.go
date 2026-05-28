@@ -69,6 +69,8 @@ func TestNewStyleCSSReturnsCurrentThemeCSSAndBlankTemplate(t *testing.T) {
 	for _, excluded := range []string{
 		".site-main { outline: 3px solid lime; }",
 		".saved-theme { color: red; }",
+		".theme-warm {",
+		".theme-ink {",
 		".theme-sage {",
 		".theme-clay {",
 		".font-serif {",
@@ -82,6 +84,8 @@ func TestNewStyleCSSReturnsCurrentThemeCSSAndBlankTemplate(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"*::before",
+		".theme-warm {",
+		".theme-ink {",
 		".theme-sage {",
 		".font-serif {",
 	} {
@@ -121,8 +125,8 @@ func TestNewStyleCSSReturnsDefaultClassBlocksForBlankTheme(t *testing.T) {
 	}
 
 	for _, expected := range []string{
-		"body.theme-ink.font-system.layout-classic.radius-soft {\n}",
-		".theme-ink {\n}",
+		"body.theme-warm.font-system.layout-classic.radius-soft {\n}",
+		".theme-warm {\n}",
 		".font-system {\n}",
 		".layout-classic {\n}",
 		".radius-soft {\n}",

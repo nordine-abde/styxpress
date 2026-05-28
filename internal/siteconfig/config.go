@@ -16,6 +16,7 @@ const (
 	filePermission      = 0o644
 	directoryPermission = 0o755
 
+	PaletteWarm     = "warm"
 	PaletteInk      = "ink"
 	PaletteSage     = "sage"
 	PaletteClay     = "clay"
@@ -93,7 +94,7 @@ func Default() Config {
 		Title:       "Styxpress",
 		Description: "Latest posts",
 		Theme: ThemeConfig{
-			Palette: PaletteInk,
+			Palette: PaletteWarm,
 			Font:    FontSystem,
 			Layout:  LayoutClassic,
 			Radius:  RadiusSoft,
@@ -493,7 +494,7 @@ func validateTheme(owner string, theme ThemeConfig) error {
 		strings.Contains(theme.CustomCSS, "\x00") {
 		return fmt.Errorf("%w: %s fields must not contain NUL bytes", ErrInvalidConfig, owner)
 	}
-	if !allowed(theme.Palette, PaletteInk, PaletteSage, PaletteClay, PaletteMidnight) {
+	if !allowed(theme.Palette, PaletteWarm, PaletteInk, PaletteSage, PaletteClay, PaletteMidnight) {
 		return fmt.Errorf("%w: unknown %s palette %q", ErrInvalidConfig, owner, theme.Palette)
 	}
 	if !allowed(theme.Font, FontSystem, FontSerif, FontMono) {

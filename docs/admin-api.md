@@ -95,7 +95,7 @@ Site config object:
   "title": "Styxpress",
   "description": "Latest posts",
   "theme": {
-    "palette": "ink",
+    "palette": "warm",
     "font": "system",
     "layout": "classic",
     "radius": "soft",
@@ -131,10 +131,10 @@ Site config object:
 }
 ```
 
-Allowed theme values are `palette` `ink`, `sage`, `clay`, or `midnight`; `font`
-`system`, `serif`, or `mono`; `layout` `classic` or `wide`; and `radius` `none`
-or `soft`. Saved themes are root-level entries and include their own
-`customCss`.
+Allowed theme values are `palette` `warm`, `ink`, `sage`, `clay`, or
+`midnight`; `font` `system`, `serif`, or `mono`; `layout` `classic` or `wide`;
+and `radius` `none` or `soft`. Saved themes are root-level entries and include
+their own `customCss`.
 
 ## Posts
 

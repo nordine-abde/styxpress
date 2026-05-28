@@ -21,6 +21,7 @@ const showCssGuide = ref(false)
 let styleCssRequestId = 0
 
 const paletteOptions = [
+    { value: 'warm', label: 'Warm' },
     { value: 'ink', label: 'Ink' },
     { value: 'sage', label: 'Sage' },
     { value: 'clay', label: 'Clay' },
@@ -50,7 +51,7 @@ const footerOptions = [
     { value: 'links', label: 'Links' },
     { value: 'hidden', label: 'Hidden' }
 ]
-const blankCssPlaceholder = 'body.theme-ink.font-system.layout-classic.radius-soft {\n}'
+const blankCssPlaceholder = 'body.theme-warm.font-system.layout-classic.radius-soft {\n}'
 const cssGuideSections = [
     {
         title: 'Body pattern',
@@ -60,7 +61,7 @@ const cssGuideSections = [
                 description: 'Full-page target for a saved theme.'
             },
             {
-                selector: '.theme-ink, .theme-sage, .theme-clay, .theme-midnight',
+                selector: '.theme-warm, .theme-ink, .theme-sage, .theme-clay, .theme-midnight',
                 description: 'Palette classes, usually used to override color variables.'
             },
             {
@@ -675,6 +676,18 @@ function slugify(value) {
 
 .theme-preview span {
     flex: 1;
+}
+
+.palette-warm span:nth-child(1) {
+    background: #fff3dd;
+}
+
+.palette-warm span:nth-child(2) {
+    background: #4a220d;
+}
+
+.palette-warm span:nth-child(3) {
+    background: #f1a5ac;
 }
 
 .palette-ink span:nth-child(1) {

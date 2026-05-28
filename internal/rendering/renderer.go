@@ -945,13 +945,13 @@ var homepageTemplate = template.Must(template.New("homepage").Parse(`<!doctype h
 
 const siteStyleSheet = `:root {
     color-scheme: light;
-    --site-bg: #f7f5ef;
-    --site-surface: #ffffff;
-    --site-text: #252a2e;
-    --site-muted: #657079;
-    --site-heading: #121619;
-    --site-accent: #2a6f73;
-    --site-border: #d9ddd8;
+    --site-bg: #fbefe3;
+    --site-surface: #fff9f2;
+    --site-text: #4d352c;
+    --site-muted: #816358;
+    --site-heading: #2f1914;
+    --site-accent: #bd4a60;
+    --site-border: #e8d0c2;
     --site-radius: 8px;
     --site-width: 760px;
 }
@@ -972,6 +972,26 @@ body {
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+}
+
+.theme-warm {
+    --site-bg: #fbefe3;
+    --site-surface: #fff9f2;
+    --site-text: #4d352c;
+    --site-muted: #816358;
+    --site-heading: #2f1914;
+    --site-accent: #bd4a60;
+    --site-border: #e8d0c2;
+}
+
+.theme-ink {
+    --site-bg: #f7f5ef;
+    --site-surface: #ffffff;
+    --site-text: #252a2e;
+    --site-muted: #657079;
+    --site-heading: #121619;
+    --site-accent: #2a6f73;
+    --site-border: #d9ddd8;
 }
 
 .theme-sage {

@@ -15,7 +15,7 @@ func TestLoadOrDefaultMissingFile(t *testing.T) {
 	if cfg.Title != "Styxpress" {
 		t.Fatalf("Title = %q, want default title", cfg.Title)
 	}
-	if cfg.Theme.Palette != PaletteInk || cfg.Header.Variant != HeaderNav || cfg.Footer.Variant != FooterSimple {
+	if cfg.Theme.Palette != PaletteWarm || cfg.Header.Variant != HeaderNav || cfg.Footer.Variant != FooterSimple {
 		t.Fatalf("LoadOrDefault() = %#v, want default presets", cfg)
 	}
 }
@@ -43,9 +43,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 				CustomCSS: ".site-title { letter-spacing: 0.02em; }",
 			},
 			{
-				ID:        "midnight_mono",
-				Name:      "Midnight Mono",
-				Palette:   PaletteMidnight,
+				ID:        "warm_mono",
+				Name:      "Warm Mono",
+				Palette:   PaletteWarm,
 				Font:      FontMono,
 				Layout:    LayoutClassic,
 				Radius:    RadiusNone,

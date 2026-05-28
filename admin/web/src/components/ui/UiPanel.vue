@@ -25,10 +25,10 @@ defineProps({
 .panel {
     display: grid;
     gap: 1rem;
-    border: 1px solid var(--color-border);
+    border: 1px solid color-mix(in srgb, var(--color-border) 82%, white);
     border-radius: 8px;
     padding: 1rem;
-    background: var(--color-surface);
+    background: color-mix(in srgb, var(--color-surface) 94%, white);
     box-shadow: var(--shadow-soft);
 }
 

@@ -400,6 +400,7 @@ func isCSSClassByte(b byte) bool {
 
 func themeClasses() []string {
 	return []string{
+		themeClass(siteconfig.PaletteWarm),
 		themeClass(siteconfig.PaletteInk),
 		themeClass(siteconfig.PaletteSage),
 		themeClass(siteconfig.PaletteClay),

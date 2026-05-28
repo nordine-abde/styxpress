@@ -18,10 +18,10 @@ defineProps({
     display: inline-flex;
     min-height: 1.55rem;
     align-items: center;
-    border: 1px solid var(--color-border);
+    border: 1px solid color-mix(in srgb, var(--color-border) 78%, white);
     border-radius: 999px;
     padding: 0 0.55rem;
-    background: var(--color-surface-muted);
+    background: color-mix(in srgb, var(--color-surface-muted) 76%, white);
     color: var(--color-muted);
     font-size: 0.75rem;
     font-weight: 800;

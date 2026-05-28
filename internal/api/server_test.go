@@ -310,7 +310,7 @@ func TestSiteConfigStyleCSSEndpointReturnsCSSPayloadWithoutWritingPublicFiles(t 
 	if !strings.Contains(body.CurrentCSS, ".site-main { outline: 2px solid lime; }") {
 		t.Fatalf("current CSS should include draft custom CSS:\n%s", body.CurrentCSS)
 	}
-	if !strings.Contains(body.CurrentCSS, ".theme-sage {") || !strings.Contains(body.CurrentCSS, "*::before") {
+	if !strings.Contains(body.CurrentCSS, ".theme-warm {") || !strings.Contains(body.CurrentCSS, ".theme-sage {") || !strings.Contains(body.CurrentCSS, "*::before") {
 		t.Fatalf("current CSS should include the full renderer stylesheet:\n%s", body.CurrentCSS)
 	}
 	if !body.CustomCSSIncluded {

@@ -235,7 +235,7 @@ Theme fields are exposed through the admin API as JSON:
 ```json
 {
   "theme": {
-    "palette": "ink",
+    "palette": "warm",
     "font": "system",
     "layout": "classic",
     "radius": "soft",
@@ -254,6 +254,9 @@ Theme fields are exposed through the admin API as JSON:
   ]
 }
 ```
+
+Built-in palettes are `warm` (default), `ink`, `sage`, `clay`, and
+`midnight`.
 
 ## Docker Test Setup
 

@@ -496,13 +496,15 @@ func TestRenderAllWritesPostsSiteAndStylesheet(t *testing.T) {
 		`<h1>Bravo</h1>`,
 	})
 	assertFileContent(t, result.Site.IndexPath, []string{
+		`<body class="theme-warm font-system layout-classic radius-soft">`,
 		`<a href="/posts/bravo/">Bravo</a>`,
 		`<a href="/posts/alpha/">Alpha</a>`,
 	})
 	assertFileContent(t, result.Site.FeedPath, []string{`<link>https://blog.example.com/posts/alpha/</link>`})
 	assertFileContent(t, result.Site.SitemapPath, []string{`<loc>https://blog.example.com/posts/bravo/</loc>`})
 	assertFileContent(t, result.Site.StylesheetPath, []string{
-		`.theme-sage`,
+		`.theme-warm`,
+		`.theme-ink`,
 		`.render-all { display: block; }`,
 	})
 }

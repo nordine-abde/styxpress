@@ -7,7 +7,7 @@ export const defaultSiteConfig = {
     title: 'Styxpress',
     description: 'Latest posts',
     theme: {
-        palette: 'ink',
+        palette: 'warm',
         font: 'system',
         layout: 'classic',
         radius: 'soft',

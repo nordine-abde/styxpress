@@ -69,10 +69,10 @@ span {
 input,
 textarea {
     width: 100%;
-    border: 1px solid var(--color-border);
+    border: 1px solid color-mix(in srgb, var(--color-border) 86%, white);
     border-radius: 8px;
     padding: 0.72rem 0.8rem;
-    background: var(--color-surface);
+    background: color-mix(in srgb, var(--color-surface) 92%, white);
     color: var(--color-text);
 }
 
@@ -85,8 +85,8 @@ textarea {
 
 input:focus,
 textarea:focus {
-    border-color: var(--color-accent);
-    outline: 3px solid color-mix(in srgb, var(--color-accent) 18%, transparent);
+    border-color: color-mix(in srgb, var(--color-accent) 72%, var(--color-accent-strong));
+    outline: 3px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
 small {

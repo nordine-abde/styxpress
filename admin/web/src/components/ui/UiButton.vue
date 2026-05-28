@@ -36,19 +36,21 @@ defineProps({
     border: 1px solid var(--color-border);
     border-radius: 8px;
     padding: 0 0.85rem;
-    background: var(--color-surface);
+    background: color-mix(in srgb, var(--color-surface) 88%, white);
     color: var(--color-heading);
     font-weight: 700;
+    box-shadow: 0 6px 14px rgb(89 47 15 / 7%);
 }
 
 .ui-button:hover {
-    border-color: var(--color-accent);
+    border-color: color-mix(in srgb, var(--color-accent) 70%, var(--color-accent-strong));
+    transform: translateY(-1px);
 }
 
 .primary {
-    border-color: var(--color-accent);
+    border-color: color-mix(in srgb, var(--color-accent) 70%, white);
     background: var(--color-accent);
-    color: white;
+    color: var(--color-heading);
 }
 
 .danger {
@@ -57,7 +59,7 @@ defineProps({
 }
 
 .ghost {
-    background: transparent;
+    background: color-mix(in srgb, var(--color-surface) 42%, transparent);
 }
 
 .spinner {
