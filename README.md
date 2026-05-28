@@ -181,9 +181,10 @@ go build -o styxpress-admin ./cmd/styxpress-admin
    theme presets.
 
 6. Preview site presentation changes before saving. The Site page renders a
-   draft homepage from the current form without writing public files, and the
-   custom CSS editor can load a renderer-derived starter stylesheet plus the
-   body, header, footer, and content selectors available for the current draft.
+   draft homepage from the current form without writing public files, shows the
+   current generated site CSS next to the custom CSS editor, can populate the
+   editor from base theme CSS or a blank class-block template, and
+   keeps the selector reference behind an "Open guide" action.
 
 7. Create or edit posts in the admin UI. Saving writes source files under `content/posts/{slug}/`.
 
@@ -224,10 +225,10 @@ After rendering, inspect `site/public/index.html`, `site/public/feed.xml`, `site
 
 Site styling lives with content as `site.toml` under the configured
 `contentDir`, for example `content/site.toml`. The Site admin page can edit the
-active theme, add custom CSS from a renderer-derived starter stylesheet, inspect
-editable selectors, save named themes, preview unsaved site presentation
-changes, render all public pages locally, and publish all public pages after a
-style change.
+active theme, inspect the current generated CSS, start custom CSS from the base
+theme CSS or empty class blocks, save named themes,
+preview unsaved site presentation changes, render all public pages locally, and
+publish all public pages after a style change.
 
 Theme fields are exposed through the admin API as JSON:
 

@@ -52,55 +52,39 @@ Config object:
 - `POST /api/site-config/preview`
   Body is a site config object. Returns `{"html":"..."}` for a draft homepage
   preview without writing public files.
-- `POST /api/site-config/style-guide`
-  Body is a site config object. Returns a renderer-derived custom CSS starter
-  and editable selectors for the draft theme without writing public files. The
-  `starterCss` value is generated from the backend renderer stylesheet and
-  intentionally excludes `theme.customCss` and `savedThemes[].customCss`.
+- `POST /api/site-config/style-css`
+  Body is a site config object. Returns renderer-derived CSS for the draft
+  theme without writing public files. `currentCss` is the full renderer
+  stylesheet that would be used for the draft site and includes the current
+  `theme.customCss` when present. `themeCss` is the current renderer theme/base
+  CSS without custom CSS, and `blankThemeCss` contains empty selector blocks for
+  starting a new custom theme. Saved theme custom CSS is never included.
 
-Style guide response:
+Style CSS response:
 
 ```json
 {
-  "starterCss": "/* Styxpress custom CSS starter. */\n:root { ... }\n",
-  "customCssIncluded": false,
+  "currentCss": "/* Styxpress theme CSS. */\n:root { ... }\n\n/* Custom CSS from theme.customCss. */\n.site-main { ... }\n",
+  "themeCss": "/* Styxpress theme CSS. */\n:root { ... }\n",
+  "blankThemeCss": "/* Styxpress blank theme CSS. */\nbody.theme-midnight.font-mono.layout-wide.radius-none {\n}\n\n.theme-midnight {\n}\n",
+  "customCssIncluded": true,
   "bodyClasses": ["theme-midnight", "font-mono", "layout-wide", "radius-none"],
-  "selectors": [
-    {
-      "selector": "body.theme-midnight.font-mono.layout-wide.radius-none",
-      "kind": "body",
-      "current": true,
-      "description": "Current body class combination rendered on every page."
-    },
-    {
-      "selector": ".site-header-minimal",
-      "className": "site-header-minimal",
-      "kind": "headerVariant",
-      "current": false,
-      "description": "Header variant class."
-    }
-  ],
-  "headerVariants": [
-    {
-      "variant": "nav",
-      "selector": ".site-header-nav",
-      "className": "site-header-nav",
-      "current": true,
-      "rendered": true
-    }
-  ],
-  "footerVariants": [
-    {
-      "variant": "simple",
-      "selector": ".site-footer-simple",
-      "className": "site-footer-simple",
-      "current": true,
-      "rendered": true
-    }
-  ],
-  "notes": [
-    "starterCss is generated from the renderer base stylesheet and intentionally excludes theme.customCss and savedThemes[].customCss."
-  ]
+  "theme": {
+    "palette": "midnight",
+    "font": "mono",
+    "layout": "wide",
+    "radius": "none"
+  },
+  "header": {
+    "variant": "minimal",
+    "className": "site-header-minimal",
+    "rendered": true
+  },
+  "footer": {
+    "variant": "links",
+    "className": "site-footer-links",
+    "rendered": true
+  }
 }
 ```
 

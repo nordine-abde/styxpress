@@ -40,10 +40,11 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
     const previewHtml = ref('')
     const previewUrl = ref('')
     const previewError = ref('')
-    const styleGuiding = ref(false)
-    const styleGuide = ref(defaultStyleGuide())
-    const styleGuideError = ref('')
+    const styleCssLoading = ref(false)
+    const styleCss = ref(defaultStyleCss())
+    const styleCssError = ref('')
     const error = ref('')
+    let styleCssRequestId = 0
 
     async function loadSiteConfig() {
         const uiStore = useUiStore()
@@ -99,23 +100,32 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         }
     }
 
-    async function loadStyleGuide(nextConfig) {
+    async function loadStyleCss(nextConfig) {
         const uiStore = useUiStore()
-        styleGuiding.value = true
-        styleGuideError.value = ''
+        const requestId = styleCssRequestId + 1
+        styleCssRequestId = requestId
+        styleCssLoading.value = true
+        styleCssError.value = ''
         try {
-            const payload = await apiRequest('/api/site-config/style-guide', {
+            const payload = await apiRequest('/api/site-config/style-css', {
                 method: 'POST',
                 body: mergeConfig(nextConfig)
             })
-            styleGuide.value = mergeStyleGuide(payload)
-            return styleGuide.value
+            const nextStyleCss = mergeStyleCss(payload)
+            if (requestId === styleCssRequestId) {
+                styleCss.value = nextStyleCss
+            }
+            return nextStyleCss
         } catch (err) {
-            styleGuideError.value = err.message
+            if (requestId === styleCssRequestId) {
+                styleCssError.value = err.message
+            }
             uiStore.captureError(err)
             throw err
         } finally {
-            styleGuiding.value = false
+            if (requestId === styleCssRequestId) {
+                styleCssLoading.value = false
+            }
         }
     }
 
@@ -136,14 +146,14 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         previewHtml,
         previewUrl,
         previewError,
-        styleGuiding,
-        styleGuide,
-        styleGuideError,
+        styleCssLoading,
+        styleCss,
+        styleCssError,
         error,
         loadSiteConfig,
         saveSiteConfig,
         previewSiteConfig,
-        loadStyleGuide
+        loadStyleCss
     }
 })
 
@@ -187,48 +197,56 @@ function mergeTheme(theme = {}) {
     }
 }
 
-function defaultStyleGuide() {
+function defaultStyleCss() {
     return {
-        starterCss: '',
+        currentCss: '',
+        themeCss: '',
+        blankThemeCss: '',
         customCssIncluded: false,
         bodyClasses: [],
-        selectors: [],
-        headerVariants: [],
-        footerVariants: [],
-        notes: []
+        theme: {
+            palette: '',
+            font: '',
+            layout: '',
+            radius: ''
+        },
+        header: defaultStyleVariantState(),
+        footer: defaultStyleVariantState()
     }
 }
 
-function mergeStyleGuide(value = {}) {
+function mergeStyleCss(value = {}) {
     return {
-        ...defaultStyleGuide(),
+        ...defaultStyleCss(),
         ...value,
-        starterCss: value.starterCss || '',
+        currentCss: value.currentCss || '',
+        themeCss: value.themeCss || '',
+        blankThemeCss: value.blankThemeCss || '',
         customCssIncluded: Boolean(value.customCssIncluded),
         bodyClasses: Array.isArray(value.bodyClasses) ? value.bodyClasses : [],
-        selectors: Array.isArray(value.selectors) ? value.selectors.map(mergeStyleSelector) : [],
-        headerVariants: Array.isArray(value.headerVariants) ? value.headerVariants.map(mergeStyleVariant) : [],
-        footerVariants: Array.isArray(value.footerVariants) ? value.footerVariants.map(mergeStyleVariant) : [],
-        notes: Array.isArray(value.notes) ? value.notes : []
+        theme: {
+            ...defaultStyleCss().theme,
+            ...(value.theme || {})
+        },
+        header: mergeStyleVariantState(value.header),
+        footer: mergeStyleVariantState(value.footer)
     }
 }
 
-function mergeStyleSelector(selector = {}) {
+function defaultStyleVariantState() {
     return {
-        selector: selector.selector || '',
-        className: selector.className || '',
-        kind: selector.kind || 'base',
-        current: Boolean(selector.current),
-        description: selector.description || ''
+        variant: '',
+        className: '',
+        rendered: false
     }
 }
 
-function mergeStyleVariant(variant = {}) {
+function mergeStyleVariantState(variant = {}) {
     return {
+        ...defaultStyleVariantState(),
+        ...variant,
         variant: variant.variant || '',
-        selector: variant.selector || '',
         className: variant.className || '',
-        current: Boolean(variant.current),
         rendered: Boolean(variant.rendered)
     }
 }

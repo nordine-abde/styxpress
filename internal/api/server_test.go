@@ -267,10 +267,10 @@ func TestSiteConfigPreviewEndpointReturnsHomepageWithoutWritingPublicFiles(t *te
 	}
 }
 
-func TestSiteConfigStyleGuideEndpointReturnsStarterWithoutWritingPublicFiles(t *testing.T) {
+func TestSiteConfigStyleCSSEndpointReturnsCSSPayloadWithoutWritingPublicFiles(t *testing.T) {
 	server, _, publicDir := newTestServer(t)
 
-	request := authedRequest(t, server, http.MethodPost, "/api/site-config/style-guide", `{
+	request := authedRequest(t, server, http.MethodPost, "/api/site-config/style-css", `{
 		"title":"Styled Site",
 		"description":"Preview config",
 		"theme":{
@@ -286,11 +286,11 @@ func TestSiteConfigStyleGuideEndpointReturnsStarterWithoutWritingPublicFiles(t *
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("style guide status = %d, body = %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("style CSS status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
-	var body rendering.StyleGuide
+	var body rendering.StyleCSS
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode style guide: %v", err)
+		t.Fatalf("decode style CSS: %v", err)
 	}
 	for _, expected := range []string{
 		".theme-midnight {",
@@ -300,39 +300,53 @@ func TestSiteConfigStyleGuideEndpointReturnsStarterWithoutWritingPublicFiles(t *
 		".site-header-minimal .site-nav",
 		".site-footer-links .site-footer-inner",
 	} {
-		if !strings.Contains(body.StarterCSS, expected) {
-			t.Fatalf("expected %q in starter CSS:\n%s", expected, body.StarterCSS)
+		if !strings.Contains(body.ThemeCSS, expected) {
+			t.Fatalf("expected %q in theme CSS:\n%s", expected, body.ThemeCSS)
 		}
 	}
-	if strings.Contains(body.StarterCSS, ".site-main { outline: 2px solid lime; }") {
-		t.Fatalf("starter CSS should not include draft custom CSS:\n%s", body.StarterCSS)
+	if strings.Contains(body.ThemeCSS, ".site-main { outline: 2px solid lime; }") {
+		t.Fatalf("theme CSS should not include draft custom CSS:\n%s", body.ThemeCSS)
 	}
-	if body.CustomCSSIncluded {
-		t.Fatalf("CustomCSSIncluded = true, want false")
+	if !strings.Contains(body.CurrentCSS, ".site-main { outline: 2px solid lime; }") {
+		t.Fatalf("current CSS should include draft custom CSS:\n%s", body.CurrentCSS)
+	}
+	if !strings.Contains(body.CurrentCSS, ".theme-sage {") || !strings.Contains(body.CurrentCSS, "*::before") {
+		t.Fatalf("current CSS should include the full renderer stylesheet:\n%s", body.CurrentCSS)
+	}
+	if !body.CustomCSSIncluded {
+		t.Fatalf("CustomCSSIncluded = false, want true")
 	}
 	if strings.Join(body.BodyClasses, " ") != "theme-midnight font-mono layout-wide radius-none" {
 		t.Fatalf("BodyClasses = %#v, want current theme classes", body.BodyClasses)
 	}
-	if !styleGuideHasSelector(body.Selectors, "body.theme-midnight.font-mono.layout-wide.radius-none", true) ||
-		!styleGuideHasSelector(body.Selectors, ".site-header-minimal", true) ||
-		!styleGuideHasSelector(body.Selectors, ".site-footer-simple", false) {
-		t.Fatalf("selectors = %#v, want current body classes and header/footer variants", body.Selectors)
+	if body.Theme.Palette != siteconfig.PaletteMidnight || body.Header.ClassName != "site-header-minimal" || body.Footer.ClassName != "site-footer-links" {
+		t.Fatalf("metadata = %#v %#v %#v, want current theme/header/footer", body.Theme, body.Header, body.Footer)
+	}
+	for _, expected := range []string{
+		"body.theme-midnight.font-mono.layout-wide.radius-none {\n}",
+		".site-header-minimal {\n}",
+		".site-footer-links {\n}",
+		".site-main {\n}",
+	} {
+		if !strings.Contains(body.BlankThemeCSS, expected) {
+			t.Fatalf("expected %q in blank theme CSS:\n%s", expected, body.BlankThemeCSS)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(publicDir, "assets", "styxpress.css")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("style guide should not write stylesheet, stat err: %v", err)
+		t.Fatalf("style CSS should not write stylesheet, stat err: %v", err)
 	}
 }
 
-func TestSiteConfigStyleGuideEndpointRejectsInvalidDraft(t *testing.T) {
+func TestSiteConfigStyleCSSEndpointRejectsInvalidDraft(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
-	request := authedRequest(t, server, http.MethodPost, "/api/site-config/style-guide", `{
+	request := authedRequest(t, server, http.MethodPost, "/api/site-config/style-css", `{
 		"theme":{"palette":"unknown"}
 	}`)
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("style guide status = %d, body = %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("style CSS status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 	var body ErrorResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
@@ -756,13 +770,4 @@ func authedRequest(t *testing.T, server *Server, method string, path string, bod
 		request.Header.Set("Content-Type", "application/json")
 	}
 	return request
-}
-
-func styleGuideHasSelector(selectors []rendering.StyleSelector, selector string, current bool) bool {
-	for _, candidate := range selectors {
-		if candidate.Selector == selector && candidate.Current == current {
-			return true
-		}
-	}
-	return false
 }

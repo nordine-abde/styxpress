@@ -6,51 +6,59 @@ import (
 	"github.com/nordine-abde/styxpress/internal/siteconfig"
 )
 
-type StyleGuide struct {
-	StarterCSS        string          `json:"starterCss"`
-	CustomCSSIncluded bool            `json:"customCssIncluded"`
-	BodyClasses       []string        `json:"bodyClasses"`
-	Selectors         []StyleSelector `json:"selectors"`
-	HeaderVariants    []StyleVariant  `json:"headerVariants"`
-	FooterVariants    []StyleVariant  `json:"footerVariants"`
-	Notes             []string        `json:"notes"`
+type StyleCSS struct {
+	CurrentCSS        string            `json:"currentCss"`
+	ThemeCSS          string            `json:"themeCss"`
+	BlankThemeCSS     string            `json:"blankThemeCss"`
+	CustomCSSIncluded bool              `json:"customCssIncluded"`
+	BodyClasses       []string          `json:"bodyClasses"`
+	Theme             StyleTheme        `json:"theme"`
+	Header            StyleVariantState `json:"header"`
+	Footer            StyleVariantState `json:"footer"`
 }
 
-type StyleSelector struct {
-	Selector    string `json:"selector"`
-	ClassName   string `json:"className,omitempty"`
-	Kind        string `json:"kind"`
-	Current     bool   `json:"current"`
-	Description string `json:"description"`
+type StyleTheme struct {
+	Palette string `json:"palette"`
+	Font    string `json:"font"`
+	Layout  string `json:"layout"`
+	Radius  string `json:"radius"`
 }
 
-type StyleVariant struct {
+type StyleVariantState struct {
 	Variant   string `json:"variant"`
-	Selector  string `json:"selector"`
 	ClassName string `json:"className"`
-	Current   bool   `json:"current"`
 	Rendered  bool   `json:"rendered"`
 }
 
-func NewStyleGuide(cfg siteconfig.Config) (StyleGuide, error) {
+func NewStyleCSS(cfg siteconfig.Config) (StyleCSS, error) {
 	cfg = siteconfig.WithDefaults(cfg)
 	if err := cfg.Validate(); err != nil {
-		return StyleGuide{}, err
+		return StyleCSS{}, err
 	}
 
-	bodyClasses := siteBodyClasses(cfg)
-	headerVariants := headerStyleVariants(cfg.Header.Variant)
-	footerVariants := footerStyleVariants(cfg.Footer.Variant)
+	themeCSS := themeStyleSheet(cfg)
 
-	return StyleGuide{
-		StarterCSS:        starterStyleSheet(cfg),
-		CustomCSSIncluded: false,
-		BodyClasses:       bodyClasses,
-		Selectors:         styleSelectors(cfg, bodyClasses, headerVariants, footerVariants),
-		HeaderVariants:    headerVariants,
-		FooterVariants:    footerVariants,
-		Notes: []string{
-			"starterCss is generated from the renderer base stylesheet and intentionally excludes theme.customCss and savedThemes[].customCss.",
+	return StyleCSS{
+		CurrentCSS:        styleSheet(cfg),
+		ThemeCSS:          themeCSS,
+		BlankThemeCSS:     blankThemeStyleSheet(cfg),
+		CustomCSSIncluded: strings.TrimSpace(cfg.Theme.CustomCSS) != "",
+		BodyClasses:       siteBodyClasses(cfg),
+		Theme: StyleTheme{
+			Palette: cfg.Theme.Palette,
+			Font:    cfg.Theme.Font,
+			Layout:  cfg.Theme.Layout,
+			Radius:  cfg.Theme.Radius,
+		},
+		Header: StyleVariantState{
+			Variant:   cfg.Header.Variant,
+			ClassName: siteHeaderVariantClass(cfg.Header.Variant),
+			Rendered:  cfg.Header.Variant != siteconfig.HeaderHidden,
+		},
+		Footer: StyleVariantState{
+			Variant:   cfg.Footer.Variant,
+			ClassName: siteFooterVariantClass(cfg.Footer.Variant),
+			Rendered:  cfg.Footer.Variant != siteconfig.FooterHidden,
 		},
 	}, nil
 }
@@ -89,54 +97,13 @@ func radiusClass(radius string) string {
 	return "radius-" + radius
 }
 
-func headerStyleVariants(current string) []StyleVariant {
-	variants := []string{
-		siteconfig.HeaderNav,
-		siteconfig.HeaderCentered,
-		siteconfig.HeaderMinimal,
-		siteconfig.HeaderHidden,
-	}
-	result := make([]StyleVariant, 0, len(variants))
-	for _, variant := range variants {
-		className := siteHeaderVariantClass(variant)
-		result = append(result, StyleVariant{
-			Variant:   variant,
-			Selector:  "." + className,
-			ClassName: className,
-			Current:   variant == current,
-			Rendered:  variant != siteconfig.HeaderHidden,
-		})
-	}
-	return result
-}
-
-func footerStyleVariants(current string) []StyleVariant {
-	variants := []string{
-		siteconfig.FooterSimple,
-		siteconfig.FooterLinks,
-		siteconfig.FooterHidden,
-	}
-	result := make([]StyleVariant, 0, len(variants))
-	for _, variant := range variants {
-		className := siteFooterVariantClass(variant)
-		result = append(result, StyleVariant{
-			Variant:   variant,
-			Selector:  "." + className,
-			ClassName: className,
-			Current:   variant == current,
-			Rendered:  variant != siteconfig.FooterHidden,
-		})
-	}
-	return result
-}
-
-func starterStyleSheet(cfg siteconfig.Config) string {
+func themeStyleSheet(cfg siteconfig.Config) string {
 	var builder strings.Builder
-	builder.WriteString("/* Styxpress custom CSS starter.\n")
-	builder.WriteString("   Generated from the renderer base stylesheet for the current draft theme.\n")
-	builder.WriteString("   Existing theme.customCss and savedThemes[].customCss are intentionally not included. */\n\n")
+	builder.WriteString("/* Styxpress theme CSS.\n")
+	builder.WriteString("   Generated from the renderer stylesheet for the current draft.\n")
+	builder.WriteString("   theme.customCss and savedThemes[].customCss are not included. */\n\n")
 
-	rules := starterCSSRules(siteStyleSheet, cfg)
+	rules := themeCSSRules(siteStyleSheet, cfg)
 	for i, rule := range rules {
 		if i > 0 {
 			builder.WriteString("\n\n")
@@ -147,229 +114,167 @@ func starterStyleSheet(cfg siteconfig.Config) string {
 	return builder.String()
 }
 
-func starterCSSRules(css string, cfg siteconfig.Config) []string {
+func blankThemeStyleSheet(cfg siteconfig.Config) string {
+	var builder strings.Builder
+	builder.WriteString("/* Styxpress blank theme CSS.\n")
+	builder.WriteString("   Fill the selectors you want to override, then save as custom CSS. */\n\n")
+
+	seen := make(map[string]struct{})
+	rules := make([]string, 0)
+	for _, selector := range blankThemeClassSelectors(cfg) {
+		if addSeenSelector(seen, selector) {
+			rules = append(rules, blankCSSRule([]string{selector}))
+		}
+	}
+	rules = append(rules, blankCSSRules(siteStyleSheet, cfg, seen)...)
+	for i, rule := range rules {
+		if i > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString(rule)
+	}
+	builder.WriteByte('\n')
+	return builder.String()
+}
+
+func blankThemeClassSelectors(cfg siteconfig.Config) []string {
+	bodyClasses := siteBodyClasses(cfg)
+	selectors := []string{
+		"body." + strings.Join(bodyClasses, "."),
+	}
+	for _, className := range bodyClasses {
+		selectors = append(selectors, "."+className)
+	}
+	selectors = append(selectors,
+		"."+siteHeaderVariantClass(cfg.Header.Variant),
+		"."+siteFooterVariantClass(cfg.Footer.Variant),
+	)
+	return selectors
+}
+
+func themeCSSRules(css string, cfg siteconfig.Config) []string {
 	var rules []string
 	for _, rule := range parseCSSRules(css) {
 		if strings.HasPrefix(rule.prelude, "@") {
-			if len(starterCSSRules(rule.body, cfg)) > 0 {
-				rules = append(rules, rule.raw)
+			nested := themeCSSRules(rule.body, cfg)
+			if len(nested) > 0 {
+				rules = append(rules, nestedCSSRule(rule.prelude, nested))
 			}
 			continue
 		}
-		if starterRuleIncluded(rule.selectors, cfg) {
-			rules = append(rules, rule.raw)
+		selectors := includedRuleSelectors(rule.selectors, cfg)
+		if len(selectors) > 0 {
+			rules = append(rules, cssRuleWithSelectors(selectors, rule.body))
 		}
 	}
 	return rules
 }
 
-func starterRuleIncluded(selectors []string, cfg siteconfig.Config) bool {
-	for _, selector := range selectors {
-		if selector == ":root" {
-			return true
-		}
-		if isUniversalSelector(selector) {
-			continue
-		}
-		if optionSelector(selector, themeClasses()) {
-			if selectorHasClass(selector, themeClass(cfg.Theme.Palette)) {
-				return true
-			}
-			continue
-		}
-		if optionSelector(selector, fontClasses()) {
-			if selectorHasClass(selector, fontClass(cfg.Theme.Font)) {
-				return true
-			}
-			continue
-		}
-		if optionSelector(selector, layoutClasses()) {
-			if selectorHasClass(selector, layoutClass(cfg.Theme.Layout)) {
-				return true
-			}
-			continue
-		}
-		if optionSelector(selector, radiusClasses()) {
-			if selectorHasClass(selector, radiusClass(cfg.Theme.Radius)) {
-				return true
-			}
-			continue
-		}
-		if optionSelector(selector, headerVariantClasses()) {
-			if selectorHasClass(selector, siteHeaderVariantClass(cfg.Header.Variant)) {
-				return true
-			}
-			continue
-		}
-		if optionSelector(selector, footerVariantClasses()) {
-			if selectorHasClass(selector, siteFooterVariantClass(cfg.Footer.Variant)) {
-				return true
-			}
-			continue
-		}
-		return true
-	}
-	return false
-}
-
-func styleSelectors(cfg siteconfig.Config, bodyClasses []string, headerVariants []StyleVariant, footerVariants []StyleVariant) []StyleSelector {
-	var selectors []StyleSelector
-	seen := make(map[string]struct{})
-	add := func(selector string, className string, kind string, current bool, description string) {
-		if selector == "" {
-			return
-		}
-		if _, ok := seen[selector]; ok {
-			return
-		}
-		seen[selector] = struct{}{}
-		selectors = append(selectors, StyleSelector{
-			Selector:    selector,
-			ClassName:   className,
-			Kind:        kind,
-			Current:     current,
-			Description: description,
-		})
-	}
-
-	add("body."+strings.Join(bodyClasses, "."), "", "body", true, "Current body class combination rendered on every page.")
-	for _, className := range bodyClasses {
-		add("."+className, className, bodyClassKind(className), true, bodyClassDescription(className))
-	}
-	for _, variant := range headerVariants {
-		add(variant.Selector, variant.ClassName, "headerVariant", variant.Current, "Header variant class.")
-	}
-	for _, variant := range footerVariants {
-		add(variant.Selector, variant.ClassName, "footerVariant", variant.Current, "Footer variant class.")
-	}
-	for _, selector := range starterRuleSelectors(siteStyleSheet, cfg) {
-		add(selector, simpleSelectorClass(selector), styleSelectorKind(selector), styleSelectorCurrent(selector, cfg, bodyClasses), styleSelectorDescription(selector))
-	}
-	return selectors
-}
-
-func starterRuleSelectors(css string, cfg siteconfig.Config) []string {
-	var selectors []string
+func blankCSSRules(css string, cfg siteconfig.Config, seen map[string]struct{}) []string {
+	var rules []string
 	for _, rule := range parseCSSRules(css) {
 		if strings.HasPrefix(rule.prelude, "@") {
-			selectors = append(selectors, starterRuleSelectors(rule.body, cfg)...)
-			continue
-		}
-		if !starterRuleIncluded(rule.selectors, cfg) {
-			continue
-		}
-		for _, selector := range rule.selectors {
-			if isUniversalSelector(selector) {
-				continue
+			nested := blankCSSRules(rule.body, cfg, seen)
+			if len(nested) > 0 {
+				rules = append(rules, nestedCSSRule(rule.prelude, nested))
 			}
-			selectors = append(selectors, selector)
+			continue
+		}
+		selectors := make([]string, 0, len(rule.selectors))
+		for _, selector := range includedRuleSelectors(rule.selectors, cfg) {
+			if addSeenSelector(seen, selector) {
+				selectors = append(selectors, selector)
+			}
+		}
+		if len(selectors) > 0 {
+			rules = append(rules, blankCSSRule(selectors))
 		}
 	}
-	return selectors
+	return rules
 }
 
-func bodyClassKind(className string) string {
-	switch {
-	case strings.HasPrefix(className, "theme-"):
-		return "theme"
-	case strings.HasPrefix(className, "font-"):
-		return "font"
-	case strings.HasPrefix(className, "layout-"):
-		return "layout"
-	case strings.HasPrefix(className, "radius-"):
-		return "radius"
-	default:
-		return "body"
+func blankCSSRule(selectors []string) string {
+	return strings.Join(selectors, ",\n") + " {\n}"
+}
+
+func cssRuleWithSelectors(selectors []string, body string) string {
+	return strings.Join(selectors, ",\n") + " {" + body + "}"
+}
+
+func addSeenSelector(seen map[string]struct{}, selector string) bool {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return false
 	}
-}
-
-func bodyClassDescription(className string) string {
-	switch bodyClassKind(className) {
-	case "theme":
-		return "Current palette class on body."
-	case "font":
-		return "Current font class on body."
-	case "layout":
-		return "Current layout width class on body."
-	case "radius":
-		return "Current border radius class on body."
-	default:
-		return "Current body class."
+	if _, ok := seen[selector]; ok {
+		return false
 	}
+	seen[selector] = struct{}{}
+	return true
 }
 
-func styleSelectorKind(selector string) string {
-	switch {
-	case selector == ":root":
-		return "variables"
-	case selector == "body" || strings.HasPrefix(selector, "body."):
-		return "body"
-	case optionSelector(selector, themeClasses()):
-		return "theme"
-	case optionSelector(selector, fontClasses()):
-		return "font"
-	case optionSelector(selector, layoutClasses()):
-		return "layout"
-	case optionSelector(selector, radiusClasses()):
-		return "radius"
-	case optionSelector(selector, headerVariantClasses()):
-		return "headerVariant"
-	case optionSelector(selector, footerVariantClasses()):
-		return "footerVariant"
-	case strings.Contains(selector, "site-header") || strings.Contains(selector, "site-footer") || strings.Contains(selector, "site-nav") || strings.Contains(selector, "site-branding") || strings.Contains(selector, "site-title") || strings.Contains(selector, "skip-link"):
-		return "siteChrome"
-	case strings.Contains(selector, "post-"):
-		return "content"
-	default:
-		return "base"
+func nestedCSSRule(prelude string, rules []string) string {
+	var builder strings.Builder
+	builder.WriteString(prelude)
+	builder.WriteString(" {\n")
+	for i, rule := range rules {
+		if i > 0 {
+			builder.WriteByte('\n')
+		}
+		builder.WriteString(indentCSS(rule))
+		builder.WriteByte('\n')
 	}
+	builder.WriteByte('}')
+	return builder.String()
 }
 
-func styleSelectorCurrent(selector string, cfg siteconfig.Config, bodyClasses []string) bool {
-	if selector == ":root" || selector == "body" || selector == "body."+strings.Join(bodyClasses, ".") {
+func indentCSS(css string) string {
+	lines := strings.Split(css, "\n")
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		lines[i] = "    " + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func includedRuleSelectors(selectors []string, cfg siteconfig.Config) []string {
+	included := make([]string, 0, len(selectors))
+	for _, selector := range selectors {
+		if themeSelectorIncluded(selector, cfg) {
+			included = append(included, selector)
+		}
+	}
+	return included
+}
+
+func themeSelectorIncluded(selector string, cfg siteconfig.Config) bool {
+	if selector == ":root" {
 		return true
 	}
-	currentClasses := []string{
-		themeClass(cfg.Theme.Palette),
-		fontClass(cfg.Theme.Font),
-		layoutClass(cfg.Theme.Layout),
-		radiusClass(cfg.Theme.Radius),
-		siteHeaderVariantClass(cfg.Header.Variant),
-		siteFooterVariantClass(cfg.Footer.Variant),
+	if isUniversalSelector(selector) {
+		return false
 	}
-	for _, className := range currentClasses {
-		if selectorHasClass(selector, className) {
-			return true
-		}
+	if optionSelector(selector, themeClasses()) {
+		return selectorHasClass(selector, themeClass(cfg.Theme.Palette))
 	}
-	return false
-}
-
-func styleSelectorDescription(selector string) string {
-	switch styleSelectorKind(selector) {
-	case "variables":
-		return "Default CSS variables for colors, width, and radius."
-	case "theme":
-		return "Current palette override."
-	case "font":
-		return "Current font override."
-	case "layout":
-		return "Current layout override."
-	case "radius":
-		return "Current radius override."
-	case "headerVariant":
-		return "Header variant selector."
-	case "footerVariant":
-		return "Footer variant selector."
-	case "siteChrome":
-		return "Header, footer, navigation, or site shell selector."
-	case "content":
-		return "Post list or post content selector."
-	case "body":
-		return "Page body selector."
-	default:
-		return "Base element selector."
+	if optionSelector(selector, fontClasses()) {
+		return selectorHasClass(selector, fontClass(cfg.Theme.Font))
 	}
+	if optionSelector(selector, layoutClasses()) {
+		return selectorHasClass(selector, layoutClass(cfg.Theme.Layout))
+	}
+	if optionSelector(selector, radiusClasses()) {
+		return selectorHasClass(selector, radiusClass(cfg.Theme.Radius))
+	}
+	if optionSelector(selector, headerVariantClasses()) {
+		return selectorHasClass(selector, siteHeaderVariantClass(cfg.Header.Variant))
+	}
+	if optionSelector(selector, footerVariantClasses()) {
+		return selectorHasClass(selector, siteFooterVariantClass(cfg.Footer.Variant))
+	}
+	return true
 }
 
 type cssRule struct {
@@ -491,20 +396,6 @@ func cssClassTokens(selector string) []string {
 
 func isCSSClassByte(b byte) bool {
 	return b == '-' || b == '_' || b >= '0' && b <= '9' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z'
-}
-
-func simpleSelectorClass(selector string) string {
-	if !strings.HasPrefix(selector, ".") {
-		return ""
-	}
-	tokenEnd := 1
-	for tokenEnd < len(selector) && isCSSClassByte(selector[tokenEnd]) {
-		tokenEnd++
-	}
-	if tokenEnd == len(selector) {
-		return selector[1:]
-	}
-	return ""
 }
 
 func themeClasses() []string {

@@ -93,7 +93,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/site-config", s.withAuth(s.getSiteConfig))
 	mux.HandleFunc("POST /api/site-config", s.withAuth(s.saveSiteConfig))
 	mux.HandleFunc("POST /api/site-config/preview", s.withAuth(s.previewSiteConfig))
-	mux.HandleFunc("POST /api/site-config/style-guide", s.withAuth(s.siteConfigStyleGuide))
+	mux.HandleFunc("POST /api/site-config/style-css", s.withAuth(s.siteConfigStyleCSS))
 	mux.HandleFunc("POST /api/test-ssh", s.withAuth(s.testSSH))
 	mux.HandleFunc("GET /api/posts", s.withAuth(s.listPosts))
 	mux.HandleFunc("POST /api/posts", s.withAuth(s.savePost))
@@ -313,7 +313,7 @@ func (s *Server) previewSiteConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, previewResponse{HTML: html})
 }
 
-func (s *Server) siteConfigStyleGuide(w http.ResponseWriter, r *http.Request) {
+func (s *Server) siteConfigStyleCSS(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	var cfg siteconfig.Config
@@ -321,12 +321,12 @@ func (s *Server) siteConfigStyleGuide(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "invalid_json", err.Error())
 		return
 	}
-	guide, err := rendering.NewStyleGuide(cfg)
+	css, err := rendering.NewStyleCSS(cfg)
 	if err != nil {
 		s.writeSiteConfigError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, guide)
+	writeJSON(w, http.StatusOK, css)
 }
 
 type testSSHRequest struct {

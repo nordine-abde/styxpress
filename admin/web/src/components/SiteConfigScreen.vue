@@ -15,7 +15,10 @@ const form = reactive(cloneDefault())
 const themeName = ref('')
 const passphrase = ref('')
 const previewSignature = ref('')
-const styleGuideSignature = ref('')
+const styleCssCurrentSignature = ref('')
+const styleCssStructureSignature = ref('')
+const showCssGuide = ref(false)
+let styleCssRequestId = 0
 
 const paletteOptions = [
     { value: 'ink', label: 'Ink' },
@@ -47,6 +50,77 @@ const footerOptions = [
     { value: 'links', label: 'Links' },
     { value: 'hidden', label: 'Hidden' }
 ]
+const blankCssPlaceholder = 'body.theme-ink.font-system.layout-classic.radius-soft {\n}'
+const cssGuideSections = [
+    {
+        title: 'Body pattern',
+        items: [
+            {
+                selector: 'body.theme-{palette}.font-{font}.layout-{layout}.radius-{radius}',
+                description: 'Full-page target for a saved theme.'
+            },
+            {
+                selector: '.theme-ink, .theme-sage, .theme-clay, .theme-midnight',
+                description: 'Palette classes, usually used to override color variables.'
+            },
+            {
+                selector: '.font-system, .font-serif, .font-mono',
+                description: 'Typography classes applied to the body.'
+            },
+            {
+                selector: '.layout-classic, .layout-wide, .radius-soft, .radius-none',
+                description: 'Layout width and corner radius switches.'
+            }
+        ]
+    },
+    {
+        title: 'Theme variables',
+        items: [
+            {
+                selector: ':root',
+                description: '--site-bg, --site-surface, --site-text, --site-muted, --site-heading, --site-accent, --site-border, --site-radius, --site-width.'
+            },
+            {
+                selector: '.theme-{palette}',
+                description: 'Override palette variables for one palette without replacing all CSS.'
+            }
+        ]
+    },
+    {
+        title: 'Chrome',
+        items: [
+            {
+                selector: '.site-header, .site-header-inner, .site-branding, .site-title, .site-nav',
+                description: 'Header shell, brand, and navigation.'
+            },
+            {
+                selector: '.site-header-nav, .site-header-centered, .site-header-minimal',
+                description: 'Header variant classes.'
+            },
+            {
+                selector: '.site-footer, .site-footer-inner, .site-footer-simple, .site-footer-links',
+                description: 'Footer shell and footer variants.'
+            }
+        ]
+    },
+    {
+        title: 'Content',
+        items: [
+            {
+                selector: '.site-main, .post-section, .post-list, .post-card',
+                description: 'Homepage layout and post list cards.'
+            },
+            {
+                selector: '.post-header, .post-content, .post-content pre, .post-content code',
+                description: 'Post page header, rich text, and code blocks.'
+            },
+            {
+                selector: '.skip-link, a, img',
+                description: 'Base accessibility and media styles.'
+            }
+        ]
+    }
+]
 
 const currentPreviewSignature = computed(() => {
     const config = mergeConfig(form)
@@ -58,7 +132,22 @@ const currentPreviewSignature = computed(() => {
         footer: config.footer
     })
 })
-const currentStyleGuideSignature = computed(() => JSON.stringify({
+const currentStyleCssSignature = computed(() => JSON.stringify({
+    theme: {
+        palette: form.theme.palette,
+        font: form.theme.font,
+        layout: form.theme.layout,
+        radius: form.theme.radius,
+        customCss: form.theme.customCss
+    },
+    header: {
+        variant: form.header.variant
+    },
+    footer: {
+        variant: form.footer.variant
+    }
+}))
+const currentStyleCssStructureSignature = computed(() => JSON.stringify({
     theme: {
         palette: form.theme.palette,
         font: form.theme.font,
@@ -73,25 +162,39 @@ const currentStyleGuideSignature = computed(() => JSON.stringify({
     }
 }))
 const customCssEmpty = computed(() => form.theme.customCss.trim() === '')
-const hasStyleGuide = computed(() => {
-    const guide = siteConfigStore.styleGuide
+const hasStyleCss = computed(() => {
+    const css = siteConfigStore.styleCss
     return Boolean(
-        guide.starterCss ||
-        guide.bodyClasses.length ||
-        guide.selectors.length ||
-        guide.headerVariants.length ||
-        guide.footerVariants.length
+        css.currentCss ||
+        css.themeCss ||
+        css.blankThemeCss ||
+        css.bodyClasses.length
     )
 })
-const hasStarterCss = computed(() => Boolean(siteConfigStore.styleGuide.starterCss))
 const previewIsStale = computed(() => {
     return Boolean(siteConfigStore.previewUrl && previewSignature.value !== currentPreviewSignature.value)
 })
-const styleGuideIsStale = computed(() => {
-    return Boolean(hasStyleGuide.value && styleGuideSignature.value !== currentStyleGuideSignature.value)
+const themeCssReady = computed(() => {
+    return Boolean(
+        siteConfigStore.styleCss.themeCss &&
+        styleCssStructureSignature.value === currentStyleCssStructureSignature.value
+    )
 })
-const starterCssReady = computed(() => hasStarterCss.value && !styleGuideIsStale.value)
-const starterActionLabel = computed(() => customCssEmpty.value ? 'Use theme starter CSS' : 'Reset to theme starter')
+const blankThemeCssReady = computed(() => {
+    return Boolean(
+        siteConfigStore.styleCss.blankThemeCss &&
+        styleCssStructureSignature.value === currentStyleCssStructureSignature.value
+    )
+})
+const styleCssIsStale = computed(() => {
+    return Boolean(
+        hasStyleCss.value &&
+        (
+            styleCssCurrentSignature.value !== currentStyleCssSignature.value ||
+            styleCssStructureSignature.value !== currentStyleCssStructureSignature.value
+        )
+    )
+})
 const previewStatusLabel = computed(() => {
     if (!siteConfigStore.previewUrl) {
         return 'No preview'
@@ -104,36 +207,23 @@ const previewStatusTone = computed(() => {
     }
     return previewIsStale.value ? 'warning' : 'success'
 })
-const styleGuideStatusLabel = computed(() => {
-    if (!hasStyleGuide.value) {
-        return 'No CSS guide'
+const styleCssStatusLabel = computed(() => {
+    if (!hasStyleCss.value) {
+        return 'CSS not loaded'
     }
-    return styleGuideIsStale.value ? 'CSS guide out of date' : 'CSS guide current'
+    return styleCssIsStale.value ? 'CSS out of date' : 'CSS current'
 })
-const styleGuideStatusTone = computed(() => {
-    if (!hasStyleGuide.value) {
+const styleCssStatusTone = computed(() => {
+    if (!hasStyleCss.value) {
         return 'neutral'
     }
-    return styleGuideIsStale.value ? 'warning' : 'success'
+    return styleCssIsStale.value ? 'warning' : 'success'
 })
-const selectorGroups = computed(() => {
-    const groups = []
-    const indexes = new Map()
-
-    for (const selector of siteConfigStore.styleGuide.selectors) {
-        const kind = selector.kind || 'base'
-        if (!indexes.has(kind)) {
-            indexes.set(kind, groups.length)
-            groups.push({
-                kind,
-                label: selectorKindLabel(kind),
-                selectors: []
-            })
-        }
-        groups[indexes.get(kind)].selectors.push(selector)
-    }
-
-    return groups
+const currentCssStateLabel = computed(() => {
+    return siteConfigStore.styleCss.customCssIncluded ? 'Includes custom CSS' : 'Theme/base only'
+})
+const bodyClassText = computed(() => {
+    return siteConfigStore.styleCss.bodyClasses.map((className) => `.${className}`).join(' ')
 })
 
 watch(
@@ -142,12 +232,24 @@ watch(
     { deep: true, immediate: true }
 )
 
+watch(
+    () => siteConfigStore.loading,
+    (loading) => {
+        if (!loading) {
+            refreshStyleCss().catch(() => {})
+        }
+    }
+)
+
 onMounted(() => {
-    refreshStyleGuide().catch(() => {})
+    if (!siteConfigStore.loading) {
+        refreshStyleCss().catch(() => {})
+    }
 })
 
 async function save() {
     await siteConfigStore.saveSiteConfig(form)
+    await refreshStyleCss()
 }
 
 async function preview() {
@@ -155,9 +257,16 @@ async function preview() {
     previewSignature.value = currentPreviewSignature.value
 }
 
-async function refreshStyleGuide() {
-    await siteConfigStore.loadStyleGuide(form)
-    styleGuideSignature.value = currentStyleGuideSignature.value
+async function refreshStyleCss() {
+    const requestId = styleCssRequestId + 1
+    const currentSignature = currentStyleCssSignature.value
+    const structureSignature = currentStyleCssStructureSignature.value
+    styleCssRequestId = requestId
+    await siteConfigStore.loadStyleCss(form)
+    if (requestId === styleCssRequestId) {
+        styleCssCurrentSignature.value = currentSignature
+        styleCssStructureSignature.value = structureSignature
+    }
 }
 
 async function renderSite() {
@@ -208,29 +317,19 @@ function deleteTheme(id) {
     form.savedThemes = form.savedThemes.filter((theme) => theme.id !== id)
 }
 
-function useStarterCss() {
-    if (!starterCssReady.value) {
-        return
-    }
-    form.theme.customCss = siteConfigStore.styleGuide.starterCss
+function useThemeCss() {
+    applyCustomCss(siteConfigStore.styleCss.themeCss)
 }
 
-function selectorKindLabel(kind) {
-    const labels = {
-        variables: 'Variables',
-        body: 'Body',
-        theme: 'Palette',
-        font: 'Font',
-        layout: 'Layout',
-        radius: 'Corners',
-        headerVariant: 'Header',
-        footerVariant: 'Footer',
-        siteChrome: 'Site chrome',
-        content: 'Content',
-        base: 'Base'
-    }
+function useBlankThemeCss() {
+    applyCustomCss(siteConfigStore.styleCss.blankThemeCss)
+}
 
-    return labels[kind] || kind
+function applyCustomCss(css) {
+    if (!css) {
+        return
+    }
+    form.theme.customCss = css
 }
 
 function uniqueThemeId(name) {
@@ -275,16 +374,10 @@ function slugify(value) {
                             <UiBadge :tone="previewStatusTone">
                                 {{ previewStatusLabel }}
                             </UiBadge>
-                            <UiBadge :tone="styleGuideStatusTone">
-                                {{ styleGuideStatusLabel }}
-                            </UiBadge>
                         </div>
                         <div class="button-row">
                             <UiButton tone="primary" :busy="siteConfigStore.previewing" @click="preview">
                                 Refresh preview
-                            </UiButton>
-                            <UiButton tone="ghost" :busy="siteConfigStore.styleGuiding" @click="refreshStyleGuide">
-                                Refresh CSS guide
                             </UiButton>
                         </div>
                     </div>
@@ -324,139 +417,109 @@ function slugify(value) {
                         <section class="custom-css-workspace">
                             <header class="section-header">
                                 <div>
-                                    <h4>Custom CSS</h4>
-                                    <p>{{ customCssEmpty ? 'Empty custom CSS' : 'Custom CSS active' }}</p>
+                                    <h4>CSS</h4>
+                                    <p>{{ customCssEmpty ? 'No editable custom CSS yet' : 'Editable custom CSS active' }}</p>
                                 </div>
                                 <div class="button-row">
-                                    <UiButton tone="ghost" :busy="siteConfigStore.styleGuiding" @click="refreshStyleGuide">
-                                        Refresh guide
+                                    <UiButton tone="ghost" :busy="siteConfigStore.styleCssLoading" @click="refreshStyleCss">
+                                        Refresh CSS
                                     </UiButton>
-                                    <UiButton tone="ghost" :disabled="!starterCssReady" @click="useStarterCss">
-                                        {{ starterActionLabel }}
+                                    <UiButton tone="ghost" @click="showCssGuide = true">
+                                        Open guide
                                     </UiButton>
                                 </div>
                             </header>
 
+                            <div class="status-row">
+                                <UiBadge :tone="styleCssStatusTone">
+                                    {{ styleCssStatusLabel }}
+                                </UiBadge>
+                                <UiBadge v-if="hasStyleCss">
+                                    {{ currentCssStateLabel }}
+                                </UiBadge>
+                            </div>
+
+                            <p v-if="siteConfigStore.styleCssError" class="error-text compact-text">
+                                {{ siteConfigStore.styleCssError }}
+                            </p>
+
+                            <section class="css-current">
+                                <div class="css-current-header">
+                                    <div>
+                                        <h5>Current site CSS</h5>
+                                        <p>Read-only CSS generated for the current draft.</p>
+                                    </div>
+                                    <code v-if="bodyClassText" class="body-class-line">{{ bodyClassText }}</code>
+                                </div>
+                                <textarea
+                                    class="css-readonly"
+                                    :value="siteConfigStore.styleCss.currentCss"
+                                    rows="10"
+                                    readonly
+                                    placeholder="Current CSS is loading."
+                                ></textarea>
+                            </section>
+
+                            <div class="css-action-grid">
+                                <UiButton tone="ghost" :disabled="!themeCssReady" @click="useThemeCss">
+                                    Use theme/base CSS
+                                </UiButton>
+                                <UiButton tone="primary" :disabled="!blankThemeCssReady" @click="useBlankThemeCss">
+                                    Create blank theme CSS
+                                </UiButton>
+                            </div>
+
                             <div v-if="customCssEmpty" class="css-empty-mode">
-                                <strong>Empty custom CSS</strong>
-                                <p>The generated site uses only the selected theme stylesheet.</p>
+                                <strong>No editable custom CSS</strong>
+                                <p>Use the base theme CSS or blank class blocks above to start a saved custom theme.</p>
                             </div>
 
                             <UiField
                                 v-model="form.theme.customCss"
-                                label="CSS rules"
+                                label="Editable custom CSS"
+                                help="This is saved in theme.customCss and appended after the generated theme CSS."
                                 multiline
-                                :rows="12"
-                                placeholder=":root { --color-accent: #256f63; }"
+                                :rows="14"
+                                :placeholder="blankCssPlaceholder"
                             />
+                        </section>
 
-                            <section class="style-guide">
-                                <header class="section-header">
+                        <div
+                            v-if="showCssGuide"
+                            class="guide-overlay"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="css-guide-title"
+                            @click.self="showCssGuide = false"
+                        >
+                            <section class="css-guide-dialog">
+                                <header class="guide-dialog-header">
                                     <div>
-                                        <h4>CSS guide</h4>
-                                        <p>Renderer selectors for this draft.</p>
+                                        <h3 id="css-guide-title">CSS guide</h3>
+                                        <p>Static reference for selectors that the public renderer emits.</p>
                                     </div>
-                                    <UiBadge :tone="styleGuideStatusTone">
-                                        {{ styleGuideStatusLabel }}
-                                    </UiBadge>
+                                    <UiButton tone="ghost" @click="showCssGuide = false">
+                                        Close
+                                    </UiButton>
                                 </header>
 
-                                <p v-if="siteConfigStore.styleGuideError" class="error-text compact-text">
-                                    {{ siteConfigStore.styleGuideError }}
-                                </p>
-
-                                <p v-if="!hasStyleGuide && !siteConfigStore.styleGuiding" class="muted compact-text">
-                                    CSS guide not loaded.
-                                </p>
-
-                                <div v-if="siteConfigStore.styleGuide.bodyClasses.length" class="guide-block">
-                                    <h5>Body classes</h5>
-                                    <div class="chip-list">
-                                        <code
-                                            v-for="className in siteConfigStore.styleGuide.bodyClasses"
-                                            :key="className"
-                                            class="code-chip"
-                                        >.{{ className }}</code>
-                                    </div>
-                                </div>
-
-                                <div
-                                    v-if="siteConfigStore.styleGuide.headerVariants.length || siteConfigStore.styleGuide.footerVariants.length"
-                                    class="variant-grid"
-                                >
-                                    <section v-if="siteConfigStore.styleGuide.headerVariants.length" class="guide-block">
-                                        <h5>Header variants</h5>
-                                        <div class="variant-list">
-                                            <article
-                                                v-for="variant in siteConfigStore.styleGuide.headerVariants"
-                                                :key="variant.variant"
-                                                class="variant-row"
-                                                :class="{ current: variant.current }"
-                                            >
-                                                <code>{{ variant.selector }}</code>
-                                                <div class="variant-meta">
-                                                    <span class="state-chip" :class="{ success: variant.current }">
-                                                        {{ variant.current ? 'current' : 'available' }}
-                                                    </span>
-                                                    <span v-if="!variant.rendered" class="state-chip warning">
-                                                        hidden
-                                                    </span>
-                                                </div>
-                                            </article>
-                                        </div>
-                                    </section>
-
-                                    <section v-if="siteConfigStore.styleGuide.footerVariants.length" class="guide-block">
-                                        <h5>Footer variants</h5>
-                                        <div class="variant-list">
-                                            <article
-                                                v-for="variant in siteConfigStore.styleGuide.footerVariants"
-                                                :key="variant.variant"
-                                                class="variant-row"
-                                                :class="{ current: variant.current }"
-                                            >
-                                                <code>{{ variant.selector }}</code>
-                                                <div class="variant-meta">
-                                                    <span class="state-chip" :class="{ success: variant.current }">
-                                                        {{ variant.current ? 'current' : 'available' }}
-                                                    </span>
-                                                    <span v-if="!variant.rendered" class="state-chip warning">
-                                                        hidden
-                                                    </span>
-                                                </div>
-                                            </article>
-                                        </div>
-                                    </section>
-                                </div>
-
-                                <div v-if="selectorGroups.length" class="selector-scroll">
-                                    <section v-for="group in selectorGroups" :key="group.kind" class="selector-group">
-                                        <header class="selector-group-header">
-                                            <h5>{{ group.label }}</h5>
-                                            <span>{{ group.selectors.length }}</span>
-                                        </header>
-                                        <ul class="selector-list">
-                                            <li
-                                                v-for="selector in group.selectors"
-                                                :key="selector.selector"
-                                                class="selector-item"
-                                                :class="{ current: selector.current }"
-                                            >
-                                                <div class="selector-line">
-                                                    <code>{{ selector.selector }}</code>
-                                                    <span v-if="selector.current" class="state-chip success">
-                                                        current
-                                                    </span>
-                                                </div>
-                                                <p v-if="selector.description">
-                                                    {{ selector.description }}
-                                                </p>
+                                <div class="guide-dialog-grid">
+                                    <article
+                                        v-for="section in cssGuideSections"
+                                        :key="section.title"
+                                        class="guide-dialog-section"
+                                    >
+                                        <h4>{{ section.title }}</h4>
+                                        <ul>
+                                            <li v-for="item in section.items" :key="item.selector">
+                                                <code>{{ item.selector }}</code>
+                                                <span>{{ item.description }}</span>
                                             </li>
                                         </ul>
-                                    </section>
+                                    </article>
                                 </div>
                             </section>
-                        </section>
+                        </div>
 
                         <div class="theme-tools">
                             <div class="theme-save">
@@ -560,13 +623,12 @@ function slugify(value) {
 .site-preview-column,
 .appearance-controls,
 .custom-css-workspace,
-.style-guide,
+.css-current,
 .theme-tools,
 .saved-themes,
-.guide-block,
-.selector-group,
-.selector-list,
-.variant-list {
+.guide-dialog-grid,
+.guide-dialog-section,
+.guide-dialog-section ul {
     display: grid;
     gap: 1rem;
 }
@@ -578,7 +640,6 @@ function slugify(value) {
 
 .appearance-controls,
 .custom-css-workspace,
-.style-guide,
 .theme-tools,
 .saved-themes {
     gap: 0.85rem;
@@ -592,9 +653,7 @@ function slugify(value) {
     justify-content: space-between;
 }
 
-.section-header h4,
-.guide-block h5,
-.selector-group-header h5 {
+.section-header h4 {
     margin: 0;
     color: var(--color-heading);
     font-size: 0.9rem;
@@ -684,109 +743,130 @@ function slugify(value) {
     color: var(--color-muted);
 }
 
-.chip-list,
-.variant-meta,
-.selector-line {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    align-items: center;
-}
-
 code {
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
     font-size: 0.78rem;
     overflow-wrap: anywhere;
 }
 
-.code-chip,
-.state-chip {
-    display: inline-flex;
-    min-height: 1.55rem;
-    align-items: center;
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    padding: 0 0.5rem;
-    background: var(--color-surface);
-    color: var(--color-muted);
-    font-weight: 800;
-}
-
-.state-chip {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-}
-
-.state-chip.success {
-    border-color: color-mix(in srgb, var(--color-success) 28%, var(--color-border));
-    color: var(--color-success);
-}
-
-.state-chip.warning {
-    border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
-    color: var(--color-warning);
-}
-
-.variant-grid {
-    display: grid;
-    gap: 0.75rem;
-}
-
-.variant-row,
-.selector-item {
-    display: grid;
-    gap: 0.45rem;
+.css-current {
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    padding: 0.65rem;
-    background: var(--color-surface);
+    padding: 0.75rem;
+    background: var(--color-surface-muted);
 }
 
-.variant-row.current,
-.selector-item.current {
-    border-color: color-mix(in srgb, var(--color-success) 28%, var(--color-border));
-    background: color-mix(in srgb, var(--color-success) 7%, var(--color-surface));
-}
-
-.selector-scroll {
+.css-current-header {
     display: grid;
-    max-height: 30rem;
-    gap: 0.9rem;
+    gap: 0.45rem;
+}
+
+.css-current h5,
+.guide-dialog-section h4,
+.guide-dialog-header h3 {
+    margin: 0;
+    color: var(--color-heading);
+}
+
+.css-current h5,
+.guide-dialog-section h4 {
+    font-size: 0.9rem;
+}
+
+.css-current p,
+.guide-dialog-header p,
+.guide-dialog-section span {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.84rem;
+}
+
+.body-class-line {
+    display: block;
+    color: var(--color-muted);
+}
+
+.css-readonly {
+    width: 100%;
+    min-height: 14rem;
+    max-height: 24rem;
     overflow: auto;
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    padding: 0.7rem;
+    padding: 0.72rem 0.8rem;
     background: var(--color-surface);
+    color: var(--color-text);
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    resize: vertical;
+    white-space: pre;
 }
 
-.selector-group {
+.css-action-grid {
+    display: grid;
     gap: 0.5rem;
 }
 
-.selector-group-header {
+.guide-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: grid;
+    align-items: start;
+    justify-items: center;
+    overflow: auto;
+    padding: 1rem;
+    background: rgb(18 22 25 / 58%);
+}
+
+.css-guide-dialog {
+    display: grid;
+    width: min(48rem, 100%);
+    max-height: calc(100vh - 2rem);
+    gap: 1rem;
+    overflow: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 1rem;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-soft);
+}
+
+.guide-dialog-header {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-wrap: wrap;
     gap: 0.75rem;
+    align-items: start;
+    justify-content: space-between;
 }
 
-.selector-group-header span {
-    color: var(--color-muted);
-    font-size: 0.78rem;
-    font-weight: 800;
+.guide-dialog-section {
+    gap: 0.55rem;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    background: var(--color-surface-muted);
 }
 
-.selector-list {
+.guide-dialog-section ul {
     margin: 0;
     padding: 0;
     list-style: none;
-    gap: 0.45rem;
+    gap: 0.65rem;
 }
 
-.selector-item p {
-    margin: 0;
+.guide-dialog-section li {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.guide-dialog-section code {
+    color: var(--color-heading);
+}
+
+.guide-dialog-section span {
     color: var(--color-muted);
-    font-size: 0.82rem;
 }
 
 .theme-save {
@@ -862,11 +942,17 @@ iframe {
     align-items: end;
 }
 
-@media (min-width: 860px) {
-    .variant-grid {
+@media (min-width: 700px) {
+    .css-action-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .guide-dialog-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 860px) {
     .theme-save,
     .publish-grid {
         grid-template-columns: minmax(14rem, 0.55fr) minmax(0, 1fr);

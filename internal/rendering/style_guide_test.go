@@ -9,7 +9,7 @@ import (
 	"github.com/nordine-abde/styxpress/internal/siteconfig"
 )
 
-func TestNewStyleGuideReturnsCurrentThemeStarterWithoutCustomCSS(t *testing.T) {
+func TestNewStyleCSSReturnsCurrentThemeCSSAndBlankTemplate(t *testing.T) {
 	cfg := siteconfig.Default()
 	cfg.Theme = siteconfig.ThemeConfig{
 		Palette:   siteconfig.PaletteMidnight,
@@ -30,16 +30,25 @@ func TestNewStyleGuideReturnsCurrentThemeStarterWithoutCustomCSS(t *testing.T) {
 		CustomCSS: ".saved-theme { color: red; }",
 	}}
 
-	guide, err := NewStyleGuide(cfg)
+	css, err := NewStyleCSS(cfg)
 	if err != nil {
-		t.Fatalf("NewStyleGuide returned error: %v", err)
+		t.Fatalf("NewStyleCSS returned error: %v", err)
 	}
 
-	if guide.CustomCSSIncluded {
-		t.Fatalf("CustomCSSIncluded = true, want false")
+	if !css.CustomCSSIncluded {
+		t.Fatalf("CustomCSSIncluded = false, want true")
 	}
-	if !reflect.DeepEqual(guide.BodyClasses, []string{"theme-midnight", "font-mono", "layout-wide", "radius-none"}) {
-		t.Fatalf("BodyClasses = %#v, want current theme classes", guide.BodyClasses)
+	if !reflect.DeepEqual(css.BodyClasses, []string{"theme-midnight", "font-mono", "layout-wide", "radius-none"}) {
+		t.Fatalf("BodyClasses = %#v, want current theme classes", css.BodyClasses)
+	}
+	if css.Theme.Palette != siteconfig.PaletteMidnight || css.Theme.Font != siteconfig.FontMono || css.Theme.Layout != siteconfig.LayoutWide || css.Theme.Radius != siteconfig.RadiusNone {
+		t.Fatalf("Theme = %#v, want current theme state", css.Theme)
+	}
+	if css.Header.ClassName != "site-header-centered" || !css.Header.Rendered {
+		t.Fatalf("Header = %#v, want centered rendered header", css.Header)
+	}
+	if css.Footer.ClassName != "site-footer-links" || !css.Footer.Rendered {
+		t.Fatalf("Footer = %#v, want links rendered footer", css.Footer)
 	}
 	for _, expected := range []string{
 		":root {",
@@ -53,8 +62,8 @@ func TestNewStyleGuideReturnsCurrentThemeStarterWithoutCustomCSS(t *testing.T) {
 		".post-card {",
 		"@media (min-width: 760px)",
 	} {
-		if !strings.Contains(guide.StarterCSS, expected) {
-			t.Fatalf("expected %q in starter CSS:\n%s", expected, guide.StarterCSS)
+		if !strings.Contains(css.ThemeCSS, expected) {
+			t.Fatalf("expected %q in theme CSS:\n%s", expected, css.ThemeCSS)
 		}
 	}
 	for _, excluded := range []string{
@@ -64,53 +73,81 @@ func TestNewStyleGuideReturnsCurrentThemeStarterWithoutCustomCSS(t *testing.T) {
 		".theme-clay {",
 		".font-serif {",
 	} {
-		if strings.Contains(guide.StarterCSS, excluded) {
-			t.Fatalf("starter CSS should not contain %q:\n%s", excluded, guide.StarterCSS)
+		if strings.Contains(css.ThemeCSS, excluded) {
+			t.Fatalf("theme CSS should not contain %q:\n%s", excluded, css.ThemeCSS)
 		}
 	}
-	assertStyleSelector(t, guide.Selectors, "body.theme-midnight.font-mono.layout-wide.radius-none", "", "body", true)
-	assertStyleSelector(t, guide.Selectors, ".theme-midnight", "theme-midnight", "theme", true)
-	assertStyleSelector(t, guide.Selectors, ".site-header-minimal", "site-header-minimal", "headerVariant", false)
-	assertStyleSelector(t, guide.Selectors, ".site-footer-links", "site-footer-links", "footerVariant", true)
-	assertStyleVariant(t, guide.HeaderVariants, siteconfig.HeaderCentered, "site-header-centered", true, true)
-	assertStyleVariant(t, guide.HeaderVariants, siteconfig.HeaderHidden, "site-header-hidden", false, false)
-	assertStyleVariant(t, guide.FooterVariants, siteconfig.FooterLinks, "site-footer-links", true, true)
+	if !strings.Contains(css.CurrentCSS, ".site-main { outline: 3px solid lime; }") {
+		t.Fatalf("current CSS should include draft custom CSS:\n%s", css.CurrentCSS)
+	}
+	for _, expected := range []string{
+		"*::before",
+		".theme-sage {",
+		".font-serif {",
+	} {
+		if !strings.Contains(css.CurrentCSS, expected) {
+			t.Fatalf("current CSS should contain full renderer stylesheet selector %q:\n%s", expected, css.CurrentCSS)
+		}
+	}
+	if strings.Contains(css.CurrentCSS, ".saved-theme { color: red; }") {
+		t.Fatalf("current CSS should not include saved theme custom CSS:\n%s", css.CurrentCSS)
+	}
+	for _, expected := range []string{
+		"body.theme-midnight.font-mono.layout-wide.radius-none {\n}",
+		".theme-midnight {\n}",
+		".font-mono {\n}",
+		".layout-wide {\n}",
+		".radius-none {\n}",
+		".site-header-centered {\n}",
+		".site-footer-links {\n}",
+		".site-main {\n}",
+		"@media (min-width: 760px)",
+	} {
+		if !strings.Contains(css.BlankThemeCSS, expected) {
+			t.Fatalf("expected %q in blank theme CSS:\n%s", expected, css.BlankThemeCSS)
+		}
+	}
+	if strings.Contains(css.BlankThemeCSS, "outline: 3px solid lime") ||
+		strings.Contains(css.BlankThemeCSS, "--site-bg:") ||
+		strings.Contains(css.BlankThemeCSS, "grid-template-columns:") {
+		t.Fatalf("blank theme CSS should contain empty rules only:\n%s", css.BlankThemeCSS)
+	}
 }
 
-func TestNewStyleGuideRejectsInvalidSiteConfig(t *testing.T) {
+func TestNewStyleCSSReturnsDefaultClassBlocksForBlankTheme(t *testing.T) {
+	css, err := NewStyleCSS(siteconfig.Default())
+	if err != nil {
+		t.Fatalf("NewStyleCSS returned error: %v", err)
+	}
+
+	for _, expected := range []string{
+		"body.theme-ink.font-system.layout-classic.radius-soft {\n}",
+		".theme-ink {\n}",
+		".font-system {\n}",
+		".layout-classic {\n}",
+		".radius-soft {\n}",
+	} {
+		if !strings.Contains(css.BlankThemeCSS, expected) {
+			t.Fatalf("expected %q in blank theme CSS:\n%s", expected, css.BlankThemeCSS)
+		}
+	}
+	if css.CustomCSSIncluded {
+		t.Fatalf("CustomCSSIncluded = true, want false")
+	}
+	if css.CurrentCSS != siteStyleSheet {
+		t.Fatalf("CurrentCSS should match renderer stylesheet when no custom CSS is configured")
+	}
+	if css.CurrentCSS == css.ThemeCSS {
+		t.Fatalf("ThemeCSS should be filtered for the selected theme")
+	}
+}
+
+func TestNewStyleCSSRejectsInvalidSiteConfig(t *testing.T) {
 	cfg := siteconfig.Default()
 	cfg.Theme.Palette = "unknown"
 
-	_, err := NewStyleGuide(cfg)
+	_, err := NewStyleCSS(cfg)
 	if !errors.Is(err, siteconfig.ErrInvalidConfig) {
-		t.Fatalf("NewStyleGuide error = %v, want ErrInvalidConfig", err)
+		t.Fatalf("NewStyleCSS error = %v, want ErrInvalidConfig", err)
 	}
-}
-
-func assertStyleSelector(t *testing.T, selectors []StyleSelector, selector string, className string, kind string, current bool) {
-	t.Helper()
-	for _, candidate := range selectors {
-		if candidate.Selector != selector {
-			continue
-		}
-		if candidate.ClassName != className || candidate.Kind != kind || candidate.Current != current {
-			t.Fatalf("selector %q = %#v, want class=%q kind=%q current=%v", selector, candidate, className, kind, current)
-		}
-		return
-	}
-	t.Fatalf("selector %q not found in %#v", selector, selectors)
-}
-
-func assertStyleVariant(t *testing.T, variants []StyleVariant, variant string, className string, current bool, rendered bool) {
-	t.Helper()
-	for _, candidate := range variants {
-		if candidate.Variant != variant {
-			continue
-		}
-		if candidate.ClassName != className || candidate.Selector != "."+className || candidate.Current != current || candidate.Rendered != rendered {
-			t.Fatalf("variant %q = %#v, want class=%q current=%v rendered=%v", variant, candidate, className, current, rendered)
-		}
-		return
-	}
-	t.Fatalf("variant %q not found in %#v", variant, variants)
 }
