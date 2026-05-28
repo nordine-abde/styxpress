@@ -415,7 +415,7 @@ func (s *Server) testSSH(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cfg, err := config.LoadOrDefault(s.configPath)
+	cfg, err := s.loadConfig()
 	if err != nil {
 		s.logger.Printf("load config: %v", err)
 		WriteError(w, http.StatusInternalServerError, "config_load_failed", "failed to load config")

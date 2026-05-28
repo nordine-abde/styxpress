@@ -91,6 +91,40 @@ func TestTestSSHUsesOptionalPassphrase(t *testing.T) {
 	}
 }
 
+func TestTestSSHUsesActiveSiteConfig(t *testing.T) {
+	store := config.NewSiteStore(t.TempDir())
+	site, err := store.Create(config.Config{
+		Name:            "Remote Site",
+		RemoteHost:      "active.example.com",
+		RemoteUser:      "deploy",
+		SSHKeyPath:      "/tmp/id_ed25519",
+		RemotePublicDir: "/srv/site/public",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	server, err := newServer("", store, nil)
+	if err != nil {
+		t.Fatalf("newServer returned error: %v", err)
+	}
+	server.sshTester = func(_ *http.Request, got config.Config, _ string) error {
+		if got.RemoteHost != site.Config.RemoteHost {
+			t.Fatalf("RemoteHost = %q, want %q", got.RemoteHost, site.Config.RemoteHost)
+		}
+		return nil
+	}
+
+	recorder := httptest.NewRecorder()
+	request := authedRequest(t, server, http.MethodPost, "/api/test-ssh", `{}`)
+
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestPostWorkflowPreviewAndFeaturedEndpoints(t *testing.T) {
 	server, contentDir, _ := newTestServer(t)
 

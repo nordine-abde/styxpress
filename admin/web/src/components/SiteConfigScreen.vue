@@ -13,7 +13,9 @@ const siteConfigStore = useSiteConfigStore()
 const publishingStore = usePublishingStore()
 const form = reactive(cloneDefault())
 const themeName = ref('')
-const passphrase = ref('')
+const activeThemeId = ref('')
+const activeCustomizerSection = ref('identity')
+const previewExpanded = ref(false)
 const previewSignature = ref('')
 const styleCssCurrentSignature = ref('')
 const styleCssStructureSignature = ref('')
@@ -52,6 +54,14 @@ const footerOptions = [
     { value: 'hidden', label: 'Hidden' }
 ]
 const blankCssPlaceholder = 'body.theme-warm.font-system.layout-classic.radius-soft {\n}'
+const customizerSections = [
+    { id: 'identity', label: 'Identity' },
+    { id: 'theme', label: 'Theme' },
+    { id: 'header', label: 'Header' },
+    { id: 'footer', label: 'Footer' },
+    { id: 'css', label: 'CSS' },
+    { id: 'publish', label: 'Publish' }
+]
 const cssGuideSections = [
     {
         title: 'Body pattern',
@@ -175,18 +185,6 @@ const hasStyleCss = computed(() => {
 const previewIsStale = computed(() => {
     return Boolean(siteConfigStore.previewUrl && previewSignature.value !== currentPreviewSignature.value)
 })
-const themeCssReady = computed(() => {
-    return Boolean(
-        siteConfigStore.styleCss.themeCss &&
-        styleCssStructureSignature.value === currentStyleCssStructureSignature.value
-    )
-})
-const blankThemeCssReady = computed(() => {
-    return Boolean(
-        siteConfigStore.styleCss.blankThemeCss &&
-        styleCssStructureSignature.value === currentStyleCssStructureSignature.value
-    )
-})
 const styleCssIsStale = computed(() => {
     return Boolean(
         hasStyleCss.value &&
@@ -225,6 +223,33 @@ const currentCssStateLabel = computed(() => {
 })
 const bodyClassText = computed(() => {
     return siteConfigStore.styleCss.bodyClasses.map((className) => `.${className}`).join(' ')
+})
+const activeSavedTheme = computed(() => {
+    return form.savedThemes.find((theme) => theme.id === activeThemeId.value) || null
+})
+const themeContextLabel = computed(() => {
+    if (activeSavedTheme.value) {
+        return `Editing custom theme "${activeSavedTheme.value.name}"`
+    }
+    return 'Editing a predefined theme'
+})
+const currentCssEditorPlaceholder = computed(() => {
+    return siteConfigStore.styleCss.currentCss || blankCssPlaceholder
+})
+const currentCssReady = computed(() => {
+    return Boolean(
+        siteConfigStore.styleCss.currentCss &&
+        styleCssCurrentSignature.value === currentStyleCssSignature.value
+    )
+})
+const cssEditorHelp = computed(() => {
+    if (activeSavedTheme.value) {
+        return 'Save changes to update this custom theme, or save as a new theme to branch it.'
+    }
+    return 'Predefined themes are not overwritten. Save as a new theme when you want to keep this CSS.'
+})
+const activeCustomizerTitle = computed(() => {
+    return customizerSections.find((section) => section.id === activeCustomizerSection.value)?.label || 'Identity'
 })
 
 watch(
@@ -277,10 +302,10 @@ async function renderSite() {
 
 async function publishSite() {
     await siteConfigStore.saveSiteConfig(form)
-    await publishingStore.publishSite(passphrase.value)
+    await publishingStore.publishSite(publishingStore.sshPassphrase)
 }
 
-function saveTheme() {
+function saveThemeAsNew() {
     const name = themeName.value.trim()
     if (!name) {
         return
@@ -303,10 +328,27 @@ function saveTheme() {
     form.savedThemes = existing
         ? form.savedThemes.map((theme) => theme.id === existing.id ? nextTheme : theme)
         : [...form.savedThemes, nextTheme]
+    activeThemeId.value = id
     themeName.value = ''
 }
 
+function saveActiveTheme() {
+    if (!activeSavedTheme.value) {
+        return
+    }
+    const nextTheme = {
+        ...activeSavedTheme.value,
+        palette: form.theme.palette,
+        font: form.theme.font,
+        layout: form.theme.layout,
+        radius: form.theme.radius,
+        customCss: form.theme.customCss
+    }
+    form.savedThemes = form.savedThemes.map((theme) => theme.id === nextTheme.id ? nextTheme : theme)
+}
+
 function applyTheme(theme) {
+    activeThemeId.value = theme.id
     form.theme.palette = theme.palette
     form.theme.font = theme.font
     form.theme.layout = theme.layout
@@ -316,14 +358,13 @@ function applyTheme(theme) {
 
 function deleteTheme(id) {
     form.savedThemes = form.savedThemes.filter((theme) => theme.id !== id)
+    if (activeThemeId.value === id) {
+        activeThemeId.value = ''
+    }
 }
 
-function useThemeCss() {
-    applyCustomCss(siteConfigStore.styleCss.themeCss)
-}
-
-function useBlankThemeCss() {
-    applyCustomCss(siteConfigStore.styleCss.blankThemeCss)
+function useCurrentCss() {
+    applyCustomCss(siteConfigStore.styleCss.currentCss)
 }
 
 function applyCustomCss(css) {
@@ -360,15 +401,217 @@ function slugify(value) {
 
 <template>
     <form class="site-config" @submit.prevent="save">
-        <UiPanel title="Site identity" subtitle="These values render into the public blog, feed, and generated pages.">
-            <div class="field-grid">
-                <UiField v-model="form.title" label="Site title" />
-                <UiField v-model="form.description" label="Site description" />
-            </div>
-        </UiPanel>
+        <div class="customizer-shell" :class="{ 'preview-expanded': previewExpanded }">
+            <aside class="customizer-sidebar">
+                <nav class="customizer-nav" aria-label="Style sections">
+                    <button
+                        v-for="section in customizerSections"
+                        :key="section.id"
+                        type="button"
+                        :class="{ active: activeCustomizerSection === section.id }"
+                        @click="activeCustomizerSection = section.id"
+                    >
+                        {{ section.label }}
+                    </button>
+                </nav>
 
-        <div class="site-workbench">
-            <aside class="site-preview-column">
+                <div class="customizer-controls">
+                    <UiPanel
+                        v-if="activeCustomizerSection === 'identity'"
+                        title="Site identity"
+                        subtitle="These values render into the public blog, feed, and generated pages."
+                    >
+                        <div class="field-grid">
+                            <UiField v-model="form.title" label="Site title" />
+                            <UiField v-model="form.description" label="Site description" />
+                        </div>
+                    </UiPanel>
+
+                    <UiPanel
+                        v-else-if="activeCustomizerSection === 'theme'"
+                        title="Theme"
+                        subtitle="Preset controls and saved custom themes."
+                    >
+                        <div class="appearance-controls">
+                            <div class="two-column">
+                                <UiSelect v-model="form.theme.palette" label="Palette" :options="paletteOptions" />
+                                <UiSelect v-model="form.theme.font" label="Font" :options="fontOptions" />
+                                <UiSelect v-model="form.theme.layout" label="Layout" :options="layoutOptions" />
+                                <UiSelect v-model="form.theme.radius" label="Corners" :options="radiusOptions" />
+                            </div>
+
+                            <div class="theme-preview" :class="`palette-${form.theme.palette}`" aria-hidden="true">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
+
+                            <div class="theme-tools">
+                                <p class="theme-context">{{ themeContextLabel }}</p>
+                                <div class="theme-save">
+                                    <UiField v-model="themeName" label="New theme name" placeholder="Editorial green" />
+                                    <UiButton :disabled="!themeName.trim()" @click="saveThemeAsNew">
+                                        Save as new theme
+                                    </UiButton>
+                                </div>
+                                <UiButton v-if="activeSavedTheme" tone="primary" @click="saveActiveTheme">
+                                    Save changes to theme
+                                </UiButton>
+
+                                <div v-if="form.savedThemes.length" class="saved-themes">
+                                    <article v-for="theme in form.savedThemes" :key="theme.id" class="saved-theme">
+                                        <div>
+                                            <strong>{{ theme.name }}</strong>
+                                            <p>{{ theme.palette }} / {{ theme.font }} / {{ theme.layout }} / {{ theme.radius }}</p>
+                                        </div>
+                                        <div class="button-row">
+                                            <UiButton tone="ghost" @click="applyTheme(theme)">
+                                                Apply
+                                            </UiButton>
+                                            <UiButton tone="danger" @click="deleteTheme(theme.id)">
+                                                Delete
+                                            </UiButton>
+                                        </div>
+                                    </article>
+                                </div>
+                                <p v-else class="muted compact-text">
+                                    No saved themes yet.
+                                </p>
+                            </div>
+                        </div>
+                    </UiPanel>
+
+                    <UiPanel v-else-if="activeCustomizerSection === 'header'" title="Header">
+                        <div class="field-grid">
+                            <UiSelect v-model="form.header.variant" label="Header style" :options="headerOptions" />
+                            <div class="two-column">
+                                <UiField v-model="form.header.title" label="Header title" />
+                                <UiField v-model="form.header.tagline" label="Header tagline" />
+                            </div>
+                            <SiteLinkEditor v-model="form.header.links" title="Header links" />
+                        </div>
+                    </UiPanel>
+
+                    <UiPanel v-else-if="activeCustomizerSection === 'footer'" title="Footer">
+                        <div class="field-grid">
+                            <UiSelect v-model="form.footer.variant" label="Footer style" :options="footerOptions" />
+                            <UiField v-model="form.footer.text" label="Footer text" />
+                            <SiteLinkEditor v-model="form.footer.links" title="Footer links" />
+                        </div>
+                    </UiPanel>
+
+                    <UiPanel
+                        v-else-if="activeCustomizerSection === 'css'"
+                        title="CSS"
+                        subtitle="One editor for the CSS applied to this draft."
+                    >
+                        <section class="custom-css-workspace">
+                            <header class="section-header">
+                                <div>
+                                    <h4>{{ customCssEmpty ? 'No custom CSS saved' : 'Custom CSS draft' }}</h4>
+                                    <p>{{ cssEditorHelp }}</p>
+                                </div>
+                                <div class="button-row">
+                                    <UiButton tone="ghost" :busy="siteConfigStore.styleCssLoading" @click="refreshStyleCss">
+                                        Refresh CSS
+                                    </UiButton>
+                                    <UiButton tone="ghost" @click="showCssGuide = true">
+                                        Open guide
+                                    </UiButton>
+                                </div>
+                            </header>
+
+                            <div class="status-row">
+                                <UiBadge :tone="styleCssStatusTone">
+                                    {{ styleCssStatusLabel }}
+                                </UiBadge>
+                                <UiBadge v-if="hasStyleCss">
+                                    {{ currentCssStateLabel }}
+                                </UiBadge>
+                            </div>
+                            <code v-if="bodyClassText" class="body-class-line">{{ bodyClassText }}</code>
+
+                            <p v-if="siteConfigStore.styleCssError" class="error-text compact-text">
+                                {{ siteConfigStore.styleCssError }}
+                            </p>
+
+                            <UiButton tone="ghost" :disabled="!currentCssReady" @click="useCurrentCss">
+                                Load current CSS into editor
+                            </UiButton>
+
+                            <UiField
+                                v-model="form.theme.customCss"
+                                label="Theme CSS"
+                                :help="themeContextLabel"
+                                multiline
+                                :rows="22"
+                                :placeholder="currentCssEditorPlaceholder"
+                            />
+
+                            <div class="css-theme-actions">
+                                <p class="theme-context">{{ themeContextLabel }}</p>
+                                <div class="theme-save">
+                                    <UiField v-model="themeName" label="New theme name" placeholder="Editorial green" />
+                                    <UiButton :disabled="!themeName.trim()" @click="saveThemeAsNew">
+                                        Save as new theme
+                                    </UiButton>
+                                </div>
+                                <UiButton v-if="activeSavedTheme" tone="primary" @click="saveActiveTheme">
+                                    Save changes to theme
+                                </UiButton>
+                            </div>
+                        </section>
+                    </UiPanel>
+
+                    <UiPanel
+                        v-else
+                        title="Publish site"
+                        subtitle="Save this form, then render or publish every public page."
+                    >
+                        <div class="publish-grid">
+                            <div class="publish-connection">
+                                <UiBadge :tone="publishingStore.sshStatusTone">
+                                    {{ publishingStore.sshStatusLabel }}
+                                </UiBadge>
+                                <p>SSH passphrase and connection test live in Configuration.</p>
+                            </div>
+
+                            <div class="button-row publish-actions">
+                                <UiButton tone="primary" type="submit" :busy="siteConfigStore.saving">
+                                    Save site
+                                </UiButton>
+                                <UiButton tone="ghost" :busy="siteConfigStore.saving || publishingStore.rendering" @click="renderSite">
+                                    Save and render site
+                                </UiButton>
+                                <UiButton tone="primary" :busy="siteConfigStore.saving || publishingStore.publishing" @click="publishSite">
+                                    Save and publish site
+                                </UiButton>
+                                <UiButton tone="ghost" :busy="siteConfigStore.loading" @click="siteConfigStore.loadSiteConfig">
+                                    Reload
+                                </UiButton>
+                            </div>
+                        </div>
+
+                        <div v-if="publishingStore.lastResult" class="result">
+                            <strong>Last result</strong>
+                            <p v-if="publishingStore.lastResult.posts">
+                                {{ publishingStore.lastResult.posts.length }} posts rendered
+                            </p>
+                            <p v-if="publishingStore.lastResult.site">
+                                {{ publishingStore.lastResult.site.indexPath }}
+                            </p>
+                            <p v-if="publishingStore.lastResult.publish">
+                                {{ publishingStore.lastResult.publish.uploadedPaths.length }} uploaded files
+                            </p>
+                        </div>
+                        <p v-if="publishingStore.error" class="error-text compact-text">
+                            {{ publishingStore.error }}
+                        </p>
+                    </UiPanel>
+                </div>
+            </aside>
+
+            <section class="customizer-preview-column" :aria-label="`${activeCustomizerTitle} preview`">
                 <UiPanel title="Draft preview" subtitle="Renders the current draft without saving.">
                     <div class="preview-toolbar">
                         <div class="status-row">
@@ -379,6 +622,9 @@ function slugify(value) {
                         <div class="button-row">
                             <UiButton tone="primary" :busy="siteConfigStore.previewing" @click="preview">
                                 Refresh preview
+                            </UiButton>
+                            <UiButton tone="ghost" @click="previewExpanded = !previewExpanded">
+                                {{ previewExpanded ? 'Close large preview' : 'Expand preview' }}
                             </UiButton>
                         </div>
                     </div>
@@ -397,220 +643,44 @@ function slugify(value) {
                         {{ siteConfigStore.previewError }}
                     </p>
                 </UiPanel>
-            </aside>
+            </section>
+        </div>
 
-            <div class="site-editor-column">
-                <UiPanel title="Appearance" subtitle="Theme, typography, layout, and saved theme presets.">
-                    <div class="appearance-controls">
-                        <div class="two-column">
-                            <UiSelect v-model="form.theme.palette" label="Palette" :options="paletteOptions" />
-                            <UiSelect v-model="form.theme.font" label="Font" :options="fontOptions" />
-                            <UiSelect v-model="form.theme.layout" label="Layout" :options="layoutOptions" />
-                            <UiSelect v-model="form.theme.radius" label="Corners" :options="radiusOptions" />
-                        </div>
-
-                        <div class="theme-preview" :class="`palette-${form.theme.palette}`" aria-hidden="true">
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                        </div>
-
-                        <div class="theme-tools">
-                            <div class="theme-save">
-                                <UiField v-model="themeName" label="Theme name" placeholder="Editorial green" />
-                                <UiButton :disabled="!themeName.trim()" @click="saveTheme">
-                                    Save theme
-                                </UiButton>
-                            </div>
-
-                            <div v-if="form.savedThemes.length" class="saved-themes">
-                                <article v-for="theme in form.savedThemes" :key="theme.id" class="saved-theme">
-                                    <div>
-                                        <strong>{{ theme.name }}</strong>
-                                        <p>{{ theme.palette }} / {{ theme.font }} / {{ theme.layout }} / {{ theme.radius }}</p>
-                                    </div>
-                                    <div class="button-row">
-                                        <UiButton tone="ghost" @click="applyTheme(theme)">
-                                            Apply
-                                        </UiButton>
-                                        <UiButton tone="danger" @click="deleteTheme(theme.id)">
-                                            Delete
-                                        </UiButton>
-                                    </div>
-                                </article>
-                            </div>
-                            <p v-else class="muted compact-text">
-                                No saved themes yet.
-                            </p>
-                        </div>
+        <div
+            v-if="showCssGuide"
+            class="guide-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="css-guide-title"
+            @click.self="showCssGuide = false"
+        >
+            <section class="css-guide-dialog">
+                <header class="guide-dialog-header">
+                    <div>
+                        <h3 id="css-guide-title">CSS guide</h3>
+                        <p>Static reference for selectors that the public renderer emits.</p>
                     </div>
-                </UiPanel>
+                    <UiButton tone="ghost" @click="showCssGuide = false">
+                        Close
+                    </UiButton>
+                </header>
 
-                <UiPanel title="Header">
-                    <div class="field-grid">
-                        <UiSelect v-model="form.header.variant" label="Header style" :options="headerOptions" />
-                        <div class="two-column">
-                            <UiField v-model="form.header.title" label="Header title" />
-                            <UiField v-model="form.header.tagline" label="Header tagline" />
-                        </div>
-                        <SiteLinkEditor v-model="form.header.links" title="Header links" />
-                    </div>
-                </UiPanel>
-
-                <UiPanel title="Footer">
-                    <div class="field-grid">
-                        <UiSelect v-model="form.footer.variant" label="Footer style" :options="footerOptions" />
-                        <UiField v-model="form.footer.text" label="Footer text" />
-                        <SiteLinkEditor v-model="form.footer.links" title="Footer links" />
-                    </div>
-                </UiPanel>
-
-                <UiPanel title="Publish site" subtitle="Save this form, then render or publish every public page.">
-                    <div class="publish-grid">
-                        <UiField v-model="passphrase" label="SSH passphrase" type="password" placeholder="Optional" />
-
-                        <div class="button-row publish-actions">
-                            <UiButton tone="primary" type="submit" :busy="siteConfigStore.saving">
-                                Save site
-                            </UiButton>
-                            <UiButton tone="ghost" :busy="siteConfigStore.saving || publishingStore.rendering" @click="renderSite">
-                                Save and render site
-                            </UiButton>
-                            <UiButton tone="primary" :busy="siteConfigStore.saving || publishingStore.publishing" @click="publishSite">
-                                Save and publish site
-                            </UiButton>
-                            <UiButton tone="ghost" :busy="siteConfigStore.loading" @click="siteConfigStore.loadSiteConfig">
-                                Reload
-                            </UiButton>
-                        </div>
-                    </div>
-
-                    <div v-if="publishingStore.lastResult" class="result">
-                        <strong>Last result</strong>
-                        <p v-if="publishingStore.lastResult.posts">
-                            {{ publishingStore.lastResult.posts.length }} posts rendered
-                        </p>
-                        <p v-if="publishingStore.lastResult.site">
-                            {{ publishingStore.lastResult.site.indexPath }}
-                        </p>
-                        <p v-if="publishingStore.lastResult.publish">
-                            {{ publishingStore.lastResult.publish.uploadedPaths.length }} uploaded files
-                        </p>
-                    </div>
-                    <p v-if="publishingStore.error" class="error-text compact-text">
-                        {{ publishingStore.error }}
-                    </p>
-                </UiPanel>
-
-                <UiPanel title="Custom CSS" subtitle="Advanced theme editing for generated public pages.">
-                    <section class="custom-css-workspace">
-                        <header class="section-header">
-                            <div>
-                                <h4>CSS</h4>
-                                <p>{{ customCssEmpty ? 'No editable custom CSS yet' : 'Editable custom CSS active' }}</p>
-                            </div>
-                            <div class="button-row">
-                                <UiButton tone="ghost" :busy="siteConfigStore.styleCssLoading" @click="refreshStyleCss">
-                                    Refresh CSS
-                                </UiButton>
-                                <UiButton tone="ghost" @click="showCssGuide = true">
-                                    Open guide
-                                </UiButton>
-                            </div>
-                        </header>
-
-                        <div class="status-row">
-                            <UiBadge :tone="styleCssStatusTone">
-                                {{ styleCssStatusLabel }}
-                            </UiBadge>
-                            <UiBadge v-if="hasStyleCss">
-                                {{ currentCssStateLabel }}
-                            </UiBadge>
-                        </div>
-
-                        <p v-if="siteConfigStore.styleCssError" class="error-text compact-text">
-                            {{ siteConfigStore.styleCssError }}
-                        </p>
-
-                        <section class="css-current">
-                            <div class="css-current-header">
-                                <div>
-                                    <h5>Current site CSS</h5>
-                                    <p>Read-only CSS generated for the current draft.</p>
-                                </div>
-                                <code v-if="bodyClassText" class="body-class-line">{{ bodyClassText }}</code>
-                            </div>
-                            <textarea
-                                class="css-readonly"
-                                :value="siteConfigStore.styleCss.currentCss"
-                                rows="10"
-                                readonly
-                                placeholder="Current CSS is loading."
-                            ></textarea>
-                        </section>
-
-                        <div class="css-action-grid">
-                            <UiButton tone="ghost" :disabled="!themeCssReady" @click="useThemeCss">
-                                Use theme/base CSS
-                            </UiButton>
-                            <UiButton tone="primary" :disabled="!blankThemeCssReady" @click="useBlankThemeCss">
-                                Create blank theme CSS
-                            </UiButton>
-                        </div>
-
-                        <div v-if="customCssEmpty" class="css-empty-mode">
-                            <strong>No editable custom CSS</strong>
-                            <p>Use the base theme CSS or blank class blocks above to start a saved custom theme.</p>
-                        </div>
-
-                        <UiField
-                            v-model="form.theme.customCss"
-                            label="Editable custom CSS"
-                            help="This is saved in theme.customCss and appended after the generated theme CSS."
-                            multiline
-                            :rows="14"
-                            :placeholder="blankCssPlaceholder"
-                        />
-                    </section>
-
-                    <div
-                        v-if="showCssGuide"
-                        class="guide-overlay"
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="css-guide-title"
-                        @click.self="showCssGuide = false"
+                <div class="guide-dialog-grid">
+                    <article
+                        v-for="section in cssGuideSections"
+                        :key="section.title"
+                        class="guide-dialog-section"
                     >
-                        <section class="css-guide-dialog">
-                            <header class="guide-dialog-header">
-                                <div>
-                                    <h3 id="css-guide-title">CSS guide</h3>
-                                    <p>Static reference for selectors that the public renderer emits.</p>
-                                </div>
-                                <UiButton tone="ghost" @click="showCssGuide = false">
-                                    Close
-                                </UiButton>
-                            </header>
-
-                            <div class="guide-dialog-grid">
-                                <article
-                                    v-for="section in cssGuideSections"
-                                    :key="section.title"
-                                    class="guide-dialog-section"
-                                >
-                                    <h4>{{ section.title }}</h4>
-                                    <ul>
-                                        <li v-for="item in section.items" :key="item.selector">
-                                            <code>{{ item.selector }}</code>
-                                            <span>{{ item.description }}</span>
-                                        </li>
-                                    </ul>
-                                </article>
-                            </div>
-                        </section>
-                    </div>
-                </UiPanel>
-            </div>
+                        <h4>{{ section.title }}</h4>
+                        <ul>
+                            <li v-for="item in section.items" :key="item.selector">
+                                <code>{{ item.selector }}</code>
+                                <span>{{ item.description }}</span>
+                            </li>
+                        </ul>
+                    </article>
+                </div>
+            </section>
         </div>
     </form>
 </template>
@@ -621,12 +691,13 @@ function slugify(value) {
     gap: 1rem;
 }
 
-.site-workbench,
-.site-editor-column,
-.site-preview-column,
+.customizer-shell,
+.customizer-sidebar,
+.customizer-controls,
+.customizer-preview-column,
 .appearance-controls,
 .custom-css-workspace,
-.css-current,
+.css-theme-actions,
 .theme-tools,
 .saved-themes,
 .guide-dialog-grid,
@@ -636,24 +707,50 @@ function slugify(value) {
     gap: 1rem;
 }
 
-.site-editor-column,
-.site-preview-column {
+.customizer-sidebar,
+.customizer-controls,
+.customizer-preview-column {
     min-width: 0;
 }
 
-.site-editor-column {
-    order: 1;
+.customizer-preview-column {
+    order: 2;
 }
 
-.site-preview-column {
-    order: 2;
+.customizer-sidebar {
+    order: 1;
 }
 
 .appearance-controls,
 .custom-css-workspace,
+.css-theme-actions,
 .theme-tools,
 .saved-themes {
     gap: 0.85rem;
+}
+
+.customizer-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+}
+
+.customizer-nav button {
+    min-height: 2.4rem;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 0 0.75rem;
+    background: color-mix(in srgb, var(--color-surface) 78%, white);
+    color: var(--color-text);
+    font-weight: 800;
+    text-align: left;
+}
+
+.customizer-nav button:hover,
+.customizer-nav button.active {
+    border-color: color-mix(in srgb, var(--color-accent) 48%, var(--color-border));
+    background: color-mix(in srgb, var(--color-accent) 22%, var(--color-surface));
+    color: var(--color-heading);
 }
 
 .section-header {
@@ -748,55 +845,22 @@ function slugify(value) {
     background: #7fc7b1;
 }
 
-.css-empty-mode {
-    display: grid;
-    gap: 0.25rem;
-    border: 1px dashed var(--color-border);
-    border-radius: 8px;
-    padding: 0.75rem;
-    background: var(--color-surface-muted);
-}
-
-.css-empty-mode strong {
-    color: var(--color-heading);
-}
-
-.css-empty-mode p {
-    margin: 0;
-    color: var(--color-muted);
-}
-
 code {
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
     font-size: 0.78rem;
     overflow-wrap: anywhere;
 }
 
-.css-current {
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    padding: 0.75rem;
-    background: var(--color-surface-muted);
-}
-
-.css-current-header {
-    display: grid;
-    gap: 0.45rem;
-}
-
-.css-current h5,
 .guide-dialog-section h4,
 .guide-dialog-header h3 {
     margin: 0;
     color: var(--color-heading);
 }
 
-.css-current h5,
 .guide-dialog-section h4 {
     font-size: 0.9rem;
 }
 
-.css-current p,
 .guide-dialog-header p,
 .guide-dialog-section span {
     margin: 0;
@@ -807,28 +871,6 @@ code {
 .body-class-line {
     display: block;
     color: var(--color-muted);
-}
-
-.css-readonly {
-    width: 100%;
-    min-height: 14rem;
-    max-height: 24rem;
-    overflow: auto;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    padding: 0.72rem 0.8rem;
-    background: var(--color-surface);
-    color: var(--color-text);
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-    font-size: 0.82rem;
-    line-height: 1.55;
-    resize: vertical;
-    white-space: pre;
-}
-
-.css-action-grid {
-    display: grid;
-    gap: 0.5rem;
 }
 
 .guide-overlay {
@@ -898,6 +940,12 @@ code {
     align-items: end;
 }
 
+.theme-context {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.86rem;
+}
+
 .saved-theme,
 .result {
     display: grid;
@@ -933,7 +981,7 @@ code {
 }
 
 .iframe-wrap {
-    min-height: 18rem;
+    min-height: 28rem;
     overflow: hidden;
     border: 1px solid var(--color-border);
     border-radius: 8px;
@@ -943,13 +991,13 @@ code {
 iframe {
     display: block;
     width: 100%;
-    height: 18rem;
+    height: 28rem;
     border: 0;
 }
 
 .preview-empty {
     display: grid;
-    min-height: 18rem;
+    min-height: 28rem;
     place-items: center;
     padding: 1rem;
     text-align: center;
@@ -961,15 +1009,22 @@ iframe {
     align-items: end;
 }
 
+.publish-connection {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.publish-connection p {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.86rem;
+}
+
 .publish-actions {
     align-items: end;
 }
 
 @media (min-width: 700px) {
-    .css-action-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
     .guide-dialog-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -982,30 +1037,61 @@ iframe {
     }
 }
 
-@media (min-width: 980px) {
-    .site-workbench {
-        grid-template-areas: "editor preview";
-        grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.72fr);
+@media (min-width: 1080px) {
+    .customizer-shell {
+        grid-template-columns: minmax(22rem, 28rem) minmax(0, 1fr);
         align-items: start;
     }
 
-    .site-editor-column {
-        grid-area: editor;
-    }
-
-    .site-preview-column {
+    .customizer-sidebar {
         position: sticky;
         top: 1rem;
-        grid-area: preview;
+        order: 1;
+    }
+
+    .customizer-preview-column {
+        order: 2;
     }
 
     .iframe-wrap,
     .preview-empty {
-        min-height: 22rem;
+        min-height: calc(100vh - 13rem);
     }
 
     iframe {
-        height: 22rem;
+        height: calc(100vh - 13rem);
+    }
+}
+
+.preview-expanded .customizer-preview-column {
+    position: fixed;
+    inset: 1rem;
+    z-index: 35;
+    display: grid;
+    overflow: auto;
+}
+
+.preview-expanded .customizer-sidebar {
+    visibility: hidden;
+}
+
+.preview-expanded .iframe-wrap,
+.preview-expanded .preview-empty {
+    min-height: calc(100vh - 11rem);
+}
+
+.preview-expanded iframe {
+    height: calc(100vh - 11rem);
+}
+
+@media (min-width: 1280px) {
+    .iframe-wrap,
+    .preview-empty {
+        min-height: calc(100vh - 11rem);
+    }
+
+    iframe {
+        height: calc(100vh - 11rem);
     }
 }
 </style>

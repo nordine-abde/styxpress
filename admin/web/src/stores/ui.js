@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 export const useUiStore = defineStore('ui', () => {
-    const activeView = ref('posts')
+    const activeView = ref('sites')
     const notice = ref('')
     const error = ref('')
     const unauthorized = ref(false)

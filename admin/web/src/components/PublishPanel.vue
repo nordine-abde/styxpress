@@ -1,20 +1,23 @@
 <script setup>
-import { ref } from 'vue'
 import UiButton from './ui/UiButton.vue'
-import UiField from './ui/UiField.vue'
+import UiBadge from './ui/UiBadge.vue'
 import UiPanel from './ui/UiPanel.vue'
 import { usePostsStore } from '../stores/posts'
 import { usePublishingStore } from '../stores/publishing'
 
 const postsStore = usePostsStore()
 const publishingStore = usePublishingStore()
-const passphrase = ref('')
 </script>
 
 <template>
     <UiPanel title="Publish" subtitle="Rendering updates the local public directory before upload.">
         <div class="field-grid">
-            <UiField v-model="passphrase" label="SSH passphrase" type="password" placeholder="Optional" />
+            <div class="publish-connection">
+                <UiBadge :tone="publishingStore.sshStatusTone">
+                    {{ publishingStore.sshStatusLabel }}
+                </UiBadge>
+                <p>SSH passphrase and connection test live in Configuration.</p>
+            </div>
 
             <div class="button-row">
                 <UiButton
@@ -29,7 +32,7 @@ const passphrase = ref('')
                     tone="primary"
                     :busy="publishingStore.publishing"
                     :disabled="!postsStore.draft.slug"
-                    @click="publishingStore.publishPost(postsStore.draft.slug, passphrase)"
+                    @click="publishingStore.publishPost(postsStore.draft.slug, publishingStore.sshPassphrase)"
                 >
                     Publish
                 </UiButton>
@@ -69,5 +72,10 @@ p {
     margin: 0;
     color: var(--color-muted);
     overflow-wrap: anywhere;
+}
+
+.publish-connection {
+    display: grid;
+    gap: 0.45rem;
 }
 </style>

@@ -7,21 +7,24 @@ import PostEditor from './components/PostEditor.vue'
 import PostList from './components/PostList.vue'
 import PublishPanel from './components/PublishPanel.vue'
 import SiteConfigScreen from './components/SiteConfigScreen.vue'
+import SiteListScreen from './components/SiteListScreen.vue'
+import UiButton from './components/ui/UiButton.vue'
 import UiBadge from './components/ui/UiBadge.vue'
 import styxpressMarkUrl from './assets/styxpress-mark.png'
 import { useAuthStore } from './stores/auth'
 import { useConfigStore } from './stores/config'
 import { usePostsStore } from './stores/posts'
-import { useSiteConfigStore } from './stores/siteConfig'
 import { useUiStore } from './stores/ui'
 
 const authStore = useAuthStore()
 const configStore = useConfigStore()
 const postsStore = usePostsStore()
-const siteConfigStore = useSiteConfigStore()
 const uiStore = useUiStore()
 
 const activeLabel = computed(() => {
+    if (uiStore.activeView === 'sites') {
+        return 'Sites'
+    }
     if (uiStore.activeView === 'config') {
         return 'Configuration'
     }
@@ -29,27 +32,60 @@ const activeLabel = computed(() => {
         return 'Featured'
     }
     if (uiStore.activeView === 'site') {
-        return 'Site'
+        return 'Styles'
     }
     return 'Posts'
 })
 
+const activeSiteName = computed(() => {
+    return configStore.activeSite?.name || configStore.config.name || 'Configured site'
+})
+
 onMounted(async () => {
     if (!authStore.hasToken) {
-        uiStore.setActiveView('config')
+        uiStore.setActiveView('sites')
         return
     }
-    await Promise.all([
-        configStore.loadConfig(),
-        siteConfigStore.loadSiteConfig(),
-        postsStore.loadPosts(),
-        postsStore.loadFeatured()
-    ])
+    await configStore.loadConfig()
 })
+
+function leaveSite() {
+    uiStore.setActiveView('sites')
+}
 </script>
 
 <template>
-    <div class="app-shell">
+    <div v-if="uiStore.activeView === 'sites'" class="site-entry-shell">
+        <header class="site-entry-header">
+            <div class="brand">
+                <img
+                    class="mark"
+                    :src="styxpressMarkUrl"
+                    alt=""
+                    width="40"
+                    height="40"
+                    aria-hidden="true"
+                >
+                <div>
+                    <p class="eyebrow">Styxpress</p>
+                    <h1>Admin</h1>
+                </div>
+            </div>
+            <div class="status-row">
+                <UiBadge :tone="authStore.hasToken ? 'success' : 'warning'">
+                    {{ authStore.hasToken ? 'session ready' : 'session missing' }}
+                </UiBadge>
+                <UiBadge>{{ configStore.sites.length }} sites</UiBadge>
+            </div>
+        </header>
+
+        <main class="site-entry-main">
+            <SiteListScreen v-if="authStore.hasToken" />
+            <AuthBar />
+        </main>
+    </div>
+
+    <div v-else class="app-shell">
         <aside class="sidebar">
             <div class="brand">
                 <img
@@ -66,7 +102,31 @@ onMounted(async () => {
                 </div>
             </div>
 
+            <section class="site-context">
+                <p class="eyebrow">Current site</p>
+                <strong>{{ activeSiteName }}</strong>
+                <UiButton tone="ghost" @click="leaveSite">
+                    All sites
+                </UiButton>
+            </section>
+
             <nav class="nav" aria-label="Admin sections">
+                <button
+                    type="button"
+                    :class="{ active: uiStore.activeView === 'config' }"
+                    @click="uiStore.setActiveView('config')"
+                >
+                    <span aria-hidden="true">~</span>
+                    Configuration
+                </button>
+                <button
+                    type="button"
+                    :class="{ active: uiStore.activeView === 'site' }"
+                    @click="uiStore.setActiveView('site')"
+                >
+                    <span aria-hidden="true">S</span>
+                    Styles
+                </button>
                 <button
                     type="button"
                     :class="{ active: uiStore.activeView === 'posts' }"
@@ -83,22 +143,6 @@ onMounted(async () => {
                     <span aria-hidden="true">*</span>
                     Featured
                 </button>
-                <button
-                    type="button"
-                    :class="{ active: uiStore.activeView === 'site' }"
-                    @click="uiStore.setActiveView('site')"
-                >
-                    <span aria-hidden="true">S</span>
-                    Site
-                </button>
-                <button
-                    type="button"
-                    :class="{ active: uiStore.activeView === 'config' }"
-                    @click="uiStore.setActiveView('config')"
-                >
-                    <span aria-hidden="true">~</span>
-                    Config
-                </button>
             </nav>
 
             <AuthBar />
@@ -107,7 +151,7 @@ onMounted(async () => {
         <main class="workspace">
             <header class="topbar">
                 <div>
-                    <p class="eyebrow">{{ activeLabel }}</p>
+                    <p class="eyebrow">{{ activeSiteName }}</p>
                     <h2>{{ activeLabel === 'Posts' ? 'Content workspace' : activeLabel }}</h2>
                 </div>
                 <div class="status-row">
@@ -136,7 +180,7 @@ onMounted(async () => {
                 <FeaturedManager />
             </section>
 
-            <section v-else-if="uiStore.activeView === 'site'" class="single-layout">
+            <section v-else-if="uiStore.activeView === 'site'" class="wide-layout">
                 <SiteConfigScreen />
             </section>
 

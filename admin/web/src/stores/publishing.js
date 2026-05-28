@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { apiRequest } from '../api/client'
 import { useUiStore } from './ui'
 
@@ -9,19 +9,66 @@ export const usePublishingStore = defineStore('publishing', () => {
     const publishing = ref(false)
     const lastResult = ref(null)
     const error = ref('')
+    const sshPassphrase = ref('')
+    const sshStatus = ref('disabled')
+    const sshError = ref('')
+    const activeSSHSiteId = ref('')
 
-    async function testSSH(passphrase) {
+    const sshStatusLabel = computed(() => {
+        if (sshStatus.value === 'ok') {
+            return 'SSH reachable'
+        }
+        if (sshStatus.value === 'checking') {
+            return 'Checking SSH'
+        }
+        if (sshStatus.value === 'error') {
+            return 'SSH error'
+        }
+        if (sshStatus.value === 'pending') {
+            return 'SSH not tested'
+        }
+        return 'SSH disabled'
+    })
+
+    const sshStatusTone = computed(() => {
+        if (sshStatus.value === 'ok') {
+            return 'success'
+        }
+        if (sshStatus.value === 'error') {
+            return 'warning'
+        }
+        if (sshStatus.value === 'pending' || sshStatus.value === 'checking') {
+            return 'warning'
+        }
+        return 'neutral'
+    })
+
+    function prepareSSHForSite(siteId, cfg) {
+        if (activeSSHSiteId.value !== siteId) {
+            sshPassphrase.value = ''
+        }
+        activeSSHSiteId.value = siteId || ''
+        sshError.value = ''
+        sshStatus.value = hasSSHConfig(cfg) ? 'pending' : 'disabled'
+    }
+
+    async function testSSH(passphrase = sshPassphrase.value) {
         const uiStore = useUiStore()
         testing.value = true
         error.value = ''
+        sshError.value = ''
+        sshStatus.value = 'checking'
         try {
             await apiRequest('/api/test-ssh', {
                 method: 'POST',
                 body: { passphrase }
             })
+            sshStatus.value = 'ok'
             uiStore.setNotice('SSH connection succeeded.')
         } catch (err) {
             error.value = err.message
+            sshError.value = err.message
+            sshStatus.value = 'error'
             uiStore.captureError(err)
             throw err
         } finally {
@@ -111,6 +158,12 @@ export const usePublishingStore = defineStore('publishing', () => {
         publishing,
         lastResult,
         error,
+        sshPassphrase,
+        sshStatus,
+        sshError,
+        sshStatusLabel,
+        sshStatusTone,
+        prepareSSHForSite,
         testSSH,
         renderPost,
         publishPost,
@@ -118,3 +171,13 @@ export const usePublishingStore = defineStore('publishing', () => {
         publishSite
     }
 })
+
+function hasSSHConfig(cfg = {}) {
+    return Boolean(
+        cfg.remoteHost?.trim() ||
+        cfg.remoteUser?.trim() ||
+        cfg.sshKeyPath?.trim() ||
+        cfg.remotePublicDir?.trim() ||
+        cfg.remoteContentDir?.trim()
+    )
+}

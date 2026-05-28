@@ -1,30 +1,27 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
 import { useAuthStore } from '../stores/auth'
 import { useConfigStore } from '../stores/config'
 import { usePostsStore } from '../stores/posts'
-import { useSiteConfigStore } from '../stores/siteConfig'
 import { useUiStore } from '../stores/ui'
 
 const authStore = useAuthStore()
 const configStore = useConfigStore()
 const postsStore = usePostsStore()
-const siteConfigStore = useSiteConfigStore()
 const uiStore = useUiStore()
 const tokenInput = ref(authStore.token)
+const showSessionBox = computed(() => {
+    return !authStore.hasInjectedSession || uiStore.unauthorized || uiStore.notice || uiStore.error
+})
 
 async function applyToken() {
     authStore.setToken(tokenInput.value)
     uiStore.clearMessages()
     if (authStore.hasToken) {
-        await Promise.all([
-            configStore.loadConfig(),
-            siteConfigStore.loadSiteConfig(),
-            postsStore.loadPosts(),
-            postsStore.loadFeatured()
-        ])
+        await configStore.loadConfig()
+        uiStore.setActiveView('sites')
     }
 }
 
@@ -32,12 +29,12 @@ function clearToken() {
     authStore.logout()
     tokenInput.value = ''
     postsStore.newPost()
-    uiStore.setActiveView('config')
+    uiStore.setActiveView('sites')
 }
 </script>
 
 <template>
-    <section class="session-box">
+    <section v-if="showSessionBox" class="session-box">
         <template v-if="authStore.hasInjectedSession">
             <p class="label">Local session</p>
             <p class="session-state">
