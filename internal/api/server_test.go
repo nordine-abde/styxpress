@@ -212,6 +212,60 @@ func TestSiteConfigEndpointSavesUnderConfiguredContentDir(t *testing.T) {
 	}
 }
 
+func TestSiteConfigPreviewEndpointReturnsHomepageWithoutWritingPublicFiles(t *testing.T) {
+	server, _, publicDir := newTestServer(t)
+
+	save := authedRequest(t, server, http.MethodPost, "/api/posts", `{
+		"slug":"preview-style",
+		"title":"Preview Style",
+		"description":"Styled homepage entry",
+		"source":"# Preview Style"
+	}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, save)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("save status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	preview := authedRequest(t, server, http.MethodPost, "/api/site-config/preview", `{
+		"title":"Styled Site",
+		"description":"Preview config",
+		"theme":{
+			"palette":"midnight",
+			"font":"mono",
+			"layout":"wide",
+			"radius":"none",
+			"customCss":".site-main { outline: 2px solid lime; }"
+		}
+	}`)
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, preview)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("preview status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body previewResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode preview: %v", err)
+	}
+	for _, expected := range []string{
+		`<title>Styled Site</title>`,
+		`<body class="theme-midnight font-mono layout-wide radius-none">`,
+		`<style>`,
+		`.site-main { outline: 2px solid lime; }`,
+		`<a href="/posts/preview-style/">Preview Style</a>`,
+	} {
+		if !strings.Contains(body.HTML, expected) {
+			t.Fatalf("expected %q in preview HTML:\n%s", expected, body.HTML)
+		}
+	}
+	if strings.Contains(body.HTML, `<link rel="stylesheet" href="/assets/styxpress.css">`) {
+		t.Fatalf("preview should inline stylesheet instead of linking public CSS:\n%s", body.HTML)
+	}
+	if _, err := os.Stat(filepath.Join(publicDir, "assets", "styxpress.css")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("preview should not write stylesheet, stat err: %v", err)
+	}
+}
+
 func TestSiteEndpointsManageActiveConfig(t *testing.T) {
 	root := t.TempDir()
 	server, err := newServer("", config.NewSiteStore(root), nil)
@@ -377,6 +431,74 @@ func TestEndToEndFixtureSiteLocalAndServerContentModes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSiteRenderAndPublishEndpointsRenderAllPosts(t *testing.T) {
+	server, contentDir, publicDir := newTestServer(t)
+	for _, payload := range []string{
+		`{"slug":"alpha","title":"Alpha","source":"# Alpha"}`,
+		`{"slug":"bravo","title":"Bravo","source":"# Bravo"}`,
+	} {
+		save := authedRequest(t, server, http.MethodPost, "/api/posts", payload)
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, save)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("save status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+	}
+
+	render := authedRequest(t, server, http.MethodPost, "/api/site/render", "")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, render)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("render status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var renderBody renderSiteResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &renderBody); err != nil {
+		t.Fatalf("decode render response: %v", err)
+	}
+	if len(renderBody.Posts) != 2 || renderBody.Site.IndexPath == "" || renderBody.Site.StylesheetPath == "" {
+		t.Fatalf("render response = %#v, want posts and site paths", renderBody)
+	}
+	for _, path := range []string{
+		filepath.Join(publicDir, "index.html"),
+		filepath.Join(publicDir, "feed.xml"),
+		filepath.Join(publicDir, "sitemap.xml"),
+		filepath.Join(publicDir, "assets", "styxpress.css"),
+		filepath.Join(publicDir, "posts", "alpha", "index.html"),
+		filepath.Join(publicDir, "posts", "bravo", "index.html"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected rendered file %s: %v", path, err)
+		}
+	}
+
+	var gotPassphrase string
+	var gotConfig config.Config
+	server.publishRunner = func(_ *http.Request, cfg config.Config, passphrase string) (publishing.Result, error) {
+		gotConfig = cfg
+		gotPassphrase = passphrase
+		return publishing.Result{UploadedPaths: []string{"/srv/site/public/index.html"}}, nil
+	}
+	publish := authedRequest(t, server, http.MethodPost, "/api/site/publish", `{"passphrase":"secret"}`)
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, publish)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var publishBody publishSiteResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &publishBody); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if len(publishBody.Posts) != 2 || publishBody.Publish.UploadedPaths[0] != "/srv/site/public/index.html" {
+		t.Fatalf("publish response = %#v, want all posts and publish result", publishBody)
+	}
+	if gotPassphrase != "secret" {
+		t.Fatalf("passphrase = %q, want secret", gotPassphrase)
+	}
+	if gotConfig.ContentDir != contentDir || gotConfig.PublicDir != publicDir {
+		t.Fatalf("publish config paths = %q %q, want %q %q", gotConfig.ContentDir, gotConfig.PublicDir, contentDir, publicDir)
 	}
 }
 

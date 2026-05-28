@@ -165,7 +165,7 @@ go build -o styxpress-admin ./cmd/styxpress-admin
 3. Open the printed local URL. The embedded admin UI receives its local API
    session automatically.
 
-4. Configure the site:
+4. Configure the local paths and publishing target:
 
 - `siteBaseUrl`: the public canonical URL, for example `https://blog.example.com`.
 - `contentDir`: local source content directory.
@@ -174,13 +174,27 @@ go build -o styxpress-admin ./cmd/styxpress-admin
 - `remoteHost`, `remoteUser`, `sshKeyPath`, and `remotePublicDir` for SSH/SFTP publishing.
 - `remoteContentDir` when `contentStorageMode` is `server`.
 
-5. Create or edit posts in the admin UI. Saving writes source files under `content/posts/{slug}/`.
+5. Configure site presentation in the Site admin page. Style settings are saved
+   in `content/site.toml` and include the site title, description,
+   header/footer links, `theme.palette`, `theme.font`, `theme.layout`,
+   `theme.radius`, `theme.customCss`, and root-level `savedThemes` for named
+   theme presets.
 
-6. Render a post to generate `public/posts/{slug}/index.html`, the homepage, `feed.xml`, and `sitemap.xml`.
+6. Preview style changes before saving. The Site page renders a draft homepage
+   from the current style form without writing public files.
 
-7. Publish the post. Styxpress renders locally first, then uploads generated public files over SSH/SFTP. In server-backed content mode it also uploads `content/`.
+7. Create or edit posts in the admin UI. Saving writes source files under `content/posts/{slug}/`.
 
-8. Serve the remote `public/` directory with Caddy, Nginx, or another static file server using the route allowlist in `docs/reverse-proxy.md`.
+8. Render a post or render the whole site locally. Rendering writes public
+   post pages, the homepage, `feed.xml`, `sitemap.xml`, and the site stylesheet
+   under `public/`.
+
+9. Publish a post or publish the whole site. Styxpress renders locally first,
+   then uploads generated public files over SSH/SFTP. In server-backed content
+   mode it also uploads `content/`.
+
+10. Serve the remote `public/` directory with Caddy, Nginx, or another static
+    file server using the route allowlist in `docs/reverse-proxy.md`.
 
 ## Local Fixture
 
@@ -203,6 +217,39 @@ contentStorageMode = local
 ```
 
 After rendering, inspect `site/public/index.html`, `site/public/feed.xml`, `site/public/sitemap.xml`, and `site/public/posts/hello-world/index.html`.
+
+## Site Styling
+
+Site styling lives with content as `site.toml` under the configured
+`contentDir`, for example `content/site.toml`. The Site admin page can edit the
+active theme, add custom CSS, save named themes, preview unsaved style changes,
+render all public pages locally, and publish all public pages after a style
+change.
+
+Theme fields are exposed through the admin API as JSON:
+
+```json
+{
+  "theme": {
+    "palette": "ink",
+    "font": "system",
+    "layout": "classic",
+    "radius": "soft",
+    "customCss": ""
+  },
+  "savedThemes": [
+    {
+      "id": "quiet-serif",
+      "name": "Quiet Serif",
+      "palette": "sage",
+      "font": "serif",
+      "layout": "classic",
+      "radius": "soft",
+      "customCss": ".site-main { max-width: 68rem; }"
+    }
+  ]
+}
+```
 
 ## Docker Test Setup
 

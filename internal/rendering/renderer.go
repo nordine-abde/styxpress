@@ -58,9 +58,15 @@ type Result struct {
 }
 
 type SiteResult struct {
-	IndexPath   string
-	FeedPath    string
-	SitemapPath string
+	IndexPath      string
+	FeedPath       string
+	SitemapPath    string
+	StylesheetPath string
+}
+
+type AllResult struct {
+	Posts []Result
+	Site  SiteResult
 }
 
 type pageData struct {
@@ -86,8 +92,14 @@ type siteTemplateData struct {
 	Title       string
 	Description string
 	BodyClass   string
+	Style       styleTemplateData
 	Header      headerTemplateData
 	Footer      footerTemplateData
+}
+
+type styleTemplateData struct {
+	Href      string
+	InlineCSS template.CSS
 }
 
 type headerTemplateData struct {
@@ -190,30 +202,12 @@ func (r *Renderer) RenderSite() (SiteResult, error) {
 		return SiteResult{}, fmt.Errorf("%w: site base URL is required for site rendering", ErrInvalidRenderConfig)
 	}
 
-	repo := content.NewRepository(r.contentRoot)
-	posts, err := repo.ListPosts()
-	if err != nil {
-		return SiteResult{}, err
-	}
-	featuredSlugs, err := repo.ReadFeatured()
+	posts, featured, err := r.homepagePosts()
 	if err != nil {
 		return SiteResult{}, err
 	}
 
-	postBySlug := make(map[string]content.Post, len(posts))
-	for _, post := range posts {
-		postBySlug[post.Slug] = post
-	}
-	featured := make([]content.Post, 0, len(featuredSlugs))
-	for _, slug := range featuredSlugs {
-		post, ok := postBySlug[slug]
-		if !ok {
-			return SiteResult{}, fmt.Errorf("%w: featured post %q does not exist", content.ErrPostNotFound, slug)
-		}
-		featured = append(featured, post)
-	}
-
-	indexHTML, err := r.renderHomepage(posts, featured)
+	indexHTML, err := r.renderHomepage(posts, featured, r.siteConfig, linkedStyle())
 	if err != nil {
 		return SiteResult{}, err
 	}
@@ -225,7 +219,8 @@ func (r *Renderer) RenderSite() (SiteResult, error) {
 	if err != nil {
 		return SiteResult{}, err
 	}
-	if err := r.writeStyleSheet(); err != nil {
+	stylesheetPath, err := r.writeStyleSheet()
+	if err != nil {
 		return SiteResult{}, err
 	}
 
@@ -243,10 +238,38 @@ func (r *Renderer) RenderSite() (SiteResult, error) {
 	}
 
 	return SiteResult{
-		IndexPath:   indexPath,
-		FeedPath:    feedPath,
-		SitemapPath: sitemapPath,
+		IndexPath:      indexPath,
+		FeedPath:       feedPath,
+		SitemapPath:    sitemapPath,
+		StylesheetPath: stylesheetPath,
 	}, nil
+}
+
+func (r *Renderer) RenderAll() (AllResult, error) {
+	if r.siteBaseURL == "" {
+		return AllResult{}, fmt.Errorf("%w: site base URL is required for site rendering", ErrInvalidRenderConfig)
+	}
+
+	repo := content.NewRepository(r.contentRoot)
+	posts, err := repo.ListPosts()
+	if err != nil {
+		return AllResult{}, err
+	}
+
+	results := make([]Result, 0, len(posts))
+	for _, post := range posts {
+		result, err := r.renderLoadedPost(post)
+		if err != nil {
+			return AllResult{}, err
+		}
+		results = append(results, result)
+	}
+
+	siteResult, err := r.RenderSite()
+	if err != nil {
+		return AllResult{}, err
+	}
+	return AllResult{Posts: results, Site: siteResult}, nil
 }
 
 func (r *Renderer) RenderPost(slug string) (Result, error) {
@@ -256,11 +279,21 @@ func (r *Renderer) RenderPost(slug string) (Result, error) {
 		return Result{}, err
 	}
 
-	document, err := r.RenderPreview(post)
+	result, err := r.renderLoadedPost(post)
 	if err != nil {
 		return Result{}, err
 	}
+	if _, err := r.writeStyleSheet(); err != nil {
+		return Result{}, err
+	}
+	return result, nil
+}
 
+func (r *Renderer) renderLoadedPost(post content.Post) (Result, error) {
+	document, err := r.renderPostDocument(post, r.siteConfig, linkedStyle())
+	if err != nil {
+		return Result{}, err
+	}
 	publicDir := filepath.Join(r.publicRoot, postsDirName, post.Slug)
 	if err := os.MkdirAll(publicDir, directoryMode); err != nil {
 		return Result{}, err
@@ -272,9 +305,6 @@ func (r *Renderer) RenderPost(slug string) (Result, error) {
 	}
 	assets, err := r.reconcileAssets(post, publicDir)
 	if err != nil {
-		return Result{}, err
-	}
-	if err := r.writeStyleSheet(); err != nil {
 		return Result{}, err
 	}
 
@@ -293,6 +323,22 @@ func (r *Renderer) RenderPost(slug string) (Result, error) {
 }
 
 func (r *Renderer) RenderPreview(post content.Post) (string, error) {
+	return r.renderPostDocument(post, r.siteConfig, inlineStyle(r.siteConfig))
+}
+
+func (r *Renderer) RenderSitePreview(cfg siteconfig.Config) (string, error) {
+	cfg = siteconfig.WithDefaults(cfg)
+	if err := cfg.Validate(); err != nil {
+		return "", err
+	}
+	posts, featured, err := r.homepagePosts()
+	if err != nil {
+		return "", err
+	}
+	return r.renderHomepage(posts, featured, cfg, inlineStyle(cfg))
+}
+
+func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, style styleTemplateData) (string, error) {
 	if err := content.ValidateSlug(post.Slug); err != nil {
 		return "", err
 	}
@@ -309,7 +355,7 @@ func (r *Renderer) RenderPreview(post content.Post) (string, error) {
 	}
 
 	data := pageData{
-		Site:           r.siteData(),
+		Site:           r.siteData(cfg, style),
 		Title:          post.Title,
 		Description:    post.Description,
 		CanonicalURL:   r.absoluteURL(basePostURL),
@@ -327,10 +373,36 @@ func (r *Renderer) RenderPreview(post content.Post) (string, error) {
 	return document.String(), nil
 }
 
-func (r *Renderer) renderHomepage(latestPosts []content.Post, featuredPosts []content.Post) (string, error) {
+func (r *Renderer) homepagePosts() ([]content.Post, []content.Post, error) {
+	repo := content.NewRepository(r.contentRoot)
+	posts, err := repo.ListPosts()
+	if err != nil {
+		return nil, nil, err
+	}
+	featuredSlugs, err := repo.ReadFeatured()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	postBySlug := make(map[string]content.Post, len(posts))
+	for _, post := range posts {
+		postBySlug[post.Slug] = post
+	}
+	featured := make([]content.Post, 0, len(featuredSlugs))
+	for _, slug := range featuredSlugs {
+		post, ok := postBySlug[slug]
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: featured post %q does not exist", content.ErrPostNotFound, slug)
+		}
+		featured = append(featured, post)
+	}
+	return posts, featured, nil
+}
+
+func (r *Renderer) renderHomepage(latestPosts []content.Post, featuredPosts []content.Post, cfg siteconfig.Config, style styleTemplateData) (string, error) {
 	data := sitePageData{
-		Site:     r.siteData(),
-		Title:    r.siteConfig.Title,
+		Site:     r.siteData(cfg, style),
+		Title:    cfg.Title,
 		Featured: r.summarizePosts(featuredPosts, false),
 		Latest:   r.summarizePosts(latestPosts, false),
 	}
@@ -483,8 +555,8 @@ func (r *Renderer) postURL(slug string) string {
 	return r.absoluteURL("/posts/" + slug + "/")
 }
 
-func (r *Renderer) siteData() siteTemplateData {
-	cfg := siteconfig.WithDefaults(r.siteConfig)
+func (r *Renderer) siteData(cfg siteconfig.Config, style styleTemplateData) siteTemplateData {
+	cfg = siteconfig.WithDefaults(cfg)
 	headerTitle := cfg.Header.Title
 	if headerTitle == "" {
 		headerTitle = cfg.Title
@@ -498,6 +570,7 @@ func (r *Renderer) siteData() siteTemplateData {
 			"layout-" + cfg.Theme.Layout,
 			"radius-" + cfg.Theme.Radius,
 		}, " "),
+		Style: style,
 		Header: headerTemplateData{
 			Hidden:       cfg.Header.Variant == siteconfig.HeaderHidden,
 			VariantClass: "site-header-" + cfg.Header.Variant,
@@ -514,8 +587,51 @@ func (r *Renderer) siteData() siteTemplateData {
 	}
 }
 
-func (r *Renderer) writeStyleSheet() error {
-	return writeAtomic(filepath.Join(r.publicRoot, "assets", "styxpress.css"), []byte(siteStyleSheet))
+func (r *Renderer) writeStyleSheet() (string, error) {
+	path := filepath.Join(r.publicRoot, "assets", "styxpress.css")
+	return path, writeAtomic(path, []byte(styleSheet(r.siteConfig)))
+}
+
+func linkedStyle() styleTemplateData {
+	return styleTemplateData{Href: "/assets/styxpress.css"}
+}
+
+func inlineStyle(cfg siteconfig.Config) styleTemplateData {
+	return styleTemplateData{InlineCSS: template.CSS(styleElementCSS(styleSheet(cfg)))}
+}
+
+func styleSheet(cfg siteconfig.Config) string {
+	cfg = siteconfig.WithDefaults(cfg)
+	if cfg.Theme.CustomCSS == "" {
+		return siteStyleSheet
+	}
+	css := siteStyleSheet
+	if !strings.HasSuffix(css, "\n") {
+		css += "\n"
+	}
+	css += "\n" + cfg.Theme.CustomCSS
+	if !strings.HasSuffix(css, "\n") {
+		css += "\n"
+	}
+	return css
+}
+
+func styleElementCSS(css string) string {
+	lower := strings.ToLower(css)
+	var output strings.Builder
+	start := 0
+	for {
+		index := strings.Index(lower[start:], "</style")
+		if index == -1 {
+			output.WriteString(css[start:])
+			return output.String()
+		}
+		index += start
+		output.WriteString(css[start:index])
+		output.WriteString("<\\/")
+		output.WriteString(css[index+2 : index+len("</style")])
+		start = index + len("</style")
+	}
 }
 
 func copyFile(destination string, source string) error {
@@ -642,7 +758,12 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ .Title }}</title>
-<link rel="stylesheet" href="/assets/styxpress.css">
+{{- if .Site.Style.InlineCSS }}
+<style>
+{{ .Site.Style.InlineCSS }}</style>
+{{- else }}
+<link rel="stylesheet" href="{{ .Site.Style.Href }}">
+{{- end }}
 {{- if .Description }}
 <meta name="description" content="{{ .Description }}">
 {{- end }}
@@ -730,7 +851,12 @@ var homepageTemplate = template.Must(template.New("homepage").Parse(`<!doctype h
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ .Title }}</title>
-<link rel="stylesheet" href="/assets/styxpress.css">
+{{- if .Site.Style.InlineCSS }}
+<style>
+{{ .Site.Style.InlineCSS }}</style>
+{{- else }}
+<link rel="stylesheet" href="{{ .Site.Style.Href }}">
+{{- end }}
 {{- if .Site.Description }}
 <meta name="description" content="{{ .Site.Description }}">
 {{- end }}

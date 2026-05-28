@@ -92,6 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/config", s.withAuth(s.saveConfig))
 	mux.HandleFunc("GET /api/site-config", s.withAuth(s.getSiteConfig))
 	mux.HandleFunc("POST /api/site-config", s.withAuth(s.saveSiteConfig))
+	mux.HandleFunc("POST /api/site-config/preview", s.withAuth(s.previewSiteConfig))
 	mux.HandleFunc("POST /api/test-ssh", s.withAuth(s.testSSH))
 	mux.HandleFunc("GET /api/posts", s.withAuth(s.listPosts))
 	mux.HandleFunc("POST /api/posts", s.withAuth(s.savePost))
@@ -105,6 +106,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/posts/{slug}/render", s.withAuth(s.renderPost))
 	mux.HandleFunc("POST /api/posts/{slug}/publish", s.withAuth(s.publishPost))
 	mux.HandleFunc("POST /api/publish", s.withAuth(s.publishPost))
+	mux.HandleFunc("POST /api/site/render", s.withAuth(s.renderSite))
+	mux.HandleFunc("POST /api/site/publish", s.withAuth(s.publishSite))
 	mux.HandleFunc("GET /api/featured", s.withAuth(s.getFeatured))
 	mux.HandleFunc("POST /api/featured", s.withAuth(s.saveFeatured))
 	return mux
@@ -284,6 +287,31 @@ func (s *Server) saveSiteConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, siteconfig.WithDefaults(cfg))
 }
 
+func (s *Server) previewSiteConfig(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	var cfg siteconfig.Config
+	if err := decodeJSONBody(r, &cfg, "request body must be a valid site config object"); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	renderer, err := s.renderer()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	html, err := renderer.RenderSitePreview(cfg)
+	if err != nil {
+		if errors.Is(err, siteconfig.ErrInvalidConfig) {
+			s.writeSiteConfigError(w, err)
+			return
+		}
+		s.writeRenderError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, previewResponse{HTML: html})
+}
+
 type testSSHRequest struct {
 	Passphrase string `json:"passphrase"`
 }
@@ -323,13 +351,28 @@ type publishRequest struct {
 	Passphrase string `json:"passphrase"`
 }
 
+type publishSiteRequest struct {
+	Passphrase string `json:"passphrase"`
+}
+
 type renderPostResponse struct {
 	Post rendering.Result     `json:"post"`
 	Site rendering.SiteResult `json:"site"`
 }
 
+type renderSiteResponse struct {
+	Posts []rendering.Result   `json:"posts"`
+	Site  rendering.SiteResult `json:"site"`
+}
+
 type publishResponse struct {
 	Post    rendering.Result     `json:"post"`
+	Site    rendering.SiteResult `json:"site"`
+	Publish publishing.Result    `json:"publish"`
+}
+
+type publishSiteResponse struct {
+	Posts   []rendering.Result   `json:"posts"`
 	Site    rendering.SiteResult `json:"site"`
 	Publish publishing.Result    `json:"publish"`
 }
@@ -559,6 +602,15 @@ func (s *Server) renderPost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, renderPostResponse{Post: result, Site: site})
 }
 
+func (s *Server) renderSite(w http.ResponseWriter, _ *http.Request) {
+	result, err := s.renderAll()
+	if err != nil {
+		s.writeRenderError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, renderSiteResponse{Posts: result.Posts, Site: result.Site})
+}
+
 func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
@@ -599,6 +651,46 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, publishResponse{
 		Post:    postResult,
 		Site:    siteResult,
+		Publish: publishResult,
+	})
+}
+
+func (s *Server) publishSite(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	var req publishSiteRequest
+	if r.Body != http.NoBody {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			WriteError(w, http.StatusBadRequest, "invalid_json", "request body must be an object with optional passphrase")
+			return
+		}
+	}
+
+	result, err := s.renderAll()
+	if err != nil {
+		s.writeRenderError(w, err)
+		return
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	cfg, err = normalizeLocalPaths(cfg)
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	publishResult, err := s.publishRunner(r, cfg, req.Passphrase)
+	if err != nil {
+		s.writePublishError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, publishSiteResponse{
+		Posts:   result.Posts,
+		Site:    result.Site,
 		Publish: publishResult,
 	})
 }
@@ -651,6 +743,14 @@ func (s *Server) renderPostAndSite(slug string) (rendering.Result, rendering.Sit
 		return rendering.Result{}, rendering.SiteResult{}, err
 	}
 	return postResult, siteResult, nil
+}
+
+func (s *Server) renderAll() (rendering.AllResult, error) {
+	renderer, err := s.renderer()
+	if err != nil {
+		return rendering.AllResult{}, err
+	}
+	return renderer.RenderAll()
 }
 
 func (s *Server) repository() (*content.Repository, error) {
@@ -793,13 +893,15 @@ func (s *Server) writeRenderError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalidLocalPath), errors.Is(err, config.ErrInvalidConfig):
 		WriteError(w, http.StatusBadRequest, "invalid_config", err.Error())
+	case errors.Is(err, siteconfig.ErrInvalidConfig):
+		WriteError(w, http.StatusBadRequest, "invalid_site_config", err.Error())
 	case errors.Is(err, content.ErrPostNotFound):
 		WriteError(w, http.StatusNotFound, "post_not_found", "post not found")
 	case errors.Is(err, rendering.ErrInvalidRenderConfig), errors.Is(err, rendering.ErrUnsafeAsset), errors.Is(err, content.ErrInvalidSlug), errors.Is(err, content.ErrInvalidPost), errors.Is(err, content.ErrInvalidAssetPath), errors.Is(err, content.ErrInvalidAsset):
 		WriteError(w, http.StatusBadRequest, "render_failed", err.Error())
 	default:
 		s.logger.Printf("render error: %v", err)
-		WriteError(w, http.StatusInternalServerError, "render_failed", "failed to render post")
+		WriteError(w, http.StatusInternalServerError, "render_failed", "failed to render content")
 	}
 }
 

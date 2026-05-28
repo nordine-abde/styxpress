@@ -10,8 +10,10 @@ export const defaultSiteConfig = {
         palette: 'ink',
         font: 'system',
         layout: 'classic',
-        radius: 'soft'
+        radius: 'soft',
+        customCss: ''
     },
+    savedThemes: [],
     header: {
         variant: 'nav',
         title: '',
@@ -34,6 +36,10 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
     const config = ref(cloneDefault())
     const loading = ref(false)
     const saving = ref(false)
+    const previewing = ref(false)
+    const previewHtml = ref('')
+    const previewUrl = ref('')
+    const previewError = ref('')
     const error = ref('')
 
     async function loadSiteConfig() {
@@ -69,13 +75,48 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         }
     }
 
+    async function previewSiteConfig(nextConfig) {
+        const uiStore = useUiStore()
+        previewing.value = true
+        previewError.value = ''
+        try {
+            const payload = await apiRequest('/api/site-config/preview', {
+                method: 'POST',
+                body: mergeConfig(nextConfig)
+            })
+            previewHtml.value = payload?.html || ''
+            setPreviewUrl(previewHtml.value)
+            return payload
+        } catch (err) {
+            previewError.value = err.message
+            uiStore.captureError(err)
+            throw err
+        } finally {
+            previewing.value = false
+        }
+    }
+
+    function setPreviewUrl(html) {
+        if (previewUrl.value) {
+            URL.revokeObjectURL(previewUrl.value)
+        }
+        previewUrl.value = html
+            ? URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+            : ''
+    }
+
     return {
         config,
         loading,
         saving,
+        previewing,
+        previewHtml,
+        previewUrl,
+        previewError,
         error,
         loadSiteConfig,
-        saveSiteConfig
+        saveSiteConfig,
+        previewSiteConfig
     }
 })
 
@@ -90,8 +131,10 @@ export function mergeConfig(value = {}) {
         ...value,
         theme: {
             ...defaults.theme,
-            ...(value.theme || {})
+            ...(value.theme || {}),
+            customCss: value.theme?.customCss || defaults.theme.customCss
         },
+        savedThemes: Array.isArray(value.savedThemes) ? value.savedThemes.map(mergeTheme) : defaults.savedThemes,
         header: {
             ...defaults.header,
             ...(value.header || {}),
@@ -102,5 +145,17 @@ export function mergeConfig(value = {}) {
             ...(value.footer || {}),
             links: Array.isArray(value.footer?.links) ? value.footer.links : defaults.footer.links
         }
+    }
+}
+
+function mergeTheme(theme = {}) {
+    return {
+        id: theme.id || '',
+        name: theme.name || '',
+        palette: theme.palette || defaultSiteConfig.theme.palette,
+        font: theme.font || defaultSiteConfig.theme.font,
+        layout: theme.layout || defaultSiteConfig.theme.layout,
+        radius: theme.radius || defaultSiteConfig.theme.radius,
+        customCss: theme.customCss || ''
     }
 }

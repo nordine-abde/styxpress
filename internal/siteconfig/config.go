@@ -44,18 +44,30 @@ const (
 var ErrInvalidConfig = errors.New("invalid site config")
 
 type Config struct {
-	Title       string       `json:"title"`
-	Description string       `json:"description"`
-	Theme       ThemeConfig  `json:"theme"`
-	Header      HeaderConfig `json:"header"`
-	Footer      FooterConfig `json:"footer"`
+	Title       string             `json:"title"`
+	Description string             `json:"description"`
+	Theme       ThemeConfig        `json:"theme"`
+	SavedThemes []SavedThemeConfig `json:"savedThemes"`
+	Header      HeaderConfig       `json:"header"`
+	Footer      FooterConfig       `json:"footer"`
 }
 
 type ThemeConfig struct {
-	Palette string `json:"palette"`
-	Font    string `json:"font"`
-	Layout  string `json:"layout"`
-	Radius  string `json:"radius"`
+	Palette   string `json:"palette"`
+	Font      string `json:"font"`
+	Layout    string `json:"layout"`
+	Radius    string `json:"radius"`
+	CustomCSS string `json:"customCss"`
+}
+
+type SavedThemeConfig struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Palette   string `json:"palette"`
+	Font      string `json:"font"`
+	Layout    string `json:"layout"`
+	Radius    string `json:"radius"`
+	CustomCSS string `json:"customCss"`
 }
 
 type HeaderConfig struct {
@@ -176,6 +188,7 @@ func WithDefaults(cfg Config) Config {
 	if cfg.Theme.Radius == "" {
 		cfg.Theme.Radius = defaults.Theme.Radius
 	}
+	cfg.SavedThemes = cleanSavedThemes(cfg.SavedThemes)
 	if cfg.Header.Variant == "" {
 		cfg.Header.Variant = defaults.Header.Variant
 	}
@@ -194,17 +207,38 @@ func (c Config) Validate() error {
 	if strings.Contains(c.Title, "\x00") || strings.Contains(c.Description, "\x00") {
 		return fmt.Errorf("%w: text fields must not contain NUL bytes", ErrInvalidConfig)
 	}
-	if !allowed(c.Theme.Palette, PaletteInk, PaletteSage, PaletteClay, PaletteMidnight) {
-		return fmt.Errorf("%w: unknown theme palette %q", ErrInvalidConfig, c.Theme.Palette)
+	if err := validateTheme("theme", c.Theme); err != nil {
+		return err
 	}
-	if !allowed(c.Theme.Font, FontSystem, FontSerif, FontMono) {
-		return fmt.Errorf("%w: unknown theme font %q", ErrInvalidConfig, c.Theme.Font)
-	}
-	if !allowed(c.Theme.Layout, LayoutClassic, LayoutWide) {
-		return fmt.Errorf("%w: unknown theme layout %q", ErrInvalidConfig, c.Theme.Layout)
-	}
-	if !allowed(c.Theme.Radius, RadiusNone, RadiusSoft) {
-		return fmt.Errorf("%w: unknown theme radius %q", ErrInvalidConfig, c.Theme.Radius)
+	seenSavedThemes := make(map[string]struct{}, len(c.SavedThemes))
+	for _, saved := range c.SavedThemes {
+		if strings.Contains(saved.ID, "\x00") || strings.Contains(saved.Name, "\x00") {
+			return fmt.Errorf("%w: saved theme id and name must not contain NUL bytes", ErrInvalidConfig)
+		}
+		id := strings.TrimSpace(saved.ID)
+		name := strings.TrimSpace(saved.Name)
+		if id == "" {
+			return fmt.Errorf("%w: saved theme id is required", ErrInvalidConfig)
+		}
+		if name == "" {
+			return fmt.Errorf("%w: saved theme name is required", ErrInvalidConfig)
+		}
+		if !safeSavedThemeID(id) {
+			return fmt.Errorf("%w: saved theme id %q is unsafe", ErrInvalidConfig, saved.ID)
+		}
+		if _, ok := seenSavedThemes[id]; ok {
+			return fmt.Errorf("%w: saved theme id %q is duplicated", ErrInvalidConfig, saved.ID)
+		}
+		seenSavedThemes[id] = struct{}{}
+		if err := validateTheme("saved theme "+id, ThemeConfig{
+			Palette:   saved.Palette,
+			Font:      saved.Font,
+			Layout:    saved.Layout,
+			Radius:    saved.Radius,
+			CustomCSS: saved.CustomCSS,
+		}); err != nil {
+			return err
+		}
 	}
 	if !allowed(c.Header.Variant, HeaderNav, HeaderCentered, HeaderMinimal, HeaderHidden) {
 		return fmt.Errorf("%w: unknown header variant %q", ErrInvalidConfig, c.Header.Variant)
@@ -236,6 +270,27 @@ func encode(w io.Writer, cfg Config) error {
 		fmt.Sprintf("font = %s\n", strconv.Quote(cfg.Theme.Font)),
 		fmt.Sprintf("layout = %s\n", strconv.Quote(cfg.Theme.Layout)),
 		fmt.Sprintf("radius = %s\n", strconv.Quote(cfg.Theme.Radius)),
+		fmt.Sprintf("customCss = %s\n", strconv.Quote(cfg.Theme.CustomCSS)),
+	}
+	for _, line := range lines {
+		if _, err := io.WriteString(w, line); err != nil {
+			return err
+		}
+	}
+	for _, saved := range cfg.SavedThemes {
+		if _, err := fmt.Fprintf(w, "\n[[savedThemes]]\nid = %s\nname = %s\npalette = %s\nfont = %s\nlayout = %s\nradius = %s\ncustomCss = %s\n",
+			strconv.Quote(saved.ID),
+			strconv.Quote(saved.Name),
+			strconv.Quote(saved.Palette),
+			strconv.Quote(saved.Font),
+			strconv.Quote(saved.Layout),
+			strconv.Quote(saved.Radius),
+			strconv.Quote(saved.CustomCSS),
+		); err != nil {
+			return err
+		}
+	}
+	lines = []string{
 		"\n[header]\n",
 		fmt.Sprintf("variant = %s\n", strconv.Quote(cfg.Header.Variant)),
 		fmt.Sprintf("title = %s\n", strconv.Quote(cfg.Header.Title)),
@@ -264,9 +319,11 @@ func encode(w io.Writer, cfg Config) error {
 
 func decode(r io.Reader, cfg *Config) error {
 	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 1024), 4*1024*1024)
 	var section string
 	var headerLink *Link
 	var footerLink *Link
+	var savedTheme *SavedThemeConfig
 	lineNumber := 0
 
 	for scanner.Scan() {
@@ -282,10 +339,17 @@ func decode(r io.Reader, cfg *Config) error {
 				cfg.Header.Links = append(cfg.Header.Links, Link{})
 				headerLink = &cfg.Header.Links[len(cfg.Header.Links)-1]
 				footerLink = nil
+				savedTheme = nil
 			case "footer.links":
 				cfg.Footer.Links = append(cfg.Footer.Links, Link{})
 				footerLink = &cfg.Footer.Links[len(cfg.Footer.Links)-1]
 				headerLink = nil
+				savedTheme = nil
+			case "savedThemes":
+				cfg.SavedThemes = append(cfg.SavedThemes, SavedThemeConfig{})
+				savedTheme = &cfg.SavedThemes[len(cfg.SavedThemes)-1]
+				headerLink = nil
+				footerLink = nil
 			default:
 				return fmt.Errorf("%w: line %d unknown array section %q", ErrInvalidConfig, lineNumber, name)
 			}
@@ -300,6 +364,7 @@ func decode(r io.Reader, cfg *Config) error {
 			section = name
 			headerLink = nil
 			footerLink = nil
+			savedTheme = nil
 			continue
 		}
 
@@ -312,7 +377,7 @@ func decode(r io.Reader, cfg *Config) error {
 		if err != nil {
 			return fmt.Errorf("%w: line %d value must be a quoted string", ErrInvalidConfig, lineNumber)
 		}
-		if err := assignValue(cfg, section, key, value, headerLink, footerLink); err != nil {
+		if err := assignValue(cfg, section, key, value, headerLink, footerLink, savedTheme); err != nil {
 			return fmt.Errorf("%w: line %d %v", ErrInvalidConfig, lineNumber, err)
 		}
 	}
@@ -322,7 +387,7 @@ func decode(r io.Reader, cfg *Config) error {
 	return nil
 }
 
-func assignValue(cfg *Config, section string, key string, value string, headerLink *Link, footerLink *Link) error {
+func assignValue(cfg *Config, section string, key string, value string, headerLink *Link, footerLink *Link, savedTheme *SavedThemeConfig) error {
 	switch section {
 	case "":
 		switch key {
@@ -343,8 +408,32 @@ func assignValue(cfg *Config, section string, key string, value string, headerLi
 			cfg.Theme.Layout = value
 		case "radius":
 			cfg.Theme.Radius = value
+		case "customCss":
+			cfg.Theme.CustomCSS = value
 		default:
 			return fmt.Errorf("unknown theme key %q", key)
+		}
+	case "savedThemes":
+		if savedTheme == nil {
+			return errors.New("saved theme entry is missing")
+		}
+		switch key {
+		case "id":
+			savedTheme.ID = value
+		case "name":
+			savedTheme.Name = value
+		case "palette":
+			savedTheme.Palette = value
+		case "font":
+			savedTheme.Font = value
+		case "layout":
+			savedTheme.Layout = value
+		case "radius":
+			savedTheme.Radius = value
+		case "customCss":
+			savedTheme.CustomCSS = value
+		default:
+			return fmt.Errorf("unknown saved theme key %q", key)
 		}
 	case "header":
 		switch key {
@@ -396,6 +485,46 @@ func assignValue(cfg *Config, section string, key string, value string, headerLi
 	return nil
 }
 
+func validateTheme(owner string, theme ThemeConfig) error {
+	if strings.Contains(theme.Palette, "\x00") ||
+		strings.Contains(theme.Font, "\x00") ||
+		strings.Contains(theme.Layout, "\x00") ||
+		strings.Contains(theme.Radius, "\x00") ||
+		strings.Contains(theme.CustomCSS, "\x00") {
+		return fmt.Errorf("%w: %s fields must not contain NUL bytes", ErrInvalidConfig, owner)
+	}
+	if !allowed(theme.Palette, PaletteInk, PaletteSage, PaletteClay, PaletteMidnight) {
+		return fmt.Errorf("%w: unknown %s palette %q", ErrInvalidConfig, owner, theme.Palette)
+	}
+	if !allowed(theme.Font, FontSystem, FontSerif, FontMono) {
+		return fmt.Errorf("%w: unknown %s font %q", ErrInvalidConfig, owner, theme.Font)
+	}
+	if !allowed(theme.Layout, LayoutClassic, LayoutWide) {
+		return fmt.Errorf("%w: unknown %s layout %q", ErrInvalidConfig, owner, theme.Layout)
+	}
+	if !allowed(theme.Radius, RadiusNone, RadiusSoft) {
+		return fmt.Errorf("%w: unknown %s radius %q", ErrInvalidConfig, owner, theme.Radius)
+	}
+	return nil
+}
+
+func cleanSavedThemes(savedThemes []SavedThemeConfig) []SavedThemeConfig {
+	if len(savedThemes) == 0 {
+		return nil
+	}
+	cleaned := make([]SavedThemeConfig, 0, len(savedThemes))
+	for _, saved := range savedThemes {
+		saved.ID = strings.TrimSpace(saved.ID)
+		saved.Name = strings.TrimSpace(saved.Name)
+		saved.Palette = strings.TrimSpace(saved.Palette)
+		saved.Font = strings.TrimSpace(saved.Font)
+		saved.Layout = strings.TrimSpace(saved.Layout)
+		saved.Radius = strings.TrimSpace(saved.Radius)
+		cleaned = append(cleaned, saved)
+	}
+	return cleaned
+}
+
 func cleanLinks(links []Link) []Link {
 	if len(links) == 0 {
 		return nil
@@ -442,4 +571,20 @@ func allowed(value string, choices ...string) bool {
 		}
 	}
 	return false
+}
+
+func safeSavedThemeID(id string) bool {
+	if len(id) > 80 {
+		return false
+	}
+	for index, r := range id {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			continue
+		}
+		if index > 0 && (r == '-' || r == '_') {
+			continue
+		}
+		return false
+	}
+	return id != ""
 }

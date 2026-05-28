@@ -184,8 +184,14 @@ func TestRenderPostDoesNotOverwriteIndexWhenLoadFails(t *testing.T) {
 }
 
 func TestRenderPreviewDoesNotWritePublicFiles(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
 	publicRoot := filepath.Join(t.TempDir(), "public")
-	renderer, err := New(filepath.Join(t.TempDir(), "content"), publicRoot, Options{})
+	cfg := siteconfig.Default()
+	cfg.Theme.CustomCSS = ".preview-only { color: rebeccapurple; }"
+	if err := siteconfig.Save(contentRoot, cfg); err != nil {
+		t.Fatalf("save site config: %v", err)
+	}
+	renderer, err := New(contentRoot, publicRoot, Options{})
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -203,8 +209,48 @@ func TestRenderPreviewDoesNotWritePublicFiles(t *testing.T) {
 	if !strings.Contains(html, "<h1>Preview</h1>") {
 		t.Fatalf("preview did not render markdown:\n%s", html)
 	}
+	if !strings.Contains(html, "<style>") || !strings.Contains(html, ".preview-only { color: rebeccapurple; }") {
+		t.Fatalf("preview did not inline the full stylesheet:\n%s", html)
+	}
+	if strings.Contains(html, `<link rel="stylesheet" href="/assets/styxpress.css">`) {
+		t.Fatalf("preview should not link the public stylesheet:\n%s", html)
+	}
 	if _, err := os.Stat(publicRoot); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("preview should not create public root, stat err: %v", err)
+	}
+}
+
+func TestRenderPreviewNeutralizesStyleEndTagInCustomCSS(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	cfg := siteconfig.Default()
+	cfg.Theme.CustomCSS = `.x::before { content: "</style><script>alert(1)</script>"; }`
+	if err := siteconfig.Save(contentRoot, cfg); err != nil {
+		t.Fatalf("save site config: %v", err)
+	}
+	renderer, err := New(contentRoot, publicRoot, Options{})
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+
+	html, err := renderer.RenderPreview(content.Post{
+		Slug:        "preview",
+		Title:       "Preview",
+		Source:      "# Preview\n",
+		PublishedAt: time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("render preview: %v", err)
+	}
+	if strings.Contains(html, `</style><script>`) {
+		t.Fatalf("inline CSS can close the style element:\n%s", html)
+	}
+	if !strings.Contains(html, `<\/style><script>`) {
+		t.Fatalf("inline CSS did not neutralize style end tag:\n%s", html)
+	}
+	if got := strings.Count(strings.ToLower(html), "</style>"); got != 1 {
+		t.Fatalf("style end tag count = %d, want only the template closing tag:\n%s", got, html)
 	}
 }
 
@@ -297,10 +343,11 @@ func TestRenderUsesSiteConfigThemeHeaderFooterAndStylesheet(t *testing.T) {
 		Title:       "Anordine",
 		Description: "Software notes",
 		Theme: siteconfig.ThemeConfig{
-			Palette: siteconfig.PaletteClay,
-			Font:    siteconfig.FontSerif,
-			Layout:  siteconfig.LayoutWide,
-			Radius:  siteconfig.RadiusNone,
+			Palette:   siteconfig.PaletteClay,
+			Font:      siteconfig.FontSerif,
+			Layout:    siteconfig.LayoutWide,
+			Radius:    siteconfig.RadiusNone,
+			CustomCSS: ".post-content { max-width: 64ch; }",
 		},
 		Header: siteconfig.HeaderConfig{
 			Variant: siteconfig.HeaderCentered,
@@ -353,6 +400,110 @@ func TestRenderUsesSiteConfigThemeHeaderFooterAndStylesheet(t *testing.T) {
 	assertFileContent(t, filepath.Join(publicRoot, "assets", "styxpress.css"), []string{
 		`.theme-clay`,
 		`.site-header-centered .site-header-inner`,
+		`.post-content { max-width: 64ch; }`,
+	})
+}
+
+func TestRenderSitePreviewUsesProvidedConfigAndDoesNotWritePublicFiles(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	repo := content.NewRepository(contentRoot)
+	publishedAt := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
+	if _, err := repo.WritePost(content.Post{
+		Slug:        "previewed",
+		Title:       "Previewed",
+		Description: "Visible in preview",
+		Source:      "Previewed",
+		PublishedAt: publishedAt,
+		UpdatedAt:   publishedAt,
+	}, content.WritePostOptions{}); err != nil {
+		t.Fatalf("write post: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot, Options{})
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	cfg := siteconfig.Default()
+	cfg.Title = "Preview Site"
+	cfg.Theme = siteconfig.ThemeConfig{
+		Palette:   siteconfig.PaletteMidnight,
+		Font:      siteconfig.FontMono,
+		Layout:    siteconfig.LayoutWide,
+		Radius:    siteconfig.RadiusNone,
+		CustomCSS: ".site-main { outline: 3px solid lime; }",
+	}
+	html, err := renderer.RenderSitePreview(cfg)
+	if err != nil {
+		t.Fatalf("render site preview: %v", err)
+	}
+
+	for _, expected := range []string{
+		`<title>Preview Site</title>`,
+		`<body class="theme-midnight font-mono layout-wide radius-none">`,
+		`<style>`,
+		`.site-main { outline: 3px solid lime; }`,
+		`<a href="/posts/previewed/">Previewed</a>`,
+	} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("expected %q in site preview:\n%s", expected, html)
+		}
+	}
+	if strings.Contains(html, `<link rel="stylesheet" href="/assets/styxpress.css">`) {
+		t.Fatalf("site preview should not link the public stylesheet:\n%s", html)
+	}
+	if _, err := os.Stat(publicRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("site preview should not create public root, stat err: %v", err)
+	}
+}
+
+func TestRenderAllWritesPostsSiteAndStylesheet(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	repo := content.NewRepository(contentRoot)
+	publishedAt := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
+	for _, post := range []content.Post{
+		{Slug: "alpha", Title: "Alpha", Source: "# Alpha", PublishedAt: publishedAt, UpdatedAt: publishedAt},
+		{Slug: "bravo", Title: "Bravo", Source: "# Bravo", PublishedAt: publishedAt.Add(time.Hour), UpdatedAt: publishedAt.Add(time.Hour)},
+	} {
+		if _, err := repo.WritePost(post, content.WritePostOptions{}); err != nil {
+			t.Fatalf("write post %s: %v", post.Slug, err)
+		}
+	}
+	cfg := siteconfig.Default()
+	cfg.Theme.CustomCSS = ".render-all { display: block; }"
+	if err := siteconfig.Save(contentRoot, cfg); err != nil {
+		t.Fatalf("save site config: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot, Options{SiteBaseURL: "https://blog.example.com"})
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	result, err := renderer.RenderAll()
+	if err != nil {
+		t.Fatalf("render all: %v", err)
+	}
+	if len(result.Posts) != 2 {
+		t.Fatalf("rendered posts = %d, want 2", len(result.Posts))
+	}
+
+	assertFileContent(t, filepath.Join(publicRoot, "posts", "alpha", "index.html"), []string{
+		`<link rel="stylesheet" href="/assets/styxpress.css">`,
+		`<h1>Alpha</h1>`,
+	})
+	assertFileContent(t, filepath.Join(publicRoot, "posts", "bravo", "index.html"), []string{
+		`<h1>Bravo</h1>`,
+	})
+	assertFileContent(t, result.Site.IndexPath, []string{
+		`<a href="/posts/bravo/">Bravo</a>`,
+		`<a href="/posts/alpha/">Alpha</a>`,
+	})
+	assertFileContent(t, result.Site.FeedPath, []string{`<link>https://blog.example.com/posts/alpha/</link>`})
+	assertFileContent(t, result.Site.SitemapPath, []string{`<loc>https://blog.example.com/posts/bravo/</loc>`})
+	assertFileContent(t, result.Site.StylesheetPath, []string{
+		`.theme-sage`,
+		`.render-all { display: block; }`,
 	})
 }
 

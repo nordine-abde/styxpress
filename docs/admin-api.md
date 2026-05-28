@@ -41,6 +41,66 @@ Config object:
 }
 ```
 
+## Site Config
+
+- `GET /api/site-config`
+  Returns `site.toml` from the configured `contentDir`, or defaults when the
+  file does not exist.
+- `POST /api/site-config`
+  Saves the site presentation config as `site.toml` under the configured
+  `contentDir` and returns the normalized config.
+- `POST /api/site-config/preview`
+  Body is a site config object. Returns `{"html":"..."}` for a draft homepage
+  preview without writing public files.
+
+Site config object:
+
+```json
+{
+  "title": "Styxpress",
+  "description": "Latest posts",
+  "theme": {
+    "palette": "ink",
+    "font": "system",
+    "layout": "classic",
+    "radius": "soft",
+    "customCss": ".site-main { max-width: 68rem; }"
+  },
+  "savedThemes": [
+    {
+      "id": "quiet-serif",
+      "name": "Quiet Serif",
+      "palette": "sage",
+      "font": "serif",
+      "layout": "classic",
+      "radius": "soft",
+      "customCss": ""
+    }
+  ],
+  "header": {
+    "variant": "nav",
+    "title": "",
+    "tagline": "",
+    "links": [
+      { "label": "Home", "href": "/" },
+      { "label": "RSS", "href": "/feed.xml" }
+    ]
+  },
+  "footer": {
+    "variant": "simple",
+    "text": "Published with Styxpress",
+    "links": [
+      { "label": "RSS", "href": "/feed.xml" }
+    ]
+  }
+}
+```
+
+Allowed theme values are `palette` `ink`, `sage`, `clay`, or `midnight`; `font`
+`system`, `serif`, or `mono`; `layout` `classic` or `wide`; and `radius` `none`
+or `soft`. Saved themes are root-level entries and include their own
+`customCss`.
+
 ## Posts
 
 - `GET /api/posts`
@@ -92,12 +152,22 @@ multipart requests.
 - `POST /api/render-preview`
   Body is a post object. Returns `{"html":"..."}` without writing public files.
 - `POST /api/posts/{slug}/render`
-  Renders the post, homepage, feed, and sitemap locally.
+  Renders the post, homepage, feed, sitemap, and stylesheet locally. Returns
+  `{"post":{...},"site":{...}}`.
 - `POST /api/posts/{slug}/publish`
   Body: `{"passphrase":"optional"}`. Renders locally, then publishes configured
-  `publicDir`, and `contentDir` when `contentStorageMode` is `server`.
+  `publicDir`, and `contentDir` when `contentStorageMode` is `server`. Returns
+  `{"post":{...},"site":{...},"publish":{...}}`.
 - `POST /api/publish`
-  Body: `{"slug":"hello-world","passphrase":"optional"}`.
+  Body: `{"slug":"hello-world","passphrase":"optional"}`. Equivalent to
+  `POST /api/posts/{slug}/publish` with the slug in the body.
+- `POST /api/site/render`
+  Renders all public posts, the homepage, feed, sitemap, and stylesheet locally.
+  Returns `{"posts":[...],"site":{...}}`.
+- `POST /api/site/publish`
+  Body: `{"passphrase":"optional"}`. Renders all public pages locally, then
+  publishes configured `publicDir`, and `contentDir` when `contentStorageMode`
+  is `server`. Returns `{"posts":[...],"site":{...},"publish":{...}}`.
 - `GET /api/featured`
   Returns `{"slugs":["hello-world"]}`.
 - `POST /api/featured`

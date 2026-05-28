@@ -67,6 +67,44 @@ export const usePublishingStore = defineStore('publishing', () => {
         }
     }
 
+    async function renderSite() {
+        const uiStore = useUiStore()
+        rendering.value = true
+        error.value = ''
+        try {
+            lastResult.value = await apiRequest('/api/site/render', {
+                method: 'POST',
+                body: {}
+            })
+            uiStore.setNotice('Site rendered locally.')
+        } catch (err) {
+            error.value = err.message
+            uiStore.captureError(err)
+            throw err
+        } finally {
+            rendering.value = false
+        }
+    }
+
+    async function publishSite(passphrase) {
+        const uiStore = useUiStore()
+        publishing.value = true
+        error.value = ''
+        try {
+            lastResult.value = await apiRequest('/api/site/publish', {
+                method: 'POST',
+                body: { passphrase }
+            })
+            uiStore.setNotice('Site published.')
+        } catch (err) {
+            error.value = err.message
+            uiStore.captureError(err)
+            throw err
+        } finally {
+            publishing.value = false
+        }
+    }
+
     return {
         testing,
         rendering,
@@ -75,6 +113,8 @@ export const usePublishingStore = defineStore('publishing', () => {
         error,
         testSSH,
         renderPost,
-        publishPost
+        publishPost,
+        renderSite,
+        publishSite
     }
 })
