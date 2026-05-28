@@ -400,7 +400,7 @@ function slugify(value) {
             </aside>
 
             <div class="site-editor-column">
-                <UiPanel title="Appearance" subtitle="Theme, typography, layout, and custom CSS.">
+                <UiPanel title="Appearance" subtitle="Theme, typography, layout, and saved theme presets.">
                     <div class="appearance-controls">
                         <div class="two-column">
                             <UiSelect v-model="form.theme.palette" label="Palette" :options="paletteOptions" />
@@ -413,113 +413,6 @@ function slugify(value) {
                             <span></span>
                             <span></span>
                             <span></span>
-                        </div>
-
-                        <section class="custom-css-workspace">
-                            <header class="section-header">
-                                <div>
-                                    <h4>CSS</h4>
-                                    <p>{{ customCssEmpty ? 'No editable custom CSS yet' : 'Editable custom CSS active' }}</p>
-                                </div>
-                                <div class="button-row">
-                                    <UiButton tone="ghost" :busy="siteConfigStore.styleCssLoading" @click="refreshStyleCss">
-                                        Refresh CSS
-                                    </UiButton>
-                                    <UiButton tone="ghost" @click="showCssGuide = true">
-                                        Open guide
-                                    </UiButton>
-                                </div>
-                            </header>
-
-                            <div class="status-row">
-                                <UiBadge :tone="styleCssStatusTone">
-                                    {{ styleCssStatusLabel }}
-                                </UiBadge>
-                                <UiBadge v-if="hasStyleCss">
-                                    {{ currentCssStateLabel }}
-                                </UiBadge>
-                            </div>
-
-                            <p v-if="siteConfigStore.styleCssError" class="error-text compact-text">
-                                {{ siteConfigStore.styleCssError }}
-                            </p>
-
-                            <section class="css-current">
-                                <div class="css-current-header">
-                                    <div>
-                                        <h5>Current site CSS</h5>
-                                        <p>Read-only CSS generated for the current draft.</p>
-                                    </div>
-                                    <code v-if="bodyClassText" class="body-class-line">{{ bodyClassText }}</code>
-                                </div>
-                                <textarea
-                                    class="css-readonly"
-                                    :value="siteConfigStore.styleCss.currentCss"
-                                    rows="10"
-                                    readonly
-                                    placeholder="Current CSS is loading."
-                                ></textarea>
-                            </section>
-
-                            <div class="css-action-grid">
-                                <UiButton tone="ghost" :disabled="!themeCssReady" @click="useThemeCss">
-                                    Use theme/base CSS
-                                </UiButton>
-                                <UiButton tone="primary" :disabled="!blankThemeCssReady" @click="useBlankThemeCss">
-                                    Create blank theme CSS
-                                </UiButton>
-                            </div>
-
-                            <div v-if="customCssEmpty" class="css-empty-mode">
-                                <strong>No editable custom CSS</strong>
-                                <p>Use the base theme CSS or blank class blocks above to start a saved custom theme.</p>
-                            </div>
-
-                            <UiField
-                                v-model="form.theme.customCss"
-                                label="Editable custom CSS"
-                                help="This is saved in theme.customCss and appended after the generated theme CSS."
-                                multiline
-                                :rows="14"
-                                :placeholder="blankCssPlaceholder"
-                            />
-                        </section>
-
-                        <div
-                            v-if="showCssGuide"
-                            class="guide-overlay"
-                            role="dialog"
-                            aria-modal="true"
-                            aria-labelledby="css-guide-title"
-                            @click.self="showCssGuide = false"
-                        >
-                            <section class="css-guide-dialog">
-                                <header class="guide-dialog-header">
-                                    <div>
-                                        <h3 id="css-guide-title">CSS guide</h3>
-                                        <p>Static reference for selectors that the public renderer emits.</p>
-                                    </div>
-                                    <UiButton tone="ghost" @click="showCssGuide = false">
-                                        Close
-                                    </UiButton>
-                                </header>
-
-                                <div class="guide-dialog-grid">
-                                    <article
-                                        v-for="section in cssGuideSections"
-                                        :key="section.title"
-                                        class="guide-dialog-section"
-                                    >
-                                        <h4>{{ section.title }}</h4>
-                                        <ul>
-                                            <li v-for="item in section.items" :key="item.selector">
-                                                <code>{{ item.selector }}</code>
-                                                <span>{{ item.description }}</span>
-                                            </li>
-                                        </ul>
-                                    </article>
-                                </div>
-                            </section>
                         </div>
 
                         <div class="theme-tools">
@@ -608,6 +501,115 @@ function slugify(value) {
                         {{ publishingStore.error }}
                     </p>
                 </UiPanel>
+
+                <UiPanel title="Custom CSS" subtitle="Advanced theme editing for generated public pages.">
+                    <section class="custom-css-workspace">
+                        <header class="section-header">
+                            <div>
+                                <h4>CSS</h4>
+                                <p>{{ customCssEmpty ? 'No editable custom CSS yet' : 'Editable custom CSS active' }}</p>
+                            </div>
+                            <div class="button-row">
+                                <UiButton tone="ghost" :busy="siteConfigStore.styleCssLoading" @click="refreshStyleCss">
+                                    Refresh CSS
+                                </UiButton>
+                                <UiButton tone="ghost" @click="showCssGuide = true">
+                                    Open guide
+                                </UiButton>
+                            </div>
+                        </header>
+
+                        <div class="status-row">
+                            <UiBadge :tone="styleCssStatusTone">
+                                {{ styleCssStatusLabel }}
+                            </UiBadge>
+                            <UiBadge v-if="hasStyleCss">
+                                {{ currentCssStateLabel }}
+                            </UiBadge>
+                        </div>
+
+                        <p v-if="siteConfigStore.styleCssError" class="error-text compact-text">
+                            {{ siteConfigStore.styleCssError }}
+                        </p>
+
+                        <section class="css-current">
+                            <div class="css-current-header">
+                                <div>
+                                    <h5>Current site CSS</h5>
+                                    <p>Read-only CSS generated for the current draft.</p>
+                                </div>
+                                <code v-if="bodyClassText" class="body-class-line">{{ bodyClassText }}</code>
+                            </div>
+                            <textarea
+                                class="css-readonly"
+                                :value="siteConfigStore.styleCss.currentCss"
+                                rows="10"
+                                readonly
+                                placeholder="Current CSS is loading."
+                            ></textarea>
+                        </section>
+
+                        <div class="css-action-grid">
+                            <UiButton tone="ghost" :disabled="!themeCssReady" @click="useThemeCss">
+                                Use theme/base CSS
+                            </UiButton>
+                            <UiButton tone="primary" :disabled="!blankThemeCssReady" @click="useBlankThemeCss">
+                                Create blank theme CSS
+                            </UiButton>
+                        </div>
+
+                        <div v-if="customCssEmpty" class="css-empty-mode">
+                            <strong>No editable custom CSS</strong>
+                            <p>Use the base theme CSS or blank class blocks above to start a saved custom theme.</p>
+                        </div>
+
+                        <UiField
+                            v-model="form.theme.customCss"
+                            label="Editable custom CSS"
+                            help="This is saved in theme.customCss and appended after the generated theme CSS."
+                            multiline
+                            :rows="14"
+                            :placeholder="blankCssPlaceholder"
+                        />
+                    </section>
+
+                    <div
+                        v-if="showCssGuide"
+                        class="guide-overlay"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="css-guide-title"
+                        @click.self="showCssGuide = false"
+                    >
+                        <section class="css-guide-dialog">
+                            <header class="guide-dialog-header">
+                                <div>
+                                    <h3 id="css-guide-title">CSS guide</h3>
+                                    <p>Static reference for selectors that the public renderer emits.</p>
+                                </div>
+                                <UiButton tone="ghost" @click="showCssGuide = false">
+                                    Close
+                                </UiButton>
+                            </header>
+
+                            <div class="guide-dialog-grid">
+                                <article
+                                    v-for="section in cssGuideSections"
+                                    :key="section.title"
+                                    class="guide-dialog-section"
+                                >
+                                    <h4>{{ section.title }}</h4>
+                                    <ul>
+                                        <li v-for="item in section.items" :key="item.selector">
+                                            <code>{{ item.selector }}</code>
+                                            <span>{{ item.description }}</span>
+                                        </li>
+                                    </ul>
+                                </article>
+                            </div>
+                        </section>
+                    </div>
+                </UiPanel>
             </div>
         </div>
     </form>
@@ -637,6 +639,14 @@ function slugify(value) {
 .site-editor-column,
 .site-preview-column {
     min-width: 0;
+}
+
+.site-editor-column {
+    order: 1;
+}
+
+.site-preview-column {
+    order: 2;
 }
 
 .appearance-controls,

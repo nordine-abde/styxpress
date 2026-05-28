@@ -119,9 +119,17 @@ onMounted(async () => {
             </header>
 
             <section v-if="uiStore.activeView === 'posts'" class="posts-layout">
-                <PostList />
-                <PostEditor />
-                <PublishPanel />
+                <div class="posts-side-column">
+                    <div class="posts-list-column">
+                        <PostList />
+                    </div>
+                    <div class="posts-action-column">
+                        <PublishPanel />
+                    </div>
+                </div>
+                <div class="posts-editor-column">
+                    <PostEditor />
+                </div>
             </section>
 
             <section v-else-if="uiStore.activeView === 'featured'" class="single-layout">
