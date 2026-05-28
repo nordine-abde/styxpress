@@ -564,23 +564,18 @@ func (r *Renderer) siteData(cfg siteconfig.Config, style styleTemplateData) site
 	return siteTemplateData{
 		Title:       cfg.Title,
 		Description: cfg.Description,
-		BodyClass: strings.Join([]string{
-			"theme-" + cfg.Theme.Palette,
-			"font-" + cfg.Theme.Font,
-			"layout-" + cfg.Theme.Layout,
-			"radius-" + cfg.Theme.Radius,
-		}, " "),
-		Style: style,
+		BodyClass:   strings.Join(siteBodyClasses(cfg), " "),
+		Style:       style,
 		Header: headerTemplateData{
 			Hidden:       cfg.Header.Variant == siteconfig.HeaderHidden,
-			VariantClass: "site-header-" + cfg.Header.Variant,
+			VariantClass: siteHeaderVariantClass(cfg.Header.Variant),
 			Title:        headerTitle,
 			Tagline:      cfg.Header.Tagline,
 			Links:        cfg.Header.Links,
 		},
 		Footer: footerTemplateData{
 			Hidden:       cfg.Footer.Variant == siteconfig.FooterHidden,
-			VariantClass: "site-footer-" + cfg.Footer.Variant,
+			VariantClass: siteFooterVariantClass(cfg.Footer.Variant),
 			Text:         cfg.Footer.Text,
 			Links:        cfg.Footer.Links,
 		},

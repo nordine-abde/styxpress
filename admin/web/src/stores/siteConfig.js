@@ -40,6 +40,9 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
     const previewHtml = ref('')
     const previewUrl = ref('')
     const previewError = ref('')
+    const styleGuiding = ref(false)
+    const styleGuide = ref(defaultStyleGuide())
+    const styleGuideError = ref('')
     const error = ref('')
 
     async function loadSiteConfig() {
@@ -96,6 +99,26 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         }
     }
 
+    async function loadStyleGuide(nextConfig) {
+        const uiStore = useUiStore()
+        styleGuiding.value = true
+        styleGuideError.value = ''
+        try {
+            const payload = await apiRequest('/api/site-config/style-guide', {
+                method: 'POST',
+                body: mergeConfig(nextConfig)
+            })
+            styleGuide.value = mergeStyleGuide(payload)
+            return styleGuide.value
+        } catch (err) {
+            styleGuideError.value = err.message
+            uiStore.captureError(err)
+            throw err
+        } finally {
+            styleGuiding.value = false
+        }
+    }
+
     function setPreviewUrl(html) {
         if (previewUrl.value) {
             URL.revokeObjectURL(previewUrl.value)
@@ -113,10 +136,14 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         previewHtml,
         previewUrl,
         previewError,
+        styleGuiding,
+        styleGuide,
+        styleGuideError,
         error,
         loadSiteConfig,
         saveSiteConfig,
-        previewSiteConfig
+        previewSiteConfig,
+        loadStyleGuide
     }
 })
 
@@ -157,5 +184,51 @@ function mergeTheme(theme = {}) {
         layout: theme.layout || defaultSiteConfig.theme.layout,
         radius: theme.radius || defaultSiteConfig.theme.radius,
         customCss: theme.customCss || ''
+    }
+}
+
+function defaultStyleGuide() {
+    return {
+        starterCss: '',
+        customCssIncluded: false,
+        bodyClasses: [],
+        selectors: [],
+        headerVariants: [],
+        footerVariants: [],
+        notes: []
+    }
+}
+
+function mergeStyleGuide(value = {}) {
+    return {
+        ...defaultStyleGuide(),
+        ...value,
+        starterCss: value.starterCss || '',
+        customCssIncluded: Boolean(value.customCssIncluded),
+        bodyClasses: Array.isArray(value.bodyClasses) ? value.bodyClasses : [],
+        selectors: Array.isArray(value.selectors) ? value.selectors.map(mergeStyleSelector) : [],
+        headerVariants: Array.isArray(value.headerVariants) ? value.headerVariants.map(mergeStyleVariant) : [],
+        footerVariants: Array.isArray(value.footerVariants) ? value.footerVariants.map(mergeStyleVariant) : [],
+        notes: Array.isArray(value.notes) ? value.notes : []
+    }
+}
+
+function mergeStyleSelector(selector = {}) {
+    return {
+        selector: selector.selector || '',
+        className: selector.className || '',
+        kind: selector.kind || 'base',
+        current: Boolean(selector.current),
+        description: selector.description || ''
+    }
+}
+
+function mergeStyleVariant(variant = {}) {
+    return {
+        variant: variant.variant || '',
+        selector: variant.selector || '',
+        className: variant.className || '',
+        current: Boolean(variant.current),
+        rendered: Boolean(variant.rendered)
     }
 }

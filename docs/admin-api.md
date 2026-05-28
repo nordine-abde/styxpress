@@ -52,6 +52,57 @@ Config object:
 - `POST /api/site-config/preview`
   Body is a site config object. Returns `{"html":"..."}` for a draft homepage
   preview without writing public files.
+- `POST /api/site-config/style-guide`
+  Body is a site config object. Returns a renderer-derived custom CSS starter
+  and editable selectors for the draft theme without writing public files. The
+  `starterCss` value is generated from the backend renderer stylesheet and
+  intentionally excludes `theme.customCss` and `savedThemes[].customCss`.
+
+Style guide response:
+
+```json
+{
+  "starterCss": "/* Styxpress custom CSS starter. */\n:root { ... }\n",
+  "customCssIncluded": false,
+  "bodyClasses": ["theme-midnight", "font-mono", "layout-wide", "radius-none"],
+  "selectors": [
+    {
+      "selector": "body.theme-midnight.font-mono.layout-wide.radius-none",
+      "kind": "body",
+      "current": true,
+      "description": "Current body class combination rendered on every page."
+    },
+    {
+      "selector": ".site-header-minimal",
+      "className": "site-header-minimal",
+      "kind": "headerVariant",
+      "current": false,
+      "description": "Header variant class."
+    }
+  ],
+  "headerVariants": [
+    {
+      "variant": "nav",
+      "selector": ".site-header-nav",
+      "className": "site-header-nav",
+      "current": true,
+      "rendered": true
+    }
+  ],
+  "footerVariants": [
+    {
+      "variant": "simple",
+      "selector": ".site-footer-simple",
+      "className": "site-footer-simple",
+      "current": true,
+      "rendered": true
+    }
+  ],
+  "notes": [
+    "starterCss is generated from the renderer base stylesheet and intentionally excludes theme.customCss and savedThemes[].customCss."
+  ]
+}
+```
 
 Site config object:
 

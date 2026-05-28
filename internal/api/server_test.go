@@ -15,6 +15,7 @@ import (
 
 	"github.com/nordine-abde/styxpress/internal/config"
 	"github.com/nordine-abde/styxpress/internal/publishing"
+	"github.com/nordine-abde/styxpress/internal/rendering"
 	"github.com/nordine-abde/styxpress/internal/siteconfig"
 )
 
@@ -263,6 +264,82 @@ func TestSiteConfigPreviewEndpointReturnsHomepageWithoutWritingPublicFiles(t *te
 	}
 	if _, err := os.Stat(filepath.Join(publicDir, "assets", "styxpress.css")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("preview should not write stylesheet, stat err: %v", err)
+	}
+}
+
+func TestSiteConfigStyleGuideEndpointReturnsStarterWithoutWritingPublicFiles(t *testing.T) {
+	server, _, publicDir := newTestServer(t)
+
+	request := authedRequest(t, server, http.MethodPost, "/api/site-config/style-guide", `{
+		"title":"Styled Site",
+		"description":"Preview config",
+		"theme":{
+			"palette":"midnight",
+			"font":"mono",
+			"layout":"wide",
+			"radius":"none",
+			"customCss":".site-main { outline: 2px solid lime; }"
+		},
+		"header":{"variant":"minimal"},
+		"footer":{"variant":"links"}
+	}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("style guide status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body rendering.StyleGuide
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode style guide: %v", err)
+	}
+	for _, expected := range []string{
+		".theme-midnight {",
+		".font-mono {",
+		".layout-wide {",
+		".radius-none {",
+		".site-header-minimal .site-nav",
+		".site-footer-links .site-footer-inner",
+	} {
+		if !strings.Contains(body.StarterCSS, expected) {
+			t.Fatalf("expected %q in starter CSS:\n%s", expected, body.StarterCSS)
+		}
+	}
+	if strings.Contains(body.StarterCSS, ".site-main { outline: 2px solid lime; }") {
+		t.Fatalf("starter CSS should not include draft custom CSS:\n%s", body.StarterCSS)
+	}
+	if body.CustomCSSIncluded {
+		t.Fatalf("CustomCSSIncluded = true, want false")
+	}
+	if strings.Join(body.BodyClasses, " ") != "theme-midnight font-mono layout-wide radius-none" {
+		t.Fatalf("BodyClasses = %#v, want current theme classes", body.BodyClasses)
+	}
+	if !styleGuideHasSelector(body.Selectors, "body.theme-midnight.font-mono.layout-wide.radius-none", true) ||
+		!styleGuideHasSelector(body.Selectors, ".site-header-minimal", true) ||
+		!styleGuideHasSelector(body.Selectors, ".site-footer-simple", false) {
+		t.Fatalf("selectors = %#v, want current body classes and header/footer variants", body.Selectors)
+	}
+	if _, err := os.Stat(filepath.Join(publicDir, "assets", "styxpress.css")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("style guide should not write stylesheet, stat err: %v", err)
+	}
+}
+
+func TestSiteConfigStyleGuideEndpointRejectsInvalidDraft(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	request := authedRequest(t, server, http.MethodPost, "/api/site-config/style-guide", `{
+		"theme":{"palette":"unknown"}
+	}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("style guide status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body ErrorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != "invalid_site_config" {
+		t.Fatalf("error code = %q, want invalid_site_config", body.Error.Code)
 	}
 }
 
@@ -679,4 +756,13 @@ func authedRequest(t *testing.T, server *Server, method string, path string, bod
 		request.Header.Set("Content-Type", "application/json")
 	}
 	return request
+}
+
+func styleGuideHasSelector(selectors []rendering.StyleSelector, selector string, current bool) bool {
+	for _, candidate := range selectors {
+		if candidate.Selector == selector && candidate.Current == current {
+			return true
+		}
+	}
+	return false
 }
