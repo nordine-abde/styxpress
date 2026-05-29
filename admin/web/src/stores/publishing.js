@@ -17,7 +17,12 @@ export const usePublishingStore = defineStore('publishing', () => {
     const sshStatus = ref('disabled')
     const sshError = ref('')
     const activeSSHSiteId = ref('')
+    const activeSSHConfigSignature = ref('')
     const sshRequiresPassphrase = ref(false)
+    const autoVerifiedSiteIds = new Set()
+    let verificationRequest = null
+    let queuedVerification = null
+    let verificationGeneration = 0
 
     const sshEnabled = computed(() => sshStatus.value !== 'disabled')
     const sshNeedsPassphrase = computed(() => sshStatus.value === 'needs_passphrase')
@@ -74,6 +79,12 @@ export const usePublishingStore = defineStore('publishing', () => {
     })
 
     const verificationSummaryText = computed(() => {
+        if (verifying.value && !verificationResult.value) {
+            return 'Checking remote files.'
+        }
+        if (verifying.value) {
+            return 'Refreshing remote verification.'
+        }
         if (!verificationResult.value) {
             return 'Remote verification has not run.'
         }
@@ -91,13 +102,17 @@ export const usePublishingStore = defineStore('publishing', () => {
     })
 
     function prepareSSHForSite(siteId, cfg) {
-        if (activeSSHSiteId.value !== siteId) {
+        const nextSiteId = siteId || ''
+        const nextSignature = sshConfigSignature(cfg)
+        if (activeSSHSiteId.value !== nextSiteId || activeSSHConfigSignature.value !== nextSignature) {
             sshPassphrase.value = ''
             lastResult.value = null
             clearVerification()
             error.value = ''
+            autoVerifiedSiteIds.delete(siteVerificationKey(nextSiteId))
         }
-        activeSSHSiteId.value = siteId || ''
+        activeSSHSiteId.value = nextSiteId
+        activeSSHConfigSignature.value = nextSignature
         sshError.value = ''
         sshRequiresPassphrase.value = Boolean(cfg?.sshUsePassphrase)
         if (!hasSSHConfig(cfg)) {
@@ -115,7 +130,9 @@ export const usePublishingStore = defineStore('publishing', () => {
         sshError.value = ''
         sshRequiresPassphrase.value = false
         activeSSHSiteId.value = ''
+        activeSSHConfigSignature.value = ''
         lastResult.value = null
+        autoVerifiedSiteIds.clear()
         clearVerification()
         error.value = ''
     }
@@ -125,7 +142,7 @@ export const usePublishingStore = defineStore('publishing', () => {
         if (!sshEnabled.value) {
             return true
         }
-        const normalizedPassphrase = sshRequiresPassphrase.value ? passphrase : ''
+        const normalizedPassphrase = sshRequiresPassphrase.value ? String(passphrase || '') : ''
         if (sshRequiresPassphrase.value && !normalizedPassphrase.trim()) {
             const message = 'Enter the SSH key passphrase before testing this site.'
             error.value = message
@@ -142,6 +159,9 @@ export const usePublishingStore = defineStore('publishing', () => {
                 method: 'POST',
                 body: { passphrase: normalizedPassphrase }
             })
+            if (sshRequiresPassphrase.value) {
+                sshPassphrase.value = normalizedPassphrase
+            }
             sshStatus.value = 'ok'
             uiStore.setNotice('SSH connection succeeded.')
             return true
@@ -190,6 +210,7 @@ export const usePublishingStore = defineStore('publishing', () => {
             await postsStore.loadPosts()
             await postsStore.selectPost(slug)
             uiStore.setNotice('Post published.')
+            void verifyRemoteAfterPublish(passphrase)
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)
@@ -236,6 +257,7 @@ export const usePublishingStore = defineStore('publishing', () => {
                 await postsStore.selectPost(selectedSlug)
             }
             uiStore.setNotice('Site published.')
+            void verifyRemoteAfterPublish(passphrase)
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)
@@ -245,16 +267,26 @@ export const usePublishingStore = defineStore('publishing', () => {
         }
     }
 
-    async function verifyRemote(passphrase = sshPassphrase.value) {
+    async function verifyRemote(passphrase = sshPassphrase.value, options = {}) {
         const uiStore = useUiStore()
         const postsStore = usePostsStore()
+        const notify = options.notify !== false
+        const throwOnError = options.throwOnError !== false
+        if (verificationRequest) {
+            if (options.queueIfBusy) {
+                queuedVerification = { passphrase, options }
+            }
+            return verificationRequest
+        }
         if (!sshEnabled.value) {
             const message = 'Configure SSH publishing before verifying the remote site.'
             error.value = message
-            uiStore.captureError(new Error(message))
+            if (notify) {
+                uiStore.captureError(new Error(message))
+            }
             return null
         }
-        const normalizedPassphrase = sshRequiresPassphrase.value ? passphrase : ''
+        const normalizedPassphrase = sshRequiresPassphrase.value ? String(passphrase || '') : ''
         if (sshRequiresPassphrase.value && !normalizedPassphrase.trim()) {
             const message = 'Enter the SSH key passphrase before verifying the remote site.'
             error.value = message
@@ -262,35 +294,92 @@ export const usePublishingStore = defineStore('publishing', () => {
             sshStatus.value = 'needs_passphrase'
             return null
         }
+        const requestGeneration = ++verificationGeneration
         verifying.value = true
         error.value = ''
-        try {
-            verificationResult.value = normalizeVerificationResult(await apiRequest('/api/site/verify-remote', {
+        verificationRequest = (async () => {
+            const result = normalizeVerificationResult(await apiRequest('/api/site/verify-remote', {
                 method: 'POST',
                 body: { passphrase: normalizedPassphrase }
             }))
-            verificationCheckedAt.value = new Date().toISOString()
+            if (requestGeneration === verificationGeneration) {
+                verificationResult.value = result
+                verificationCheckedAt.value = new Date().toISOString()
+            }
             const selectedSlug = postsStore.selectedSlug
             await postsStore.loadPosts()
             if (selectedSlug) {
                 await postsStore.selectPost(selectedSlug)
             }
-            uiStore.setNotice('Remote verification completed.')
-            return verificationResult.value
+            if (notify) {
+                uiStore.setNotice('Remote verification completed.')
+            }
+            return result
+        })()
+        try {
+            return await verificationRequest
         } catch (err) {
             error.value = err.message
-            verificationResult.value = null
-            verificationCheckedAt.value = ''
-            uiStore.captureError(err)
-            throw err
+            if (requestGeneration === verificationGeneration) {
+                verificationResult.value = null
+                verificationCheckedAt.value = ''
+            }
+            if (notify) {
+                uiStore.captureError(err)
+            }
+            if (throwOnError) {
+                throw err
+            }
+            return null
         } finally {
+            verificationRequest = null
             verifying.value = false
+            if (queuedVerification) {
+                const nextVerification = queuedVerification
+                queuedVerification = null
+                void verifyRemote(nextVerification.passphrase, nextVerification.options)
+            }
         }
     }
 
+    function verifyRemoteAfterOpen(passphrase = sshPassphrase.value) {
+        const key = siteVerificationKey(activeSSHSiteId.value)
+        if (autoVerifiedSiteIds.has(key) || !canVerifyRemoteNow(passphrase)) {
+            return Promise.resolve(null)
+        }
+        autoVerifiedSiteIds.add(key)
+        return verifyRemote(passphrase, {
+            notify: false,
+            throwOnError: false,
+            queueIfBusy: true
+        }).catch(() => null)
+    }
+
+    function verifyRemoteAfterPublish(passphrase = sshPassphrase.value) {
+        if (!canVerifyRemoteNow(passphrase)) {
+            return Promise.resolve(null)
+        }
+        return verifyRemote(passphrase, {
+            notify: false,
+            throwOnError: false,
+            queueIfBusy: true
+        }).catch(() => null)
+    }
+
     function clearVerification() {
+        verificationGeneration += 1
         verificationResult.value = null
         verificationCheckedAt.value = ''
+    }
+
+    function canVerifyRemoteNow(passphrase = sshPassphrase.value) {
+        if (!sshEnabled.value || sshStatus.value !== 'ok') {
+            return false
+        }
+        if (sshRequiresPassphrase.value && !String(passphrase || '').trim()) {
+            return false
+        }
+        return true
     }
 
     function postRemoteStatus(post) {
@@ -373,6 +462,8 @@ export const usePublishingStore = defineStore('publishing', () => {
         renderSite,
         publishSite,
         verifyRemote,
+        verifyRemoteAfterOpen,
+        verifyRemoteAfterPublish,
         clearVerification,
         postRemoteStatus,
         verificationStatusLabel,
@@ -424,4 +515,21 @@ function hasSSHConfig(cfg = {}) {
         cfg.remotePublicDir?.trim() ||
         cfg.remoteContentDir?.trim()
     )
+}
+
+function sshConfigSignature(cfg = {}) {
+    return [
+        cfg.contentDir || '',
+        cfg.publicDir || '',
+        cfg.remoteHost || '',
+        cfg.remoteUser || '',
+        cfg.sshKeyPath || '',
+        cfg.sshUsePassphrase ? 'passphrase' : 'no-passphrase',
+        cfg.remotePublicDir || '',
+        cfg.remoteContentDir || ''
+    ].join('\u001f')
+}
+
+function siteVerificationKey(siteId) {
+    return siteId || 'single-site'
 }

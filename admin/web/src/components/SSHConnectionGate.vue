@@ -64,6 +64,7 @@ async function testConnection() {
     if (ok) {
         await siteWorkspaceStore.loadCurrentSite({ force: true })
         uiStore.setActiveView('config')
+        void publishingStore.verifyRemoteAfterOpen()
     }
 }
 

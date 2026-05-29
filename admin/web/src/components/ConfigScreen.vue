@@ -63,18 +63,20 @@ async function save() {
 }
 
 async function saveAndTestSSH() {
+    const passphrase = publishingStore.sshPassphrase
     await save()
     if (!publishingStore.sshEnabled) {
         return
     }
     let ok = false
     try {
-        ok = await publishingStore.testSSH()
+        ok = await publishingStore.testSSH(passphrase)
     } catch {
         ok = false
     }
     if (ok) {
         await siteWorkspaceStore.loadCurrentSite({ force: true })
+        void publishingStore.verifyRemoteAfterOpen()
     }
 }
 

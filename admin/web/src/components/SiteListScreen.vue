@@ -66,6 +66,7 @@ async function openActiveSite() {
         }
         await siteWorkspaceStore.loadCurrentSite({ force: true })
         uiStore.setActiveView('config')
+        void publishingStore.verifyRemoteAfterOpen()
     } catch {
         uiStore.setActiveView('access')
     }
