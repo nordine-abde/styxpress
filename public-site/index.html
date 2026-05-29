@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Styxpress: Local Static Blog Publishing Over SFTP</title>
+    <meta name="description" content="Styxpress is a local admin app for Markdown blogs. Render static public files locally, publish them over SFTP, and serve the result with Caddy, Nginx, or any static host.">
+    <meta name="robots" content="index,follow">
+    <meta property="og:title" content="Styxpress: Local Static Blog Publishing Over SFTP">
+    <meta property="og:description" content="A local Go admin app for file-based Markdown blogs, static rendering, SFTP publishing, and remote verification.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="assets/img/styxpress-social.webp">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" href="assets/img/styxpress-mark.png" type="image/png">
+    <link rel="preload" href="assets/img/styxpress-mascot-cutout.webp" as="image" type="image/webp">
+    <link rel="stylesheet" href="assets/css/site.css?v=20260529b">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Styxpress",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Linux, Windows",
+        "description": "A local admin app for Markdown blogs that renders static public files and publishes them over SFTP.",
+        "url": "https://github.com/nordine-abde/styxpress",
+        "codeRepository": "https://github.com/nordine-abde/styxpress",
+        "downloadUrl": "https://github.com/nordine-abde/styxpress/releases/latest"
+    }
+    </script>
+</head>
+<body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+        <nav class="site-nav" aria-label="Primary navigation">
+            <a class="brand" href="./" aria-label="Styxpress home">
+                <img src="assets/img/styxpress-mark.png" alt="" width="96" height="96" aria-hidden="true">
+                <span>Styxpress</span>
+            </a>
+            <button class="nav-toggle" type="button" aria-expanded="false" data-nav-toggle>
+                Menu
+            </button>
+            <div class="nav-links" data-nav-links>
+                <a href="#features">Features</a>
+                <a href="#how-it-works">How it works</a>
+                <a href="#download">Download</a>
+                <a href="guide/">Guide</a>
+                <a href="technical/">Technical</a>
+                <a href="https://github.com/nordine-abde/styxpress">GitHub</a>
+            </div>
+        </nav>
+    </header>
+
+    <main id="main" class="main">
+        <section class="hero" id="overview">
+            <div class="hero-inner">
+                <div class="hero-copy">
+                    <p class="eyebrow">Local admin, static public runtime</p>
+                    <h1>Styxpress</h1>
+                    <p class="lead">
+                        A local static blog engine for Markdown sites. Edit on your machine, render public files ahead of time, publish over SFTP, and serve the site with a simple static web server.
+                    </p>
+                    <div class="hero-actions" aria-label="Primary actions">
+                        <a class="button button-primary" href="#download">Download binaries</a>
+                        <a class="button button-secondary" href="guide/">Read the guide</a>
+                    </div>
+                    <ul class="hero-pills" aria-label="Architecture highlights">
+                        <li>Go admin binary</li>
+                        <li>file-based content</li>
+                        <li>static HTML output</li>
+                        <li>SFTP publishing</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="section section-cream" id="features">
+            <div class="container">
+                <header class="section-header">
+                    <span class="section-kicker">Why Styxpress</span>
+                    <h2>Author locally. Ship static files.</h2>
+                    <p>
+                        Styxpress keeps the editor and publishing workflow local, while the reader-facing site stays cheap, cacheable, and easy to serve.
+                    </p>
+                </header>
+                <div class="feature-grid">
+                    <article class="feature-card">
+                        <span class="feature-icon">MD</span>
+                        <h3>Markdown source files</h3>
+                        <p>Posts live as plain files under <code>content/posts/{slug}/</code>, with metadata, covers, and post-local assets beside the source.</p>
+                    </article>
+                    <article class="feature-card">
+                        <span class="feature-icon">UI</span>
+                        <h3>Local admin UI</h3>
+                        <p>Run the distributed admin binary, open the local URL, and manage sites, configuration, styles, posts, featured entries, and publishing.</p>
+                    </article>
+                    <article class="feature-card">
+                        <span class="feature-icon">HTML</span>
+                        <h3>Static rendering</h3>
+                        <p>Published posts render into <code>public/</code> along with the homepage, RSS feed, sitemap, CSS, covers, and assets.</p>
+                    </article>
+                    <article class="feature-card">
+                        <span class="feature-icon">SSH</span>
+                        <h3>SFTP publishing</h3>
+                        <p>Upload generated public files to your server. In server-backed mode, Styxpress can also upload the source <code>content/</code> directory.</p>
+                    </article>
+                    <article class="feature-card">
+                        <span class="feature-icon">SHA</span>
+                        <h3>Remote verification</h3>
+                        <p>Compare local public output with the remote public directory using file size and SHA-256 hashes, then see clear publish-state badges.</p>
+                    </article>
+                    <article class="feature-card">
+                        <span class="feature-icon">0DB</span>
+                        <h3>No public database</h3>
+                        <p>The production site is just files served by Caddy, Nginx, or another static server. No public CMS process is required for readers.</p>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="section section-brown" id="how-it-works">
+            <div class="container">
+                <header class="section-header">
+                    <span class="section-kicker">Pipeline</span>
+                    <h2>One local workflow, one static output directory.</h2>
+                    <p>
+                        Styxpress separates authoring from serving. The admin binary handles editing and publishing; the public server serves only generated files.
+                    </p>
+                </header>
+                <div class="flow" aria-label="Styxpress publishing pipeline">
+                    <article class="flow-step">
+                        <h3>Run the admin binary</h3>
+                        <p>Start <code>./styxpress-admin</code>. It binds to loopback by default and prints a local URL for the embedded admin UI.</p>
+                    </article>
+                    <article class="flow-step">
+                        <h3>Render locally</h3>
+                        <p>Save Markdown and site settings under <code>content/</code>. Published posts render into <code>public/</code>.</p>
+                    </article>
+                    <article class="flow-step">
+                        <h3>Publish and verify</h3>
+                        <p>Upload static files over SFTP, then compare local and remote output to see what is published, missing, or changed.</p>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" id="docs">
+            <div class="container">
+                <header class="section-header">
+                    <span class="section-kicker">Documentation</span>
+                    <h2>Guides for users and operators.</h2>
+                    <p>
+                        The public docs focus on the distributed binary and the actual file contracts behind rendering and publishing.
+                    </p>
+                </header>
+                <div class="docs-grid">
+                    <article class="doc-card">
+                        <h3>User guide</h3>
+                        <p>Configure a site, publish a post, edit themes, manage featured posts, understand remote verification, and serve the generated public directory.</p>
+                        <div class="button-row">
+                            <a class="button button-primary" href="guide/">Open guide</a>
+                        </div>
+                    </article>
+                    <article class="doc-card">
+                        <h3>Technical architecture</h3>
+                        <p>Read how the binary starts, where files are stored, how rendering works, what SFTP publishing uploads, and which limits are intentional.</p>
+                        <div class="button-row">
+                            <a class="button button-outline" href="technical/">See architecture</a>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="section section-cream" id="download">
+            <div class="container">
+                <header class="section-header center">
+                    <span class="section-kicker">Download</span>
+                    <h2>Get the local admin binary.</h2>
+                    <p>
+                        Download the release package for your platform, run the binary locally, then open the printed admin URL. Source code and release history are on GitHub.
+                    </p>
+                </header>
+                <div class="download-grid" aria-label="Download buttons">
+                    <article class="download-card">
+                        <h3>macOS Apple Silicon</h3>
+                        <p class="download-meta">darwin arm64</p>
+                        <a class="button button-primary" href="https://github.com/nordine-abde/styxpress/releases/latest/download/styxpress-admin_darwin_arm64.tar.gz">Download</a>
+                    </article>
+                    <article class="download-card">
+                        <h3>macOS Intel</h3>
+                        <p class="download-meta">darwin amd64</p>
+                        <a class="button button-primary" href="https://github.com/nordine-abde/styxpress/releases/latest/download/styxpress-admin_darwin_amd64.tar.gz">Download</a>
+                    </article>
+                    <article class="download-card">
+                        <h3>Linux x64</h3>
+                        <p class="download-meta">linux amd64</p>
+                        <a class="button button-primary" href="https://github.com/nordine-abde/styxpress/releases/latest/download/styxpress-admin_linux_amd64.tar.gz">Download</a>
+                    </article>
+                    <article class="download-card">
+                        <h3>Linux arm64</h3>
+                        <p class="download-meta">linux arm64</p>
+                        <a class="button button-primary" href="https://github.com/nordine-abde/styxpress/releases/latest/download/styxpress-admin_linux_arm64.tar.gz">Download</a>
+                    </article>
+                    <article class="download-card">
+                        <h3>Windows x64</h3>
+                        <p class="download-meta">windows amd64</p>
+                        <a class="button button-primary" href="https://github.com/nordine-abde/styxpress/releases/latest/download/styxpress-admin_windows_amd64.zip">Download</a>
+                    </article>
+                </div>
+                <p class="note-small" style="margin-top: 1rem;">
+                    Looking for checksums or older builds? Open <a href="https://github.com/nordine-abde/styxpress/releases/latest">the latest GitHub release</a>.
+                </p>
+            </div>
+        </section>
+
+        <section class="section section-brown">
+            <div class="container">
+                <header class="section-header center">
+                    <span class="section-kicker">Source</span>
+                    <h2>Built in the open.</h2>
+                    <p>
+                        Styxpress is a small file-based publishing tool. Review the code, follow development, or open an issue on GitHub.
+                    </p>
+                    <div class="button-row" style="justify-content: center;">
+                        <a class="button button-primary" href="https://github.com/nordine-abde/styxpress">View GitHub repository</a>
+                        <a class="button button-secondary" href="technical/#current-limits">Read current limits</a>
+                    </div>
+                </header>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-inner">
+            <div>
+                <a class="brand" href="./">
+                    <img src="assets/img/styxpress-mark.png" alt="" width="96" height="96" aria-hidden="true">
+                    <span>Styxpress</span>
+                </a>
+                <p class="note-small">Local Markdown authoring, static rendering, SFTP publishing.</p>
+            </div>
+            <nav class="footer-links" aria-label="Footer navigation">
+                <a href="guide/">Guide</a>
+                <a href="technical/">Technical</a>
+                <a href="https://github.com/nordine-abde/styxpress">GitHub</a>
+                <a href="https://github.com/nordine-abde/styxpress/releases/latest">Releases</a>
+            </nav>
+        </div>
+    </footer>
+    <script src="assets/js/site.js?v=20260529b" defer></script>
+</body>
+</html>

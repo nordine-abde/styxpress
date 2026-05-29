@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Styxpress User Guide: Configure, Publish, and Style a Static Blog</title>
+    <meta name="description" content="Step-by-step Styxpress guide for running the local admin binary, configuring a site, publishing Markdown posts, editing themes, and serving the generated public directory.">
+    <meta name="robots" content="index,follow">
+    <meta property="og:title" content="Styxpress User Guide">
+    <meta property="og:description" content="Configure Styxpress, write posts, publish static output over SFTP, verify remote files, and serve the public directory.">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="../assets/img/styxpress-social.webp">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" href="../assets/img/styxpress-mark.png" type="image/png">
+    <link rel="stylesheet" href="../assets/css/site.css?v=20260529b">
+</head>
+<body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+        <nav class="site-nav" aria-label="Primary navigation">
+            <a class="brand" href="../" aria-label="Styxpress home">
+                <img src="../assets/img/styxpress-mark.png" alt="" width="96" height="96" aria-hidden="true">
+                <span>Styxpress</span>
+            </a>
+            <button class="nav-toggle" type="button" aria-expanded="false" data-nav-toggle>
+                Menu
+            </button>
+            <div class="nav-links" data-nav-links>
+                <a href="../#features">Features</a>
+                <a href="../#download">Download</a>
+                <a href="./" aria-current="page">Guide</a>
+                <a href="../technical/">Technical</a>
+                <a href="https://github.com/nordine-abde/styxpress">GitHub</a>
+            </div>
+        </nav>
+    </header>
+
+    <main id="main" class="main">
+        <section class="doc-hero">
+            <div class="container">
+                <p class="eyebrow">User guide</p>
+                <h1>Configure, publish, and style a Styxpress site.</h1>
+                <p class="lead">
+                    Styxpress is a local admin app for Markdown blogs. You write and manage content on your machine, render static files into <code>public/</code>, and publish those files to a self-hosted server over SFTP.
+                </p>
+            </div>
+        </section>
+
+        <section class="section section-cream">
+            <div class="container doc-layout">
+                <aside class="toc" aria-label="Guide table of contents">
+                    <span class="toc-title">On this page</span>
+                    <a href="#start-the-admin">Start the admin</a>
+                    <a href="#create-or-open-a-site">Create or open a site</a>
+                    <a href="#configure-site">Configure site</a>
+                    <a href="#ssh-publishing">SFTP publishing</a>
+                    <a href="#style-the-site">Style the site</a>
+                    <a href="#write-posts">Write posts</a>
+                    <a href="#preview-render-publish">Preview and publish</a>
+                    <a href="#remote-verification">Remote verification</a>
+                    <a href="#featured-posts">Featured posts</a>
+                    <a href="#files-on-disk">Files on disk</a>
+                    <a href="#serve-the-public-site">Serve public output</a>
+                    <a href="#security-and-limits">Security and limits</a>
+                    <a href="#troubleshooting">Troubleshooting</a>
+                </aside>
+
+                <article class="article">
+                    <section class="article-section" id="start-the-admin">
+                        <h2>Start The Admin</h2>
+                        <p>
+                            Download the Styxpress admin binary for your platform, make it executable if needed, then run it locally. By default Styxpress binds to <code>127.0.0.1:0</code>, which means your operating system chooses an available local port.
+                        </p>
+                        <pre><code>chmod +x ./styxpress-admin
+./styxpress-admin</code></pre>
+                        <p>To use a fixed local port:</p>
+                        <pre><code>./styxpress-admin -addr 127.0.0.1:8080</code></pre>
+                        <p>On Windows:</p>
+                        <pre><code>.\styxpress-admin.exe -addr 127.0.0.1:8080</code></pre>
+                        <div class="callout security">
+                            <strong>Keep it local.</strong>
+                            <p>Keep the admin bound to <code>127.0.0.1</code> unless you know exactly what you are doing. The admin can read and write configured local content directories and uses your SSH key path for publishing.</p>
+                        </div>
+                        <p>
+                            Styxpress prints a local URL and an API session token. Open the printed URL in your browser. The embedded admin UI receives the session token automatically. If the browser asks for a session token, paste the token printed in the terminal.
+                        </p>
+                    </section>
+
+                    <section class="article-section" id="create-or-open-a-site">
+                        <h2>Create Or Open A Site</h2>
+                        <p>
+                            The first screen is <strong>My sites</strong>. Use it to create a site, switch between sites, or open the selected site before editing configuration, styles, posts, or featured entries.
+                        </p>
+                        <ol>
+                            <li>Enter a site name.</li>
+                            <li>Click <strong>Create and configure</strong>.</li>
+                            <li>Click <strong>Open site</strong> on a site card.</li>
+                            <li>Use <strong>All sites</strong> in the sidebar to return to the site list.</li>
+                        </ol>
+                        <figure class="figure-card">
+                            <picture>
+                                <source srcset="../assets/img/screenshots/guide-my-sites.webp" type="image/webp">
+                                <img src="../assets/img/screenshots/guide-my-sites.png" alt="Styxpress My sites screen with a Field Notes site card." width="1440" height="960" loading="lazy">
+                            </picture>
+                            <figcaption>Choose or create a site before editing content, styles, or publishing settings.</figcaption>
+                        </figure>
+                        <div class="callout">
+                            <strong>Explicit config mode.</strong>
+                            <p>If Styxpress was started with <code>-config</code>, it uses that explicit config file. In that mode, the site list cannot create multiple sites.</p>
+                        </div>
+                        <pre><code>./styxpress-admin -config ./styxpress.toml</code></pre>
+                    </section>
+
+                    <section class="article-section" id="configure-site">
+                        <h2>Configure Site</h2>
+                        <p>
+                            Open <strong>Configuration</strong> first. These fields tell Styxpress where source content lives, where generated public files are written, and what canonical URL should be used in generated pages, feeds, and sitemaps.
+                        </p>
+                        <ul class="metadata-list">
+                            <li><strong>Site name</strong><span>The admin label for this site.</span></li>
+                            <li><strong>Site URL</strong><span>The canonical public URL, for example <code>https://blog.example.com</code>.</span></li>
+                            <li><strong>Content storage</strong><span><code>Local content</code> keeps source files local. <code>Server-backed content</code> also uploads <code>content/</code> to the remote server.</span></li>
+                            <li><strong>Content directory</strong><span>The source Markdown and metadata directory.</span></li>
+                            <li><strong>Public directory</strong><span>The generated static output directory.</span></li>
+                        </ul>
+                        <pre><code>mkdir -p "$HOME/Sites/field-notes/content" "$HOME/Sites/field-notes/public"</code></pre>
+                        <figure class="figure-card">
+                            <picture>
+                                <source srcset="../assets/img/screenshots/guide-configuration.webp" type="image/webp">
+                                <img src="../assets/img/screenshots/guide-configuration.png" alt="Site configuration form with local content and public directories." width="1440" height="960" loading="lazy">
+                            </picture>
+                            <figcaption>Configuration connects a site to local source and output paths.</figcaption>
+                        </figure>
+                        <div class="callout warning">
+                            <strong>Serve public files only.</strong>
+                            <p>The public web server should serve the generated <code>public/</code> directory only. Do not serve <code>content/</code>, Styxpress config files, SSH keys, or the repository root.</p>
+                        </div>
+                    </section>
+
+                    <section class="article-section" id="ssh-publishing">
+                        <h2>SFTP Publishing</h2>
+                        <p>
+                            Enable <strong>Use SSH publishing</strong> when Styxpress should upload generated files to a remote host. Fill the SSH host, user, key path, and remote public directory, then click <strong>Save and test SSH</strong>.
+                        </p>
+                        <ul class="metadata-list">
+                            <li><strong>SSH host</strong><span>For example <code>example.com:22</code>.</span></li>
+                            <li><strong>SSH user</strong><span>The remote user used for SFTP publishing, for example <code>deploy</code>.</span></li>
+                            <li><strong>SSH key path</strong><span>A local key path such as <code>/home/you/.ssh/id_ed25519</code>.</span></li>
+                            <li><strong>Remote public directory</strong><span>The remote directory served by the public web server, such as <code>/var/lib/styxpress/site/public</code>.</span></li>
+                            <li><strong>Remote content directory</strong><span>Required only for server-backed content mode.</span></li>
+                        </ul>
+                        <figure class="figure-card">
+                            <picture>
+                                <source srcset="../assets/img/screenshots/guide-ssh-configuration.webp" type="image/webp">
+                                <img src="../assets/img/screenshots/guide-ssh-configuration.png" alt="SSH publishing fields in the Styxpress configuration screen." width="1440" height="960" loading="lazy">
+                            </picture>
+                            <figcaption>SFTP settings are tested before editing and publishing.</figcaption>
+                        </figure>
+                        <div class="callout security">
+                            <strong>Passphrases are session-only.</strong>
+                            <p>Styxpress does not save SSH key passphrases. If the key is encrypted, enter the passphrase when opening the site, testing the connection, publishing, or verifying remote files.</p>
+                        </div>
+                    </section>
+
+                    <section class="article-section" id="style-the-site">
+                        <h2>Style The Site</h2>
+                        <p>
+                            Open <strong>Styles</strong> to edit the generated public site presentation. The left side contains sections for identity, theme, header, footer, CSS, and publishing. The right side shows <strong>Draft preview</strong>, which renders the current form without writing public files.
+                        </p>
+                        <ol>
+                            <li>In <strong>Identity</strong>, set the site title and description.</li>
+                            <li>In <strong>Theme</strong>, choose palette, font, layout, and corners.</li>
+                            <li>In <strong>Header</strong>, choose a header style and edit navigation links.</li>
+                            <li>In <strong>Footer</strong>, choose a footer style and footer links.</li>
+                            <li>In <strong>CSS</strong>, refresh generated CSS, load current CSS into the editor, or open the selector guide.</li>
+                            <li>Click <strong>Refresh preview</strong> to inspect the draft before saving.</li>
+                            <li>Click <strong>Save site</strong> to write <code>content/site.toml</code>.</li>
+                        </ol>
+                        <div class="screenshot-grid">
+                            <figure class="figure-card">
+                                <picture>
+                                    <source srcset="../assets/img/screenshots/guide-styles-identity-preview.webp" type="image/webp">
+                                    <img src="../assets/img/screenshots/guide-styles-identity-preview.png" alt="Styles screen showing site identity controls and draft preview." width="1440" height="1000" loading="lazy">
+                                </picture>
+                                <figcaption>Preview renders the current style draft without writing public files.</figcaption>
+                            </figure>
+                            <figure class="figure-card">
+                                <picture>
+                                    <source srcset="../assets/img/screenshots/guide-styles-theme.webp" type="image/webp">
+                                    <img src="../assets/img/screenshots/guide-styles-theme.png" alt="Theme controls for palette, font, layout, and saved themes." width="1440" height="1000" loading="lazy">
+                                </picture>
+                                <figcaption>Theme controls write presentation settings to site config.</figcaption>
+                            </figure>
+                        </div>
+                        <figure class="figure-card">
+                            <picture>
+                                <source srcset="../assets/img/screenshots/guide-css-guide.webp" type="image/webp">
+                                <img src="../assets/img/screenshots/guide-css-guide.png" alt="CSS guide dialog with emitted public site selectors." width="1440" height="1000" loading="lazy">
+                            </picture>
+                            <figcaption>The CSS guide lists selectors emitted by the static renderer.</figcaption>
+                        </figure>
+                        <div class="callout">
+                            <strong>Preview is not publish.</strong>
+                            <p>Preview does not publish files. To rewrite the static output after style changes, use <strong>Save and render site</strong> or <strong>Save and publish site</strong> in the Styles publish section.</p>
+                        </div>
+                    </section>
+
+                    <section class="article-section" id="write-posts">
+                        <h2>Write Posts</h2>
+                        <p>
+                            Open <strong>Posts</strong> to create, import, edit, preview, render, and publish Markdown posts. A saved post is a draft until it has a publication timestamp. Drafts are not included in the homepage, feed, sitemap, or public output.
+                        </p>
+                        <ol>
+                            <li>Click <strong>New</strong>.</li>
+                            <li>Enter a lowercase slug such as <code>designing-a-quiet-static-blog</code>.</li>
+                            <li>Enter a title and description.</li>
+                            <li>Write Markdown or use <strong>Import Markdown</strong>.</li>
+                            <li>Click <strong>Save</strong>.</li>
+                        </ol>
+                        <figure class="figure-card">
+                            <picture>
+                                <source srcset="../assets/img/screenshots/guide-post-editor.webp" type="image/webp">
+                                <img src="../assets/img/screenshots/guide-post-editor.png" alt="Post editor with slug, title, description, Markdown, and media controls." width="1440" height="1000" loading="lazy">
+                            </picture>
+                            <figcaption>Posts are Markdown files saved under the content directory.</figcaption>
+                        </figure>
+                        <div class="callout">
+                            <strong>Slug and media rules.</strong>
+                            <p>Slugs may contain lowercase ASCII letters, numbers, and hyphens. Save the post before uploading media. Covers must be named <code>cover.jpg</code>, <code>cover.jpeg</code>, <code>cover.png</code>, <code>cover.webp</code>, or <code>cover.avif</code>.</p>
+                        </div>
+                    </section>
+
+                    <section class="article-section" id="preview-render-publish">
+                        <h2>Preview, Render, Publish</h2>
+                        <p>
+                            <strong>Preview</strong> renders the current Markdown draft inside the admin UI without writing public files. <strong>Render</strong> writes local public output for an already published post. <strong>Publish</strong> renders locally, uploads files over SFTP, and sets the first publication timestamp for a draft post.
+                        </p>
+                        <ol>
+                            <li>Save the post.</li>
+                            <li>Click <strong>Preview</strong> to inspect Markdown output.</li>
+                            <li>Configure and test SSH before the first publish.</li>
+                            <li>Click <strong>Publish</strong> to publish the post and update the generated site.</li>
+                            <li>After later edits, click <strong>Render</strong> for local output only, or <strong>Publish</strong> to upload changes.</li>
+                        </ol>
+                        <figure class="figure-card">
+                            <picture>
+                                <source srcset="../assets/img/screenshots/guide-publish-panel.webp" type="image/webp">
+                                <img src="../assets/img/screenshots/guide-publish-panel.png" alt="Publish panel with Render, Publish, and Verify remote actions." width="1440" height="1000" loading="lazy">
+                            </picture>
+                            <figcaption>The publish panel renders local output, uploads over SFTP, and verifies remote files.</figcaption>
+                        </figure>
+                        <p>
+                            To regenerate all public pages, open <strong>Styles -> Publish</strong>. Use <strong>Save and render site</strong> for local output, or <strong>Save and publish site</strong> to render and upload all public files.
+                        </p>
+                        <div class="callout warning">
+                            <strong>Published posts only.</strong>
+                            <p>Rendering includes only published posts. If a post is still a draft, it will not appear in <code>public/index.html</code>, <code>feed.xml</code>, <code>sitemap.xml</code>, or <code>public/posts/{slug}/index.html</code>.</p>
+                        </div>
+                    </section>
+
+                    <section class="article-section" id="remote-verification">
+                        <h2>Remote Verification</h2>
+                        <p>
+                            <strong>Verify remote</strong> compares generated local files with the remote public directory. Styxpress checks file size and SHA-256 hashes, then updates the badges shown in the post list and publish panel.
+                        </p>
+                        <div class="status-grid">
+                            <article class="status-card">
+                                <span class="status-label">Published</span>
+                                <p>Local and remote files match.</p>
+                            </article>
+                            <article class="status-card">
+                                <span class="status-label pending">Changes pending</span>
+                                <p>Local generated output differs from remote output.</p>
+                            </article>
+                            <article class="status-card">
+                                <span class="status-label missing">Not on remote</span>
+                                <p>A generated local file is missing remotely.</p>
+                            </article>
+                            <article class="status-card">
+                                <span class="status-label extra">Still on remote</span>
+                                <p>Draft output still exists remotely and should be removed manually.</p>
+                            </article>
+                            <article class="status-card">
+                                <span class="status-label unknown">Unknown</span>
+                                <p>Verification has not run or a file could not be checked.</p>
+                            </article>
+                        </div>
+                        <div class="callout">
+                            <strong>What verification proves.</strong>
+                            <p>Verification checks deployed static files by size and SHA-256. It does not make the remote server dynamic and does not execute public application code.</p>
+                        </div>
+                    </section>
+
+                    <section class="article-section" id="featured-posts">
+                        <h2>Featured Posts</h2>
+                        <p>
+                            Open <strong>Featured</strong> to choose posts for the generated homepage's featured section. Check the posts you want to feature, then click <strong>Save featured</strong>. The saved order is the order shown on the generated homepage.
+                        </p>
+                        <figure class="figure-card">
+                            <picture>
+                                <source srcset="../assets/img/screenshots/guide-featured-posts.webp" type="image/webp">
+                                <img src="../assets/img/screenshots/guide-featured-posts.png" alt="Featured posts screen with selectable post entries." width="1440" height="960" loading="lazy">
+                            </picture>
+                            <figcaption>Featured posts are saved in homepage order.</figcaption>
+                        </figure>
+                        <p>Featured slugs are saved in <code>content/featured.txt</code>. Draft posts are not rendered into the public homepage.</p>
+                    </section>
+
+                    <section class="article-section" id="files-on-disk">
+                        <h2>Files On Disk</h2>
+                        <p>Styxpress uses the filesystem as the source of truth. The content directory is private source material. The public directory is generated output.</p>
+                        <div class="file-tree-grid">
+                            <div>
+                                <h3>Content directory</h3>
+                                <pre><code>content/
+  site.toml
+  featured.txt
+  posts/
+    hello-world/
+      source.md
+      title.txt
+      description.txt
+      published_at.txt
+      updated_at.txt
+      remote_synced_at.txt
+      cover.jpg
+      assets/</code></pre>
+                            </div>
+                            <div>
+                                <h3>Public directory</h3>
+                                <pre><code>public/
+  index.html
+  feed.xml
+  sitemap.xml
+  assets/styxpress.css
+  posts/
+    hello-world/
+      index.html
+      cover.jpg
+      assets/</code></pre>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="article-section" id="serve-the-public-site">
+                        <h2>Serve The Public Site</h2>
+                        <p>
+                            Serve <code>public/</code> with Caddy, Nginx, or another static file server. The public runtime does not need Styxpress, Go, Node.js, a database, or Markdown parsing.
+                        </p>
+                        <pre><code>/
+/feed.xml
+/sitemap.xml
+/posts/{slug}
+/posts/{slug}/cover.{jpg,jpeg,png,webp,avif}
+/posts/{slug}/assets/{path}</code></pre>
+                        <figure class="figure-card">
+                            <picture>
+                                <source srcset="../assets/img/screenshots/guide-public-output.webp" type="image/webp">
+                                <img src="../assets/img/screenshots/guide-public-output.png" alt="Generated static blog homepage with featured and latest posts." width="1440" height="960" loading="lazy">
+                            </picture>
+                            <figcaption>Readers see static files generated into the public directory.</figcaption>
+                        </figure>
+                        <div class="callout warning">
+                            <strong>Use the correct web root.</strong>
+                            <p>The reverse proxy root must be <code>public/</code>, not the project root and not the parent directory that contains <code>content/</code>.</p>
+                        </div>
+                    </section>
+
+                    <section class="article-section" id="security-and-limits">
+                        <h2>Security And Limits</h2>
+                        <p>
+                            Styxpress is intentionally small. It is a local admin and static publishing tool, not a hosted CMS.
+                        </p>
+                        <ul class="check-list">
+                            <li>No hosted CMS service.</li>
+                            <li>No public app server for readers.</li>
+                            <li>No database-backed content model.</li>
+                            <li>No multi-user admin accounts.</li>
+                            <li>No comments, analytics, scheduling, rollback, or built-in search.</li>
+                            <li>No SCP in the current publishing flow; publishing uses SFTP.</li>
+                            <li>No public serving of <code>content/</code>.</li>
+                            <li>Raw HTML in Markdown is escaped by default.</li>
+                        </ul>
+                    </section>
+
+                    <section class="article-section" id="troubleshooting">
+                        <h2>Troubleshooting</h2>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Problem</th>
+                                        <th>What to check</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>The browser asks for a session token.</td>
+                                        <td>Paste the token printed by <code>styxpress-admin</code>, or restart the binary and open the printed local URL.</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Create site is unavailable.</td>
+                                        <td>Styxpress was started with <code>-config</code>. Run without <code>-config</code> to use the multi-site screen.</td>
+                                    </tr>
+                                    <tr>
+                                        <td>SSH blocks editing.</td>
+                                        <td>Enter the key passphrase if required, then test the SSH connection.</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Save and test SSH is disabled.</td>
+                                        <td>Fill SSH host, user, key path, and passphrase if the passphrase toggle is enabled.</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Render is disabled for a post.</td>
+                                        <td>The post is still a draft. Publish it first with SSH configured.</td>
+                                    </tr>
+                                    <tr>
+                                        <td>A post is missing from homepage, feed, or sitemap.</td>
+                                        <td>Drafts are excluded. Publish the post, then render or publish the site.</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Remote shows Changes pending.</td>
+                                        <td>Local generated files differ from remote files. Publish again.</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Remote shows Still on remote.</td>
+                                        <td>A draft's old public output still exists remotely and should be removed from the remote public directory.</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Cover upload fails.</td>
+                                        <td>Rename the file to <code>cover.jpg</code>, <code>cover.jpeg</code>, <code>cover.png</code>, <code>cover.webp</code>, or <code>cover.avif</code>.</td>
+                                    </tr>
+                                    <tr>
+                                        <td>The public server exposes source files.</td>
+                                        <td>The web server root is wrong. Serve only <code>public/</code>, never <code>content/</code> or the repository root.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-inner">
+            <div>
+                <a class="brand" href="../">
+                    <img src="../assets/img/styxpress-mark.png" alt="" width="96" height="96" aria-hidden="true">
+                    <span>Styxpress</span>
+                </a>
+                <p class="note-small">Local Markdown authoring, static rendering, SFTP publishing.</p>
+            </div>
+            <nav class="footer-links" aria-label="Footer navigation">
+                <a href="../">Overview</a>
+                <a href="../technical/">Technical</a>
+                <a href="https://github.com/nordine-abde/styxpress">GitHub</a>
+                <a href="https://github.com/nordine-abde/styxpress/releases/latest">Releases</a>
+            </nav>
+        </div>
+    </footer>
+    <script src="../assets/js/site.js?v=20260529b" defer></script>
+</body>
+</html>
