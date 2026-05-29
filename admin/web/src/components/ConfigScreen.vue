@@ -5,44 +5,51 @@ import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
 import UiSelect from './ui/UiSelect.vue'
+import UiSwitch from './ui/UiSwitch.vue'
 import { useConfigStore } from '../stores/config'
 import { usePublishingStore } from '../stores/publishing'
+import { useSiteWorkspaceStore } from '../stores/siteWorkspace'
 
 const configStore = useConfigStore()
 const publishingStore = usePublishingStore()
-const sshMode = ref('disabled')
+const siteWorkspaceStore = useSiteWorkspaceStore()
+const sshEnabled = ref(false)
 
 const form = reactive({ ...configStore.config })
 const storageOptions = [
     { value: 'local', label: 'Local content' },
     { value: 'server', label: 'Server-backed content' }
 ]
-const sshOptions = [
-    { value: 'disabled', label: 'No SSH publishing' },
-    { value: 'enabled', label: 'Use SSH publishing' }
-]
-const sshEnabled = computed(() => sshMode.value === 'enabled')
+const canTestSSH = computed(() => {
+    return sshEnabled.value &&
+        hasRequiredSSHFields(form) &&
+        (!form.sshUsePassphrase || Boolean(publishingStore.sshPassphrase.trim()))
+})
 const sshBannerText = computed(() => {
     if (!sshEnabled.value) {
         return 'Publishing over SSH is disabled for this site.'
+    }
+    if (form.sshUsePassphrase && publishingStore.sshStatus === 'needs_passphrase') {
+        return 'This site requires the SSH key passphrase before the connection can be tested.'
     }
     if (publishingStore.sshStatus === 'ok') {
         return 'Connection test succeeded for the saved SSH settings.'
     }
     if (publishingStore.sshStatus === 'error') {
-        return publishingStore.sshError || 'The configured SSH server is not reachable.'
+        return `SSH connection failed. ${publishingStore.sshError || 'The configured SSH server is not reachable.'}`
     }
     if (publishingStore.sshStatus === 'checking') {
         return 'Testing the saved SSH settings.'
     }
-    return 'This site uses SSH. Add the key settings, enter the passphrase if needed, then test the connection before publishing.'
+    return 'This site uses SSH. Save and test the connection before editing content, styles, or featured posts.'
 })
 
 watch(
     () => configStore.config,
     (value) => {
         Object.assign(form, value)
-        sshMode.value = hasSSHFields(value) ? 'enabled' : 'disabled'
+        form.sshUsePassphrase = Boolean(value.sshUsePassphrase)
+        sshEnabled.value = hasSSHFields(value)
     },
     { deep: true, immediate: true }
 )
@@ -50,11 +57,30 @@ watch(
 async function save() {
     await configStore.saveConfig(configForSave())
     publishingStore.prepareSSHForSite(configStore.activeSiteId, configStore.config)
+    if (!publishingStore.sshBlocksEditing) {
+        await siteWorkspaceStore.loadCurrentSite({ force: true })
+    }
 }
 
 async function saveAndTestSSH() {
     await save()
-    await publishingStore.testSSH()
+    if (!publishingStore.sshEnabled) {
+        return
+    }
+    let ok = false
+    try {
+        ok = await publishingStore.testSSH()
+    } catch {
+        ok = false
+    }
+    if (ok) {
+        await siteWorkspaceStore.loadCurrentSite({ force: true })
+    }
+}
+
+async function reload() {
+    await configStore.loadConfig()
+    publishingStore.prepareSSHForSite(configStore.activeSiteId, configStore.config)
 }
 
 function configForSave() {
@@ -63,6 +89,7 @@ function configForSave() {
     }
     return {
         ...form,
+        sshUsePassphrase: false,
         remoteHost: '',
         remoteUser: '',
         sshKeyPath: '',
@@ -78,6 +105,14 @@ function hasSSHFields(value = {}) {
         value.sshKeyPath?.trim() ||
         value.remotePublicDir?.trim() ||
         value.remoteContentDir?.trim()
+    )
+}
+
+function hasRequiredSSHFields(value = {}) {
+    return Boolean(
+        value.remoteHost?.trim() &&
+        value.remoteUser?.trim() &&
+        value.sshKeyPath?.trim()
     )
 }
 </script>
@@ -104,7 +139,11 @@ function hasSSHFields(value = {}) {
                     </UiBadge>
                 </div>
 
-                <UiSelect v-model="sshMode" label="SSH publishing" :options="sshOptions" />
+                <UiSwitch
+                    v-model="sshEnabled"
+                    label="Use SSH publishing"
+                    description="Enable only when this site must publish to a remote host."
+                />
 
                 <div class="connection-banner" :class="publishingStore.sshStatus">
                     <p>{{ sshBannerText }}</p>
@@ -119,17 +158,25 @@ function hasSSHFields(value = {}) {
                         <UiField v-model="form.remoteContentDir" label="Remote content directory" placeholder="/srv/site/content" />
                     </div>
 
+                    <UiSwitch
+                        v-model="form.sshUsePassphrase"
+                        label="SSH key uses a passphrase"
+                        description="When enabled, Styxpress asks for the passphrase immediately when this site is opened."
+                    />
+
                     <div class="ssh-test-row">
                         <UiField
+                            v-if="form.sshUsePassphrase"
                             v-model="publishingStore.sshPassphrase"
-                            label="SSH passphrase"
+                            label="SSH key passphrase"
                             type="password"
-                            placeholder="Optional"
+                            placeholder="Required for this session"
                             help="Used for this admin session only."
                         />
                         <UiButton
                             tone="primary"
                             :busy="configStore.saving || publishingStore.testing"
+                            :disabled="!canTestSSH"
                             @click="saveAndTestSSH"
                         >
                             Save and test SSH
@@ -142,7 +189,7 @@ function hasSSHFields(value = {}) {
                 <UiButton tone="primary" type="submit" :busy="configStore.saving">
                     Save config
                 </UiButton>
-                <UiButton tone="ghost" :busy="configStore.loading" @click="configStore.loadConfig">
+                <UiButton tone="ghost" :busy="configStore.loading" @click="reload">
                     Reload
                 </UiButton>
             </div>

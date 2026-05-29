@@ -10,10 +10,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nordine-abde/styxpress/internal/config"
+	"github.com/nordine-abde/styxpress/internal/content"
 	"github.com/nordine-abde/styxpress/internal/publishing"
 	"github.com/nordine-abde/styxpress/internal/rendering"
 	"github.com/nordine-abde/styxpress/internal/siteconfig"
@@ -132,7 +135,11 @@ func TestPostWorkflowPreviewAndFeaturedEndpoints(t *testing.T) {
 		"slug":"hello-world",
 		"title":"Hello World",
 		"description":"Intro",
-		"source":"# Hello\n\nBody"
+		"source":"# Hello\n\nBody",
+		"publishedAt":"2026-04-01T09:30:00Z",
+		"updatedAt":"2026-04-01T09:30:00Z",
+		"syncedAt":"2026-04-01T09:35:00Z",
+		"publishStatus":"published"
 	}`)
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, save)
@@ -153,6 +160,9 @@ func TestPostWorkflowPreviewAndFeaturedEndpoints(t *testing.T) {
 	if len(listBody.Posts) != 1 || listBody.Posts[0].Slug != "hello-world" || listBody.Posts[0].Source != "" {
 		t.Fatalf("list body = %#v, want summary without source", listBody)
 	}
+	if listBody.Posts[0].PublishedAt != "" || listBody.Posts[0].PublishStatus != "draft" {
+		t.Fatalf("list publish state = publishedAt %q status %q, want draft without publishedAt", listBody.Posts[0].PublishedAt, listBody.Posts[0].PublishStatus)
+	}
 
 	detail := authedRequest(t, server, http.MethodGet, "/api/posts/hello-world", "")
 	recorder = httptest.NewRecorder()
@@ -166,6 +176,9 @@ func TestPostWorkflowPreviewAndFeaturedEndpoints(t *testing.T) {
 	}
 	if !strings.Contains(detailBody.Source, "# Hello") {
 		t.Fatalf("detail source = %q, want markdown source", detailBody.Source)
+	}
+	if detailBody.PublishedAt != "" || detailBody.SyncedAt != "" || detailBody.PublishStatus != "draft" {
+		t.Fatalf("detail publish state = %#v, want draft without sync", detailBody)
 	}
 
 	preview := authedRequest(t, server, http.MethodPost, "/api/render-preview", `{
@@ -248,19 +261,15 @@ func TestSiteConfigEndpointSavesUnderConfiguredContentDir(t *testing.T) {
 }
 
 func TestSiteConfigPreviewEndpointReturnsHomepageWithoutWritingPublicFiles(t *testing.T) {
-	server, _, publicDir := newTestServer(t)
-
-	save := authedRequest(t, server, http.MethodPost, "/api/posts", `{
-		"slug":"preview-style",
-		"title":"Preview Style",
-		"description":"Styled homepage entry",
-		"source":"# Preview Style"
-	}`)
-	recorder := httptest.NewRecorder()
-	server.Handler().ServeHTTP(recorder, save)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("save status = %d, body = %s", recorder.Code, recorder.Body.String())
-	}
+	server, contentDir, publicDir := newTestServer(t)
+	writePublishedPost(t, contentDir, content.Post{
+		Slug:        "preview-style",
+		Title:       "Preview Style",
+		Description: "Styled homepage entry",
+		Source:      "# Preview Style",
+		PublishedAt: mustTime(t, "2026-04-01T09:30:00Z"),
+		UpdatedAt:   mustTime(t, "2026-04-01T09:30:00Z"),
+	})
 
 	preview := authedRequest(t, server, http.MethodPost, "/api/site-config/preview", `{
 		"title":"Styled Site",
@@ -273,7 +282,7 @@ func TestSiteConfigPreviewEndpointReturnsHomepageWithoutWritingPublicFiles(t *te
 			"customCss":".site-main { outline: 2px solid lime; }"
 		}
 	}`)
-	recorder = httptest.NewRecorder()
+	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, preview)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("preview status = %d, body = %s", recorder.Code, recorder.Body.String())
@@ -561,20 +570,28 @@ func TestEndToEndFixtureSiteLocalAndServerContentModes(t *testing.T) {
 
 func TestSiteRenderAndPublishEndpointsRenderAllPosts(t *testing.T) {
 	server, contentDir, publicDir := newTestServer(t)
-	for _, payload := range []string{
-		`{"slug":"alpha","title":"Alpha","source":"# Alpha"}`,
-		`{"slug":"bravo","title":"Bravo","source":"# Bravo"}`,
+	for _, post := range []content.Post{
+		{Slug: "alpha", Title: "Alpha", Source: "# Alpha", PublishedAt: mustTime(t, "2026-04-01T09:30:00Z"), UpdatedAt: mustTime(t, "2026-04-01T09:30:00Z")},
+		{Slug: "bravo", Title: "Bravo", Source: "# Bravo", PublishedAt: mustTime(t, "2026-04-02T09:30:00Z"), UpdatedAt: mustTime(t, "2026-04-02T09:30:00Z")},
 	} {
-		save := authedRequest(t, server, http.MethodPost, "/api/posts", payload)
-		recorder := httptest.NewRecorder()
-		server.Handler().ServeHTTP(recorder, save)
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("save status = %d, body = %s", recorder.Code, recorder.Body.String())
-		}
+		writePublishedPost(t, contentDir, post)
+	}
+	saveDraft := authedRequest(t, server, http.MethodPost, "/api/posts", `{"slug":"draft","title":"Draft","source":"# Draft"}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, saveDraft)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("save draft status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	staleDraftPath := filepath.Join(publicDir, "posts", "draft", "index.html")
+	if err := os.MkdirAll(filepath.Dir(staleDraftPath), 0o755); err != nil {
+		t.Fatalf("make stale draft dir: %v", err)
+	}
+	if err := os.WriteFile(staleDraftPath, []byte("stale draft"), 0o644); err != nil {
+		t.Fatalf("write stale draft output: %v", err)
 	}
 
 	render := authedRequest(t, server, http.MethodPost, "/api/site/render", "")
-	recorder := httptest.NewRecorder()
+	recorder = httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, render)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("render status = %d, body = %s", recorder.Code, recorder.Body.String())
@@ -584,7 +601,7 @@ func TestSiteRenderAndPublishEndpointsRenderAllPosts(t *testing.T) {
 		t.Fatalf("decode render response: %v", err)
 	}
 	if len(renderBody.Posts) != 2 || renderBody.Site.IndexPath == "" || renderBody.Site.StylesheetPath == "" {
-		t.Fatalf("render response = %#v, want posts and site paths", renderBody)
+		t.Fatalf("render response = %#v, want published posts and site paths", renderBody)
 	}
 	for _, path := range []string{
 		filepath.Join(publicDir, "index.html"),
@@ -596,6 +613,21 @@ func TestSiteRenderAndPublishEndpointsRenderAllPosts(t *testing.T) {
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected rendered file %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(staleDraftPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale draft output stat error = %v, want not exist", err)
+	}
+	for _, path := range []string{
+		filepath.Join(publicDir, "feed.xml"),
+		filepath.Join(publicDir, "sitemap.xml"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if strings.Contains(string(data), "draft") || strings.Contains(string(data), "Draft") {
+			t.Fatalf("%s contains draft post:\n%s", path, data)
 		}
 	}
 
@@ -624,6 +656,149 @@ func TestSiteRenderAndPublishEndpointsRenderAllPosts(t *testing.T) {
 	}
 	if gotConfig.ContentDir != contentDir || gotConfig.PublicDir != publicDir {
 		t.Fatalf("publish config paths = %q %q, want %q %q", gotConfig.ContentDir, gotConfig.PublicDir, contentDir, publicDir)
+	}
+
+	list := authedRequest(t, server, http.MethodGet, "/api/posts", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, list)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("list after publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var listBody postListResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("decode list after publish: %v", err)
+	}
+	statusBySlug := make(map[string]postResponse)
+	for _, post := range listBody.Posts {
+		statusBySlug[post.Slug] = post
+	}
+	if statusBySlug["alpha"].PublishStatus != "published" || statusBySlug["alpha"].SyncedAt == "" {
+		t.Fatalf("alpha publish state = %#v, want published with sync timestamp", statusBySlug["alpha"])
+	}
+	if statusBySlug["draft"].PublishStatus != "draft" || statusBySlug["draft"].SyncedAt != "" {
+		t.Fatalf("draft publish state = %#v, want unchanged draft", statusBySlug["draft"])
+	}
+}
+
+func TestSiteVerifyRemoteEndpointRendersAndRunsVerification(t *testing.T) {
+	server, contentDir, publicDir := newTestServer(t)
+	writePublishedPost(t, contentDir, content.Post{
+		Slug:        "alpha",
+		Title:       "Alpha",
+		Source:      "# Alpha",
+		PublishedAt: mustTime(t, "2026-04-01T09:30:00Z"),
+		UpdatedAt:   mustTime(t, "2026-04-01T09:30:00Z"),
+	})
+	if _, err := content.NewRepository(contentDir).WritePost(content.Post{
+		Slug:   "draft",
+		Title:  "Draft",
+		Source: "# Draft",
+	}, content.WritePostOptions{}); err != nil {
+		t.Fatalf("write draft returned error: %v", err)
+	}
+
+	var gotPassphrase string
+	var gotRemoteOnlyPaths []string
+	var gotConfig config.Config
+	server.verifyRemoteRunner = func(_ *http.Request, cfg config.Config, opts publishing.Options) (publishing.VerificationResult, error) {
+		gotConfig = cfg
+		gotPassphrase = opts.Passphrase
+		gotRemoteOnlyPaths = append([]string(nil), opts.RemoteOnlyPaths...)
+		for _, path := range []string{
+			filepath.Join(cfg.PublicDir, "index.html"),
+			filepath.Join(cfg.PublicDir, "feed.xml"),
+			filepath.Join(cfg.PublicDir, "sitemap.xml"),
+			filepath.Join(cfg.PublicDir, "assets", "styxpress.css"),
+			filepath.Join(cfg.PublicDir, "posts", "alpha", "index.html"),
+		} {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("expected rendered file %s: %v", path, err)
+			}
+		}
+		return publishing.VerificationResult{
+			Files: []publishing.FileVerification{
+				{
+					RelativePath: "index.html",
+					RemotePath:   "/srv/site/public/index.html",
+					Status:       publishing.VerificationStatusPublished,
+				},
+				{
+					RelativePath: "posts/alpha/index.html",
+					RemotePath:   "/srv/site/public/posts/alpha/index.html",
+					Status:       publishing.VerificationStatusPublished,
+				},
+			},
+			Summary: publishing.VerificationSummary{Total: 2, Published: 2},
+		}, nil
+	}
+
+	request := authedRequest(t, server, http.MethodPost, "/api/site/verify-remote", `{"passphrase":"secret"}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("verify status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var body publishing.VerificationResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode verify response: %v", err)
+	}
+	if body.Summary.Published != 2 || len(body.Files) != 2 || body.Files[1].Status != publishing.VerificationStatusPublished {
+		t.Fatalf("verify response = %#v, want published result", body)
+	}
+	if gotPassphrase != "secret" {
+		t.Fatalf("passphrase = %q, want secret", gotPassphrase)
+	}
+	if !reflect.DeepEqual(gotRemoteOnlyPaths, []string{"posts/draft/index.html"}) {
+		t.Fatalf("remote-only paths = %#v, want draft post index", gotRemoteOnlyPaths)
+	}
+	if gotConfig.ContentDir != contentDir || gotConfig.PublicDir != publicDir {
+		t.Fatalf("verify config paths = %q %q, want %q %q", gotConfig.ContentDir, gotConfig.PublicDir, contentDir, publicDir)
+	}
+	alpha, err := content.NewRepository(contentDir).LoadPost("alpha")
+	if err != nil {
+		t.Fatalf("LoadPost alpha returned error: %v", err)
+	}
+	if alpha.PublishStatus() != content.PublishStatusPublished || alpha.SyncedAt.IsZero() {
+		t.Fatalf("alpha publish state = %q synced %v, want verified published", alpha.PublishStatus(), alpha.SyncedAt)
+	}
+}
+
+func TestSiteVerifyRemoteEndpointClearsSyncOnMismatch(t *testing.T) {
+	server, contentDir, _ := newTestServer(t)
+	writePublishedPost(t, contentDir, content.Post{
+		Slug:        "alpha",
+		Title:       "Alpha",
+		Source:      "# Alpha",
+		PublishedAt: mustTime(t, "2026-04-01T09:30:00Z"),
+		UpdatedAt:   mustTime(t, "2026-04-01T09:30:00Z"),
+		SyncedAt:    mustTime(t, "2026-04-01T09:35:00Z"),
+	})
+
+	server.verifyRemoteRunner = func(_ *http.Request, _ config.Config, _ publishing.Options) (publishing.VerificationResult, error) {
+		return publishing.VerificationResult{
+			Files: []publishing.FileVerification{{
+				RelativePath: "posts/alpha/index.html",
+				RemotePath:   "/srv/site/public/posts/alpha/index.html",
+				Status:       publishing.VerificationStatusChangesPending,
+			}},
+			Summary: publishing.VerificationSummary{Total: 1, ChangesPending: 1},
+		}, nil
+	}
+
+	request := authedRequest(t, server, http.MethodPost, "/api/site/verify-remote", `{}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("verify status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	alpha, err := content.NewRepository(contentDir).LoadPost("alpha")
+	if err != nil {
+		t.Fatalf("LoadPost alpha returned error: %v", err)
+	}
+	if alpha.PublishStatus() != content.PublishStatusPendingPublish || !alpha.SyncedAt.IsZero() {
+		t.Fatalf("alpha publish state = %q synced %v, want pending without sync", alpha.PublishStatus(), alpha.SyncedAt)
 	}
 }
 
@@ -666,10 +841,24 @@ func TestPublishEndpointRendersAndPublishesConfiguredPaths(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(publicDir, "feed.xml")); err != nil {
 		t.Fatalf("feed was not rendered: %v", err)
 	}
+
+	detail := authedRequest(t, server, http.MethodGet, "/api/posts/publish-me", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, detail)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("detail after publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body postResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode detail after publish: %v", err)
+	}
+	if body.PublishedAt == "" || body.SyncedAt == "" || body.PublishStatus != "published" {
+		t.Fatalf("publish state = %#v, want published and synced", body)
+	}
 }
 
 func TestPublishEndpointReportsCleanupPathsOnUploadFailure(t *testing.T) {
-	server, _, _ := newTestServer(t)
+	server, contentDir, _ := newTestServer(t)
 	server.publishRunner = func(_ *http.Request, _ config.Config, _ string) (publishing.Result, error) {
 		return publishing.Result{CleanupPaths: []string{"/srv/site/public/index.html"}}, &publishing.UploadError{
 			Path:         "/srv/site/public/feed.xml",
@@ -704,6 +893,12 @@ func TestPublishEndpointReportsCleanupPathsOnUploadFailure(t *testing.T) {
 	}
 	if !strings.Contains(response.Error.Message, "/srv/site/public/index.html") || !strings.Contains(response.Error.Message, "/srv/site/public/feed.xml") {
 		t.Fatalf("error message = %q, want cleanup paths", response.Error.Message)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, "posts", "cleanup-message", "published_at.txt")); err != nil {
+		t.Fatalf("published_at.txt should remain after failed upload: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, "posts", "cleanup-message", "remote_synced_at.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("remote_synced_at.txt stat error = %v, want not exist after failed upload", err)
 	}
 }
 
@@ -804,4 +999,20 @@ func authedRequest(t *testing.T, server *Server, method string, path string, bod
 		request.Header.Set("Content-Type", "application/json")
 	}
 	return request
+}
+
+func writePublishedPost(t *testing.T, contentDir string, post content.Post) {
+	t.Helper()
+	if _, err := content.NewRepository(contentDir).WritePost(post, content.WritePostOptions{}); err != nil {
+		t.Fatalf("WritePost(%s) returned error: %v", post.Slug, err)
+	}
+}
+
+func mustTime(t *testing.T, value string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		t.Fatalf("parse time %q: %v", value, err)
+	}
+	return parsed
 }

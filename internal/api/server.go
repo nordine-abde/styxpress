@@ -26,12 +26,13 @@ const SessionHeader = "X-Styxpress-Session"
 const maxUploadBytes = 64 << 20
 
 type Server struct {
-	configPath    string
-	siteStore     *config.SiteStore
-	token         string
-	logger        *log.Logger
-	sshTester     func(*http.Request, config.Config, string) error
-	publishRunner func(*http.Request, config.Config, string) (publishing.Result, error)
+	configPath         string
+	siteStore          *config.SiteStore
+	token              string
+	logger             *log.Logger
+	sshTester          func(*http.Request, config.Config, string) error
+	publishRunner      func(*http.Request, config.Config, string) (publishing.Result, error)
+	verifyRemoteRunner func(*http.Request, config.Config, publishing.Options) (publishing.VerificationResult, error)
 }
 
 type ErrorResponse struct {
@@ -74,6 +75,9 @@ func newServer(configPath string, siteStore *config.SiteStore, logger *log.Logge
 		publishRunner: func(r *http.Request, cfg config.Config, passphrase string) (publishing.Result, error) {
 			return publishing.New(cfg, nil).Publish(r.Context(), publishing.Options{Passphrase: passphrase})
 		},
+		verifyRemoteRunner: func(r *http.Request, cfg config.Config, opts publishing.Options) (publishing.VerificationResult, error) {
+			return publishing.New(cfg, nil).VerifyRemote(r.Context(), opts)
+		},
 	}, nil
 }
 
@@ -109,6 +113,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/publish", s.withAuth(s.publishPost))
 	mux.HandleFunc("POST /api/site/render", s.withAuth(s.renderSite))
 	mux.HandleFunc("POST /api/site/publish", s.withAuth(s.publishSite))
+	mux.HandleFunc("POST /api/site/verify-remote", s.withAuth(s.verifyRemote))
 	mux.HandleFunc("GET /api/featured", s.withAuth(s.getFeatured))
 	mux.HandleFunc("POST /api/featured", s.withAuth(s.saveFeatured))
 	return mux
@@ -334,25 +339,29 @@ type testSSHRequest struct {
 }
 
 type postPayload struct {
-	Slug        string   `json:"slug"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Source      string   `json:"source"`
-	Cover       string   `json:"cover"`
-	Assets      []string `json:"assets"`
-	PublishedAt string   `json:"publishedAt"`
-	UpdatedAt   string   `json:"updatedAt"`
+	Slug          string   `json:"slug"`
+	Title         string   `json:"title"`
+	Description   string   `json:"description"`
+	Source        string   `json:"source"`
+	Cover         string   `json:"cover"`
+	Assets        []string `json:"assets"`
+	PublishedAt   string   `json:"publishedAt"`
+	UpdatedAt     string   `json:"updatedAt"`
+	SyncedAt      string   `json:"syncedAt"`
+	PublishStatus string   `json:"publishStatus"`
 }
 
 type postResponse struct {
-	Slug        string   `json:"slug"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Source      string   `json:"source,omitempty"`
-	Cover       string   `json:"cover,omitempty"`
-	Assets      []string `json:"assets"`
-	PublishedAt string   `json:"publishedAt"`
-	UpdatedAt   string   `json:"updatedAt"`
+	Slug          string   `json:"slug"`
+	Title         string   `json:"title"`
+	Description   string   `json:"description"`
+	Source        string   `json:"source,omitempty"`
+	Cover         string   `json:"cover,omitempty"`
+	Assets        []string `json:"assets"`
+	PublishedAt   string   `json:"publishedAt"`
+	UpdatedAt     string   `json:"updatedAt"`
+	SyncedAt      string   `json:"syncedAt"`
+	PublishStatus string   `json:"publishStatus"`
 }
 
 type postListResponse struct {
@@ -488,6 +497,9 @@ func (s *Server) savePost(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "invalid_post", err.Error())
 		return
 	}
+	post.PublishedAt = time.Time{}
+	post.UpdatedAt = time.Time{}
+	post.SyncedAt = time.Time{}
 	repo, err := s.repository()
 	if err != nil {
 		s.writeConfigPathError(w, err)
@@ -645,7 +657,18 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	postResult, siteResult, err := s.renderPostAndSite(req.Slug)
+	repo, err := s.repository()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	published, err := repo.MarkPostPublished(req.Slug, content.TimestampOptions{})
+	if err != nil {
+		s.writeContentError(w, err)
+		return
+	}
+
+	postResult, siteResult, err := s.renderPostAndSite(published.Slug)
 	if err != nil {
 		s.writeRenderError(w, err)
 		return
@@ -663,6 +686,10 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 	publishResult, err := s.publishRunner(r, cfg, req.Passphrase)
 	if err != nil {
 		s.writePublishError(w, err)
+		return
+	}
+	if _, err := repo.MarkPostSynced(published.Slug, content.TimestampOptions{}); err != nil {
+		s.writeContentError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, publishResponse{
@@ -705,11 +732,76 @@ func (s *Server) publishSite(w http.ResponseWriter, r *http.Request) {
 		s.writePublishError(w, err)
 		return
 	}
+	repo, err := s.repository()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	syncedAt := time.Now().UTC()
+	for _, post := range result.Posts {
+		if _, err := repo.MarkPostSynced(post.Slug, content.TimestampOptions{Now: syncedAt}); err != nil {
+			s.writeContentError(w, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, publishSiteResponse{
 		Posts:   result.Posts,
 		Site:    result.Site,
 		Publish: publishResult,
 	})
+}
+
+func (s *Server) verifyRemote(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	var req publishSiteRequest
+	if r.Body != http.NoBody {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			WriteError(w, http.StatusBadRequest, "invalid_json", "request body must be an object with optional passphrase")
+			return
+		}
+	}
+
+	rendered, err := s.renderAll()
+	if err != nil {
+		s.writeRenderError(w, err)
+		return
+	}
+	repo, err := s.repository()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	posts, err := repo.ListPosts()
+	if err != nil {
+		s.writeContentError(w, err)
+		return
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	cfg, err = normalizeLocalPaths(cfg)
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	result, err := s.verifyRemoteRunner(r, cfg, publishing.Options{
+		Passphrase:      req.Passphrase,
+		RemoteOnlyPaths: remoteOnlyDraftPaths(posts),
+	})
+	if err != nil {
+		s.writeVerifyError(w, err)
+		return
+	}
+	if err := updateVerifiedPostSync(repo, cfg.PublicDir, rendered.Posts, result); err != nil {
+		s.writeContentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) getFeatured(w http.ResponseWriter, _ *http.Request) {
@@ -747,6 +839,18 @@ func (s *Server) saveFeatured(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderPostAndSite(slug string) (rendering.Result, rendering.SiteResult, error) {
+	repo, err := s.repository()
+	if err != nil {
+		return rendering.Result{}, rendering.SiteResult{}, err
+	}
+	post, err := repo.LoadPost(slug)
+	if err != nil {
+		return rendering.Result{}, rendering.SiteResult{}, err
+	}
+	if !post.IsPublished() {
+		return rendering.Result{}, rendering.SiteResult{}, fmt.Errorf("%w: draft post cannot be rendered to public output", rendering.ErrUnpublishedPost)
+	}
+
 	renderer, err := s.renderer()
 	if err != nil {
 		return rendering.Result{}, rendering.SiteResult{}, err
@@ -768,6 +872,95 @@ func (s *Server) renderAll() (rendering.AllResult, error) {
 		return rendering.AllResult{}, err
 	}
 	return renderer.RenderAll()
+}
+
+func remoteOnlyDraftPaths(posts []content.Post) []string {
+	paths := make([]string, 0, len(posts))
+	for _, post := range posts {
+		if post.IsPublished() {
+			continue
+		}
+		paths = append(paths, fmt.Sprintf("posts/%s/index.html", post.Slug))
+	}
+	return paths
+}
+
+func updateVerifiedPostSync(repo *content.Repository, publicDir string, renderedPosts []rendering.Result, verification publishing.VerificationResult) error {
+	statuses := make(map[string]publishing.VerificationStatus, len(verification.Files))
+	for _, file := range verification.Files {
+		statuses[file.RelativePath] = file.Status
+	}
+
+	now := time.Now().UTC()
+	for _, rendered := range renderedPosts {
+		paths, err := renderedPostOutputPaths(publicDir, rendered)
+		if err != nil {
+			return err
+		}
+		if len(paths) == 0 {
+			continue
+		}
+		matched := true
+		explicitlyOutOfSync := false
+		for _, relativePath := range paths {
+			status, ok := statuses[relativePath]
+			if !ok {
+				matched = false
+				continue
+			}
+			switch status {
+			case publishing.VerificationStatusPublished:
+			case publishing.VerificationStatusNotOnRemote, publishing.VerificationStatusChangesPending:
+				matched = false
+				explicitlyOutOfSync = true
+			default:
+				matched = false
+			}
+		}
+		if matched {
+			if _, err := repo.MarkPostSynced(rendered.Slug, content.TimestampOptions{Now: now}); err != nil {
+				return err
+			}
+			continue
+		}
+		if explicitlyOutOfSync {
+			if _, err := repo.ClearPostSynced(rendered.Slug); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func renderedPostOutputPaths(publicDir string, rendered rendering.Result) ([]string, error) {
+	paths := []string{rendered.IndexPath}
+	if rendered.CoverPath != "" {
+		paths = append(paths, rendered.CoverPath)
+	}
+	for _, asset := range rendered.Assets {
+		paths = append(paths, filepath.Join(publicDir, "posts", rendered.Slug, "assets", filepath.FromSlash(asset)))
+	}
+
+	relativePaths := make([]string, 0, len(paths))
+	for _, localPath := range paths {
+		relativePath, err := localPublicRelativePath(publicDir, localPath)
+		if err != nil {
+			return nil, err
+		}
+		relativePaths = append(relativePaths, relativePath)
+	}
+	return relativePaths, nil
+}
+
+func localPublicRelativePath(publicDir string, localPath string) (string, error) {
+	relativePath, err := filepath.Rel(publicDir, localPath)
+	if err != nil {
+		return "", err
+	}
+	if relativePath == "." || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) || filepath.IsAbs(relativePath) {
+		return "", fmt.Errorf("%w: rendered output path %s is outside public dir", ErrInvalidLocalPath, localPath)
+	}
+	return filepath.ToSlash(relativePath), nil
 }
 
 func (s *Server) repository() (*content.Repository, error) {
@@ -914,7 +1107,7 @@ func (s *Server) writeRenderError(w http.ResponseWriter, err error) {
 		WriteError(w, http.StatusBadRequest, "invalid_site_config", err.Error())
 	case errors.Is(err, content.ErrPostNotFound):
 		WriteError(w, http.StatusNotFound, "post_not_found", "post not found")
-	case errors.Is(err, rendering.ErrInvalidRenderConfig), errors.Is(err, rendering.ErrUnsafeAsset), errors.Is(err, content.ErrInvalidSlug), errors.Is(err, content.ErrInvalidPost), errors.Is(err, content.ErrInvalidAssetPath), errors.Is(err, content.ErrInvalidAsset):
+	case errors.Is(err, rendering.ErrInvalidRenderConfig), errors.Is(err, rendering.ErrUnsafeAsset), errors.Is(err, rendering.ErrUnpublishedPost), errors.Is(err, content.ErrInvalidSlug), errors.Is(err, content.ErrInvalidPost), errors.Is(err, content.ErrInvalidAssetPath), errors.Is(err, content.ErrInvalidAsset):
 		WriteError(w, http.StatusBadRequest, "render_failed", err.Error())
 	default:
 		s.logger.Printf("render error: %v", err)
@@ -936,6 +1129,15 @@ func (s *Server) writePublishError(w http.ResponseWriter, err error) {
 		s.logger.Printf("publish error: %v", err)
 		WriteError(w, http.StatusBadGateway, "publish_failed", "failed to publish files")
 	}
+}
+
+func (s *Server) writeVerifyError(w http.ResponseWriter, err error) {
+	if errors.Is(err, publishing.ErrInvalidPublishConfig) {
+		WriteError(w, http.StatusBadRequest, "invalid_publish_config", err.Error())
+		return
+	}
+	s.logger.Printf("remote verify error: %v", err)
+	WriteError(w, http.StatusBadGateway, "remote_verify_failed", "failed to verify remote files")
 }
 
 var ErrInvalidLocalPath = errors.New("invalid local path")
@@ -994,6 +1196,10 @@ func (p postPayload) toPost() (content.Post, error) {
 	if err != nil {
 		return content.Post{}, err
 	}
+	syncedAt, err := parseOptionalTime(p.SyncedAt)
+	if err != nil {
+		return content.Post{}, err
+	}
 	return content.Post{
 		Slug:        p.Slug,
 		Title:       p.Title,
@@ -1003,6 +1209,7 @@ func (p postPayload) toPost() (content.Post, error) {
 		Assets:      p.Assets,
 		PublishedAt: publishedAt,
 		UpdatedAt:   updatedAt,
+		SyncedAt:    syncedAt,
 	}, nil
 }
 
@@ -1010,7 +1217,7 @@ func parseOptionalTime(value string) (time.Time, error) {
 	if strings.TrimSpace(value) == "" {
 		return time.Time{}, nil
 	}
-	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
 	if err != nil {
 		return time.Time{}, fmt.Errorf("time values must be RFC3339")
 	}
@@ -1019,18 +1226,27 @@ func parseOptionalTime(value string) (time.Time, error) {
 
 func newPostResponse(post content.Post, includeSource bool) postResponse {
 	response := postResponse{
-		Slug:        post.Slug,
-		Title:       post.Title,
-		Description: post.Description,
-		Cover:       post.Cover,
-		Assets:      append([]string(nil), post.Assets...),
-		PublishedAt: post.PublishedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:   post.UpdatedAt.UTC().Format(time.RFC3339),
+		Slug:          post.Slug,
+		Title:         post.Title,
+		Description:   post.Description,
+		Cover:         post.Cover,
+		Assets:        append([]string(nil), post.Assets...),
+		PublishedAt:   formatPostTime(post.PublishedAt),
+		UpdatedAt:     formatPostTime(post.UpdatedAt),
+		SyncedAt:      formatPostTime(post.SyncedAt),
+		PublishStatus: string(post.PublishStatus()),
 	}
 	if includeSource {
 		response.Source = post.Source
 	}
 	return response
+}
+
+func formatPostTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }
 
 func WriteError(w http.ResponseWriter, status int, code string, message string) {

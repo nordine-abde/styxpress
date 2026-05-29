@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/nordine-abde/styxpress/internal/content"
 	"github.com/nordine-abde/styxpress/internal/siteconfig"
@@ -35,6 +36,7 @@ const (
 var (
 	ErrInvalidRenderConfig = errors.New("invalid render config")
 	ErrUnsafeAsset         = errors.New("unsafe asset")
+	ErrUnpublishedPost     = errors.New("unpublished post")
 )
 
 type Renderer struct {
@@ -202,7 +204,7 @@ func (r *Renderer) RenderSite() (SiteResult, error) {
 		return SiteResult{}, fmt.Errorf("%w: site base URL is required for site rendering", ErrInvalidRenderConfig)
 	}
 
-	posts, featured, err := r.homepagePosts()
+	posts, featured, err := r.homepagePosts(true)
 	if err != nil {
 		return SiteResult{}, err
 	}
@@ -251,7 +253,14 @@ func (r *Renderer) RenderAll() (AllResult, error) {
 	}
 
 	repo := content.NewRepository(r.contentRoot)
-	posts, err := repo.ListPosts()
+	allPosts, err := repo.ListPosts()
+	if err != nil {
+		return AllResult{}, err
+	}
+	if err := r.removeUnpublishedPostOutput(allPosts); err != nil {
+		return AllResult{}, err
+	}
+	posts, err := repo.ListPublishedPosts()
 	if err != nil {
 		return AllResult{}, err
 	}
@@ -277,6 +286,9 @@ func (r *Renderer) RenderPost(slug string) (Result, error) {
 	post, err := repo.LoadPost(slug)
 	if err != nil {
 		return Result{}, err
+	}
+	if !post.IsPublished() {
+		return Result{}, fmt.Errorf("%w: %s", ErrUnpublishedPost, slug)
 	}
 
 	result, err := r.renderLoadedPost(post)
@@ -331,7 +343,7 @@ func (r *Renderer) RenderSitePreview(cfg siteconfig.Config) (string, error) {
 	if err := cfg.Validate(); err != nil {
 		return "", err
 	}
-	posts, featured, err := r.homepagePosts()
+	posts, featured, err := r.homepagePosts(false)
 	if err != nil {
 		return "", err
 	}
@@ -361,8 +373,8 @@ func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, 
 		CanonicalURL:   r.absoluteURL(basePostURL),
 		OpenGraphImage: r.absoluteURL(coverURL),
 		CoverURL:       coverURL,
-		PublishedAt:    post.PublishedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:      post.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		PublishedAt:    formatOptionalTime(post.PublishedAt, "2006-01-02T15:04:05Z"),
+		UpdatedAt:      formatOptionalTime(post.UpdatedAt, "2006-01-02T15:04:05Z"),
 		ArticleHTML:    template.HTML(article.String()),
 	}
 
@@ -373,9 +385,18 @@ func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, 
 	return document.String(), nil
 }
 
-func (r *Renderer) homepagePosts() ([]content.Post, []content.Post, error) {
+func (r *Renderer) homepagePosts(cleanupOutput bool) ([]content.Post, []content.Post, error) {
 	repo := content.NewRepository(r.contentRoot)
-	posts, err := repo.ListPosts()
+	allPosts, err := repo.ListPosts()
+	if err != nil {
+		return nil, nil, err
+	}
+	if cleanupOutput {
+		if err := r.removeUnpublishedPostOutput(allPosts); err != nil {
+			return nil, nil, err
+		}
+	}
+	posts, err := repo.ListPublishedPosts()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -384,15 +405,22 @@ func (r *Renderer) homepagePosts() ([]content.Post, []content.Post, error) {
 		return nil, nil, err
 	}
 
+	allPostBySlug := make(map[string]content.Post, len(allPosts))
+	for _, post := range allPosts {
+		allPostBySlug[post.Slug] = post
+	}
 	postBySlug := make(map[string]content.Post, len(posts))
 	for _, post := range posts {
 		postBySlug[post.Slug] = post
 	}
 	featured := make([]content.Post, 0, len(featuredSlugs))
 	for _, slug := range featuredSlugs {
+		if _, ok := allPostBySlug[slug]; !ok {
+			return nil, nil, fmt.Errorf("%w: featured post %q does not exist", content.ErrPostNotFound, slug)
+		}
 		post, ok := postBySlug[slug]
 		if !ok {
-			return nil, nil, fmt.Errorf("%w: featured post %q does not exist", content.ErrPostNotFound, slug)
+			continue
 		}
 		featured = append(featured, post)
 	}
@@ -460,6 +488,18 @@ func (r *Renderer) renderSitemap(posts []content.Post) ([]byte, error) {
 	return append([]byte(xml.Header), data...), nil
 }
 
+func (r *Renderer) removeUnpublishedPostOutput(posts []content.Post) error {
+	for _, post := range posts {
+		if post.IsPublished() {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(r.publicRoot, postsDirName, post.Slug)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *Renderer) summarizePosts(posts []content.Post, absolute bool) []postSummary {
 	summaries := make([]postSummary, 0, len(posts))
 	for _, post := range posts {
@@ -481,11 +521,18 @@ func (r *Renderer) summarizePosts(posts []content.Post, absolute bool) []postSum
 			Description: post.Description,
 			URL:         url,
 			CoverURL:    coverURL,
-			PublishedAt: post.PublishedAt.UTC().Format("2006-01-02"),
-			UpdatedAt:   post.UpdatedAt.UTC().Format("2006-01-02"),
+			PublishedAt: formatOptionalTime(post.PublishedAt, "2006-01-02"),
+			UpdatedAt:   formatOptionalTime(post.UpdatedAt, "2006-01-02"),
 		})
 	}
 	return summaries
+}
+
+func formatOptionalTime(value time.Time, layout string) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(layout)
 }
 
 func (r *Renderer) reconcileCover(post content.Post, publicDir string) (string, error) {

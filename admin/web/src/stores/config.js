@@ -12,6 +12,7 @@ const defaultConfig = {
     remoteHost: '',
     remoteUser: '',
     sshKeyPath: '',
+    sshUsePassphrase: false,
     remotePublicDir: '',
     remoteContentDir: ''
 }

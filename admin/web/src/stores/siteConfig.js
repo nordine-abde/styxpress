@@ -138,6 +138,16 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
             : ''
     }
 
+    function reset() {
+        config.value = cloneDefault()
+        previewHtml.value = ''
+        setPreviewUrl('')
+        previewError.value = ''
+        styleCss.value = defaultStyleCss()
+        styleCssError.value = ''
+        error.value = ''
+    }
+
     return {
         config,
         loading,
@@ -153,7 +163,8 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         loadSiteConfig,
         saveSiteConfig,
         previewSiteConfig,
-        loadStyleCss
+        loadStyleCss,
+        reset
     }
 })
 

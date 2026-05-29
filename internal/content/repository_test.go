@@ -10,24 +10,33 @@ import (
 )
 
 func TestRepositoryCreateLoadUpdatePost(t *testing.T) {
-	repo := NewRepository(t.TempDir())
-	firstPublished := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
+	root := t.TempDir()
+	repo := NewRepository(root)
+	firstSaved := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
 	updated := time.Date(2026, 4, 2, 10, 45, 0, 0, time.UTC)
+	published := time.Date(2026, 4, 3, 11, 0, 0, 0, time.UTC)
+	synced := time.Date(2026, 4, 3, 11, 5, 0, 0, time.UTC)
 
 	created, err := repo.WritePost(Post{
 		Slug:        "hello-world",
 		Title:       " Hello World ",
 		Description: " First post ",
 		Source:      "# Hello\n",
-	}, WritePostOptions{Now: firstPublished})
+	}, WritePostOptions{Now: firstSaved})
 	if err != nil {
 		t.Fatalf("WritePost create returned error: %v", err)
 	}
-	if !created.PublishedAt.Equal(firstPublished) {
-		t.Fatalf("PublishedAt = %v, want %v", created.PublishedAt, firstPublished)
+	if !created.PublishedAt.IsZero() {
+		t.Fatalf("PublishedAt = %v, want zero for draft", created.PublishedAt)
 	}
-	if !created.UpdatedAt.Equal(firstPublished) {
-		t.Fatalf("UpdatedAt = %v, want %v", created.UpdatedAt, firstPublished)
+	if !created.UpdatedAt.Equal(firstSaved) {
+		t.Fatalf("UpdatedAt = %v, want %v", created.UpdatedAt, firstSaved)
+	}
+	if created.PublishStatus() != PublishStatusDraft {
+		t.Fatalf("PublishStatus = %q, want draft", created.PublishStatus())
+	}
+	if _, err := os.Stat(filepath.Join(root, "posts", "hello-world", "published_at.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("published_at.txt stat error = %v, want not exist", err)
 	}
 	if created.Title != "Hello World" || created.Description != "First post" {
 		t.Fatalf("metadata = %#v, want trimmed title and description", created)
@@ -42,8 +51,8 @@ func TestRepositoryCreateLoadUpdatePost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WritePost update returned error: %v", err)
 	}
-	if !got.PublishedAt.Equal(firstPublished) {
-		t.Fatalf("PublishedAt changed to %v, want %v", got.PublishedAt, firstPublished)
+	if !got.PublishedAt.IsZero() {
+		t.Fatalf("PublishedAt = %v, want zero after draft update", got.PublishedAt)
 	}
 	if !got.UpdatedAt.Equal(updated) {
 		t.Fatalf("UpdatedAt = %v, want %v", got.UpdatedAt, updated)
@@ -58,6 +67,42 @@ func TestRepositoryCreateLoadUpdatePost(t *testing.T) {
 	}
 	if loaded.Source != "# Changed\n" {
 		t.Fatalf("Source = %q, want updated source", loaded.Source)
+	}
+
+	marked, err := repo.MarkPostPublished("hello-world", TimestampOptions{Now: published})
+	if err != nil {
+		t.Fatalf("MarkPostPublished returned error: %v", err)
+	}
+	if !marked.PublishedAt.Equal(published) || !marked.UpdatedAt.Equal(updated) {
+		t.Fatalf("marked post times = published %v updated %v, want %v and %v", marked.PublishedAt, marked.UpdatedAt, published, updated)
+	}
+	if marked.PublishStatus() != PublishStatusPendingPublish {
+		t.Fatalf("PublishStatus after marking published = %q, want pending_publish", marked.PublishStatus())
+	}
+
+	syncedPost, err := repo.MarkPostSynced("hello-world", TimestampOptions{Now: synced})
+	if err != nil {
+		t.Fatalf("MarkPostSynced returned error: %v", err)
+	}
+	if !syncedPost.SyncedAt.Equal(synced) {
+		t.Fatalf("SyncedAt = %v, want %v", syncedPost.SyncedAt, synced)
+	}
+	if syncedPost.PublishStatus() != PublishStatusPublished {
+		t.Fatalf("PublishStatus after sync = %q, want published", syncedPost.PublishStatus())
+	}
+
+	clearedPost, err := repo.ClearPostSynced("hello-world")
+	if err != nil {
+		t.Fatalf("ClearPostSynced returned error: %v", err)
+	}
+	if !clearedPost.SyncedAt.IsZero() {
+		t.Fatalf("SyncedAt after clear = %v, want zero", clearedPost.SyncedAt)
+	}
+	if clearedPost.PublishStatus() != PublishStatusPendingPublish {
+		t.Fatalf("PublishStatus after clearing sync = %q, want pending_publish", clearedPost.PublishStatus())
+	}
+	if _, err := os.Stat(filepath.Join(root, "posts", "hello-world", "remote_synced_at.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("remote_synced_at.txt stat error = %v, want not exist", err)
 	}
 }
 
@@ -150,6 +195,52 @@ func TestRepositoryCoverOperations(t *testing.T) {
 	}
 	if cover, err := findCover(dir); err != nil || cover != "" {
 		t.Fatalf("findCover after delete = %q, %v; want empty nil", cover, err)
+	}
+}
+
+func TestRepositoryMediaChangesTouchUpdatedAt(t *testing.T) {
+	root := t.TempDir()
+	repo := NewRepository(root)
+	published := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
+	synced := time.Date(2026, 4, 1, 9, 35, 0, 0, time.UTC)
+	touched := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	if _, err := repo.WritePost(Post{
+		Slug:        "hello-world",
+		Title:       "Hello World",
+		Source:      "Body",
+		PublishedAt: published,
+		UpdatedAt:   published,
+		SyncedAt:    synced,
+	}, WritePostOptions{}); err != nil {
+		t.Fatalf("WritePost returned error: %v", err)
+	}
+	repo.now = func() time.Time { return touched }
+
+	if err := repo.WriteCover("hello-world", "cover.jpg", strings.NewReader("jpg")); err != nil {
+		t.Fatalf("WriteCover returned error: %v", err)
+	}
+	loaded, err := repo.LoadPost("hello-world")
+	if err != nil {
+		t.Fatalf("LoadPost returned error: %v", err)
+	}
+	if !loaded.UpdatedAt.Equal(touched) {
+		t.Fatalf("UpdatedAt = %v, want touched time %v", loaded.UpdatedAt, touched)
+	}
+	if loaded.PublishStatus() != PublishStatusPendingPublish {
+		t.Fatalf("PublishStatus = %q, want pending_publish after media change", loaded.PublishStatus())
+	}
+
+	nextTouch := touched.Add(time.Hour)
+	repo.now = func() time.Time { return nextTouch }
+	if err := repo.WriteAsset("hello-world", "diagram.txt", strings.NewReader("diagram")); err != nil {
+		t.Fatalf("WriteAsset returned error: %v", err)
+	}
+	loaded, err = repo.LoadPost("hello-world")
+	if err != nil {
+		t.Fatalf("LoadPost after asset returned error: %v", err)
+	}
+	if !loaded.UpdatedAt.Equal(nextTouch) {
+		t.Fatalf("UpdatedAt after asset = %v, want %v", loaded.UpdatedAt, nextTouch)
 	}
 }
 

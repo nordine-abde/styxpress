@@ -6,6 +6,7 @@ import FeaturedManager from './components/FeaturedManager.vue'
 import PostEditor from './components/PostEditor.vue'
 import PostList from './components/PostList.vue'
 import PublishPanel from './components/PublishPanel.vue'
+import SSHConnectionGate from './components/SSHConnectionGate.vue'
 import SiteConfigScreen from './components/SiteConfigScreen.vue'
 import SiteListScreen from './components/SiteListScreen.vue'
 import UiButton from './components/ui/UiButton.vue'
@@ -14,11 +15,15 @@ import styxpressMarkUrl from './assets/styxpress-mark.png'
 import { useAuthStore } from './stores/auth'
 import { useConfigStore } from './stores/config'
 import { usePostsStore } from './stores/posts'
+import { usePublishingStore } from './stores/publishing'
+import { useSiteWorkspaceStore } from './stores/siteWorkspace'
 import { useUiStore } from './stores/ui'
 
 const authStore = useAuthStore()
 const configStore = useConfigStore()
 const postsStore = usePostsStore()
+const publishingStore = usePublishingStore()
+const siteWorkspaceStore = useSiteWorkspaceStore()
 const uiStore = useUiStore()
 
 const activeLabel = computed(() => {
@@ -27,6 +32,9 @@ const activeLabel = computed(() => {
     }
     if (uiStore.activeView === 'config') {
         return 'Configuration'
+    }
+    if (uiStore.activeView === 'access') {
+        return 'Site access'
     }
     if (uiStore.activeView === 'featured') {
         return 'Featured'
@@ -50,7 +58,17 @@ onMounted(async () => {
 })
 
 function leaveSite() {
+    publishingStore.resetSSH()
+    siteWorkspaceStore.reset()
     uiStore.setActiveView('sites')
+}
+
+function setSiteView(view) {
+    if (publishingStore.sshBlocksEditing && view !== 'config') {
+        uiStore.setActiveView('access')
+        return
+    }
+    uiStore.setActiveView(view)
 }
 </script>
 
@@ -114,7 +132,7 @@ function leaveSite() {
                 <button
                     type="button"
                     :class="{ active: uiStore.activeView === 'config' }"
-                    @click="uiStore.setActiveView('config')"
+                    @click="setSiteView('config')"
                 >
                     <span aria-hidden="true">~</span>
                     Configuration
@@ -122,7 +140,8 @@ function leaveSite() {
                 <button
                     type="button"
                     :class="{ active: uiStore.activeView === 'site' }"
-                    @click="uiStore.setActiveView('site')"
+                    :disabled="publishingStore.sshBlocksEditing"
+                    @click="setSiteView('site')"
                 >
                     <span aria-hidden="true">S</span>
                     Styles
@@ -130,7 +149,8 @@ function leaveSite() {
                 <button
                     type="button"
                     :class="{ active: uiStore.activeView === 'posts' }"
-                    @click="uiStore.setActiveView('posts')"
+                    :disabled="publishingStore.sshBlocksEditing"
+                    @click="setSiteView('posts')"
                 >
                     <span aria-hidden="true">#</span>
                     Posts
@@ -138,7 +158,8 @@ function leaveSite() {
                 <button
                     type="button"
                     :class="{ active: uiStore.activeView === 'featured' }"
-                    @click="uiStore.setActiveView('featured')"
+                    :disabled="publishingStore.sshBlocksEditing"
+                    @click="setSiteView('featured')"
                 >
                     <span aria-hidden="true">*</span>
                     Featured
@@ -155,6 +176,9 @@ function leaveSite() {
                     <h2>{{ activeLabel === 'Posts' ? 'Content workspace' : activeLabel }}</h2>
                 </div>
                 <div class="status-row">
+                    <UiBadge v-if="publishingStore.sshEnabled" :tone="publishingStore.sshStatusTone">
+                        {{ publishingStore.sshStatusLabel }}
+                    </UiBadge>
                     <UiBadge :tone="authStore.hasToken ? 'success' : 'warning'">
                         {{ authStore.hasToken ? 'session ready' : 'session missing' }}
                     </UiBadge>
@@ -162,7 +186,9 @@ function leaveSite() {
                 </div>
             </header>
 
-            <section v-if="uiStore.activeView === 'posts'" class="posts-layout">
+            <SSHConnectionGate v-if="uiStore.activeView === 'access'" />
+
+            <section v-else-if="uiStore.activeView === 'posts'" class="posts-layout">
                 <div class="posts-side-column">
                     <div class="posts-list-column">
                         <PostList />

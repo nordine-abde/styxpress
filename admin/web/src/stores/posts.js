@@ -11,15 +11,34 @@ const emptyPost = {
     cover: '',
     assets: [],
     publishedAt: '',
-    updatedAt: ''
+    updatedAt: '',
+    syncedAt: '',
+    publishStatus: 'draft'
 }
 
 function normalizePost(post = {}) {
-    return {
+    const normalized = {
         ...emptyPost,
         ...post,
         assets: Array.isArray(post.assets) ? post.assets : []
     }
+    return {
+        ...normalized,
+        publishStatus: normalizePublishStatus(normalized)
+    }
+}
+
+function normalizePublishStatus(post) {
+    if (['draft', 'pending_publish', 'published'].includes(post.publishStatus)) {
+        return post.publishStatus
+    }
+    if (!post.publishedAt) {
+        return 'draft'
+    }
+    if (!post.syncedAt || (post.updatedAt && new Date(post.updatedAt) > new Date(post.syncedAt))) {
+        return 'pending_publish'
+    }
+    return 'published'
 }
 
 export const usePostsStore = defineStore('posts', () => {
@@ -88,6 +107,14 @@ export const usePostsStore = defineStore('posts', () => {
         draft.value = normalizePost()
     }
 
+    function reset() {
+        posts.value = []
+        featuredSlugs.value = []
+        selectedSlug.value = ''
+        draft.value = normalizePost()
+        error.value = ''
+    }
+
     async function saveDraft() {
         const uiStore = useUiStore()
         saving.value = true
@@ -130,6 +157,7 @@ export const usePostsStore = defineStore('posts', () => {
                 method: 'POST',
                 body: form
             })
+            await loadPosts()
             await selectPost(draft.value.slug)
             uiStore.setNotice('Cover uploaded.')
         } catch (err) {
@@ -150,6 +178,7 @@ export const usePostsStore = defineStore('posts', () => {
             await apiRequest(`/api/posts/${encodeURIComponent(draft.value.slug)}/cover`, {
                 method: 'DELETE'
             })
+            await loadPosts()
             await selectPost(draft.value.slug)
             uiStore.setNotice('Cover removed.')
         } catch (err) {
@@ -176,6 +205,7 @@ export const usePostsStore = defineStore('posts', () => {
                 method: 'POST',
                 body: form
             })
+            await loadPosts()
             await selectPost(draft.value.slug)
             uiStore.setNotice('Asset uploaded.')
         } catch (err) {
@@ -197,6 +227,7 @@ export const usePostsStore = defineStore('posts', () => {
             await apiRequest(`/api/posts/${encodeURIComponent(draft.value.slug)}/assets/${encodedPath}`, {
                 method: 'DELETE'
             })
+            await loadPosts()
             await selectPost(draft.value.slug)
             uiStore.setNotice('Asset removed.')
         } catch (err) {
@@ -237,6 +268,7 @@ export const usePostsStore = defineStore('posts', () => {
         loadFeatured,
         selectPost,
         newPost,
+        reset,
         saveDraft,
         uploadCover,
         deleteCover,

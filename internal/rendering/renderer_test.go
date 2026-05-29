@@ -103,6 +103,28 @@ func TestRenderPostEscapesRawHTML(t *testing.T) {
 	}
 }
 
+func TestRenderPostRejectsDraft(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	repo := content.NewRepository(contentRoot)
+	if _, err := repo.WritePost(content.Post{
+		Slug:   "draft",
+		Title:  "Draft",
+		Source: "# Draft\n",
+	}, content.WritePostOptions{Now: time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)}); err != nil {
+		t.Fatalf("write draft: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot, Options{})
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	if _, err := renderer.RenderPost("draft"); !errors.Is(err, ErrUnpublishedPost) {
+		t.Fatalf("RenderPost error = %v, want ErrUnpublishedPost", err)
+	}
+	assertMissing(t, filepath.Join(publicRoot, "posts", "draft", "index.html"))
+}
+
 func TestRenderPostReconcilesRemovedAssetsAndReplacedCover(t *testing.T) {
 	contentRoot := filepath.Join(t.TempDir(), "content")
 	publicRoot := filepath.Join(t.TempDir(), "public")
@@ -271,14 +293,22 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 		{Slug: "zulu", Title: "Zulu", Description: "Last alphabetically", Source: "Zulu", PublishedAt: second, UpdatedAt: second},
 		{Slug: "alpha", Title: "Alpha & Friends", Description: "Featured <post>", Source: "Alpha", PublishedAt: second, UpdatedAt: second, Cover: "cover.jpg"},
 		{Slug: "older", Title: "Older", Source: "Older", PublishedAt: first, UpdatedAt: first},
+		{Slug: "draft-post", Title: "Draft Post", Source: "Draft", UpdatedAt: second.Add(time.Hour)},
 	}
 	for _, post := range posts {
 		if _, err := repo.WritePost(post, content.WritePostOptions{}); err != nil {
 			t.Fatalf("write post %s: %v", post.Slug, err)
 		}
 	}
-	if err := repo.WriteFeatured([]string{"older", "alpha"}); err != nil {
+	if err := repo.WriteFeatured([]string{"older", "alpha", "draft-post"}); err != nil {
 		t.Fatalf("write featured: %v", err)
+	}
+	staleDraftPath := filepath.Join(publicRoot, "posts", "draft-post", "index.html")
+	if err := os.MkdirAll(filepath.Dir(staleDraftPath), 0o755); err != nil {
+		t.Fatalf("make stale draft dir: %v", err)
+	}
+	if err := os.WriteFile(staleDraftPath, []byte("stale draft"), 0o644); err != nil {
+		t.Fatalf("write stale draft output: %v", err)
 	}
 
 	renderer, err := New(contentRoot, publicRoot, Options{SiteBaseURL: "https://blog.example.com"})
@@ -297,6 +327,7 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 		`<p>Featured &lt;post&gt;</p>`,
 		`<img src="/posts/alpha/cover.jpg" alt="">`,
 	})
+	assertFileOmits(t, result.IndexPath, []string{`Draft Post`, `/posts/draft-post/`})
 	assertOrderAfter(t, result.IndexPath, `<h1 id="latest-posts">Latest Posts</h1>`, []string{
 		`<a href="/posts/alpha/">Alpha &amp; Friends</a>`,
 		`<a href="/posts/zulu/">Zulu</a>`,
@@ -307,11 +338,14 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 		`<guid isPermaLink="true">https://blog.example.com/posts/zulu/</guid>`,
 		`<description>Featured &lt;post&gt;</description>`,
 	})
+	assertFileOmits(t, result.FeedPath, []string{`draft-post`, `Draft Post`})
 	assertFileContent(t, result.SitemapPath, []string{
 		`<loc>https://blog.example.com/</loc>`,
 		`<loc>https://blog.example.com/posts/alpha/</loc>`,
 		`<lastmod>2026-04-02</lastmod>`,
 	})
+	assertFileOmits(t, result.SitemapPath, []string{`draft-post`})
+	assertMissing(t, staleDraftPath)
 
 	sitemap, err := os.ReadFile(result.SitemapPath)
 	if err != nil {
@@ -457,6 +491,35 @@ func TestRenderSitePreviewUsesProvidedConfigAndDoesNotWritePublicFiles(t *testin
 	}
 }
 
+func TestRenderSitePreviewDoesNotRemoveDraftOutput(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	repo := content.NewRepository(contentRoot)
+	if _, err := repo.WritePost(content.Post{
+		Slug:   "draft",
+		Title:  "Draft",
+		Source: "Draft",
+	}, content.WritePostOptions{Now: time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)}); err != nil {
+		t.Fatalf("write draft: %v", err)
+	}
+	staleDraftPath := filepath.Join(publicRoot, "posts", "draft", "index.html")
+	if err := os.MkdirAll(filepath.Dir(staleDraftPath), 0o755); err != nil {
+		t.Fatalf("make stale draft dir: %v", err)
+	}
+	if err := os.WriteFile(staleDraftPath, []byte("stale draft"), 0o644); err != nil {
+		t.Fatalf("write stale draft output: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot, Options{})
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	if _, err := renderer.RenderSitePreview(siteconfig.Default()); err != nil {
+		t.Fatalf("render site preview: %v", err)
+	}
+	assertFileEquals(t, staleDraftPath, "stale draft")
+}
+
 func TestRenderAllWritesPostsSiteAndStylesheet(t *testing.T) {
 	contentRoot := filepath.Join(t.TempDir(), "content")
 	publicRoot := filepath.Join(t.TempDir(), "public")
@@ -465,10 +528,18 @@ func TestRenderAllWritesPostsSiteAndStylesheet(t *testing.T) {
 	for _, post := range []content.Post{
 		{Slug: "alpha", Title: "Alpha", Source: "# Alpha", PublishedAt: publishedAt, UpdatedAt: publishedAt},
 		{Slug: "bravo", Title: "Bravo", Source: "# Bravo", PublishedAt: publishedAt.Add(time.Hour), UpdatedAt: publishedAt.Add(time.Hour)},
+		{Slug: "draft", Title: "Draft", Source: "# Draft", UpdatedAt: publishedAt.Add(2 * time.Hour)},
 	} {
 		if _, err := repo.WritePost(post, content.WritePostOptions{}); err != nil {
 			t.Fatalf("write post %s: %v", post.Slug, err)
 		}
+	}
+	staleDraftPath := filepath.Join(publicRoot, "posts", "draft", "index.html")
+	if err := os.MkdirAll(filepath.Dir(staleDraftPath), 0o755); err != nil {
+		t.Fatalf("make stale draft dir: %v", err)
+	}
+	if err := os.WriteFile(staleDraftPath, []byte("stale draft"), 0o644); err != nil {
+		t.Fatalf("write stale draft output: %v", err)
 	}
 	cfg := siteconfig.Default()
 	cfg.Theme.CustomCSS = ".render-all { display: block; }"
@@ -487,6 +558,7 @@ func TestRenderAllWritesPostsSiteAndStylesheet(t *testing.T) {
 	if len(result.Posts) != 2 {
 		t.Fatalf("rendered posts = %d, want 2", len(result.Posts))
 	}
+	assertMissing(t, staleDraftPath)
 
 	assertFileContent(t, filepath.Join(publicRoot, "posts", "alpha", "index.html"), []string{
 		`<link rel="stylesheet" href="/assets/styxpress.css">`,
@@ -501,7 +573,9 @@ func TestRenderAllWritesPostsSiteAndStylesheet(t *testing.T) {
 		`<a href="/posts/alpha/">Alpha</a>`,
 	})
 	assertFileContent(t, result.Site.FeedPath, []string{`<link>https://blog.example.com/posts/alpha/</link>`})
+	assertFileOmits(t, result.Site.FeedPath, []string{`draft`})
 	assertFileContent(t, result.Site.SitemapPath, []string{`<loc>https://blog.example.com/posts/bravo/</loc>`})
+	assertFileOmits(t, result.Site.SitemapPath, []string{`draft`})
 	assertFileContent(t, result.Site.StylesheetPath, []string{
 		`.theme-warm`,
 		`.theme-ink`,
@@ -568,6 +642,19 @@ func assertFileEquals(t *testing.T, path string, expected string) {
 	}
 	if string(data) != expected {
 		t.Fatalf("unexpected %s content: got %q want %q", path, string(data), expected)
+	}
+}
+
+func assertFileOmits(t *testing.T, path string, values []string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	for _, value := range values {
+		if strings.Contains(string(data), value) {
+			t.Fatalf("did not expect %q in %s:\n%s", value, path, string(data))
+		}
 	}
 }
 

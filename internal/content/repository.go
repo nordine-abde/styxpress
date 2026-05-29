@@ -13,16 +13,17 @@ import (
 )
 
 const (
-	postsDirName        = "posts"
-	assetsDirName       = "assets"
-	sourceFileName      = "source.md"
-	titleFileName       = "title.txt"
-	descriptionFileName = "description.txt"
-	publishedFileName   = "published_at.txt"
-	updatedFileName     = "updated_at.txt"
-	featuredFileName    = "featured.txt"
-	directoryMode       = 0o755
-	fileMode            = 0o644
+	postsDirName         = "posts"
+	assetsDirName        = "assets"
+	sourceFileName       = "source.md"
+	titleFileName        = "title.txt"
+	descriptionFileName  = "description.txt"
+	publishedFileName    = "published_at.txt"
+	remoteSyncedFileName = "remote_synced_at.txt"
+	updatedFileName      = "updated_at.txt"
+	featuredFileName     = "featured.txt"
+	directoryMode        = 0o755
+	fileMode             = 0o644
 )
 
 var (
@@ -46,6 +47,7 @@ type Post struct {
 	Source      string
 	PublishedAt time.Time
 	UpdatedAt   time.Time
+	SyncedAt    time.Time
 	Cover       string
 	Assets      []string
 }
@@ -53,6 +55,18 @@ type Post struct {
 type WritePostOptions struct {
 	Now time.Time
 }
+
+type TimestampOptions struct {
+	Now time.Time
+}
+
+type PublishStatus string
+
+const (
+	PublishStatusDraft          PublishStatus = "draft"
+	PublishStatusPendingPublish PublishStatus = "pending_publish"
+	PublishStatusPublished      PublishStatus = "published"
+)
 
 func NewRepository(root string) *Repository {
 	return &Repository{
@@ -82,9 +96,8 @@ func (r *Repository) WritePost(post Post, opts WritePostOptions) (Post, error) {
 		return Post{}, err
 	}
 
-	_, err := os.Stat(filepath.Join(r.postDir(post.Slug), publishedFileName))
-	update := err == nil
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	update, err := r.hasPostMetadata(post.Slug)
+	if err != nil {
 		return Post{}, err
 	}
 	return r.writePost(post, update, opts)
@@ -128,11 +141,15 @@ func (r *Repository) LoadPost(slug string) (Post, error) {
 	if err != nil {
 		return Post{}, err
 	}
-	publishedAt, err := readRequiredTimeFile(filepath.Join(dir, publishedFileName))
+	publishedAt, err := readOptionalTimeFile(filepath.Join(dir, publishedFileName))
 	if err != nil {
 		return Post{}, err
 	}
 	updatedAt, err := readRequiredTimeFile(filepath.Join(dir, updatedFileName))
+	if err != nil {
+		return Post{}, err
+	}
+	syncedAt, err := readOptionalTimeFile(filepath.Join(dir, remoteSyncedFileName))
 	if err != nil {
 		return Post{}, err
 	}
@@ -144,6 +161,7 @@ func (r *Repository) LoadPost(slug string) (Post, error) {
 		Source:      source,
 		PublishedAt: publishedAt,
 		UpdatedAt:   updatedAt,
+		SyncedAt:    syncedAt,
 		Cover:       cover,
 		Assets:      assets,
 	}
@@ -180,6 +198,75 @@ func (r *Repository) ListPosts() ([]Post, error) {
 	}
 	sortPosts(posts)
 	return posts, nil
+}
+
+func (r *Repository) ListPublishedPosts() ([]Post, error) {
+	posts, err := r.ListPosts()
+	if err != nil {
+		return nil, err
+	}
+	published := make([]Post, 0, len(posts))
+	for _, post := range posts {
+		if post.IsPublished() {
+			published = append(published, post)
+		}
+	}
+	return published, nil
+}
+
+func (r *Repository) MarkPostPublished(slug string, opts TimestampOptions) (Post, error) {
+	if err := ValidateSlug(slug); err != nil {
+		return Post{}, err
+	}
+	post, err := r.LoadPost(slug)
+	if err != nil {
+		return Post{}, err
+	}
+	if post.IsPublished() {
+		return post, nil
+	}
+
+	now := r.timestamp(opts.Now)
+	if err := os.WriteFile(filepath.Join(r.postDir(slug), publishedFileName), []byte(formatTime(now)), fileMode); err != nil {
+		return Post{}, err
+	}
+	return r.LoadPost(slug)
+}
+
+func (r *Repository) MarkPostSynced(slug string, opts TimestampOptions) (Post, error) {
+	if err := ValidateSlug(slug); err != nil {
+		return Post{}, err
+	}
+	post, err := r.LoadPost(slug)
+	if err != nil {
+		return Post{}, err
+	}
+	if !post.IsPublished() {
+		return Post{}, fmt.Errorf("%w: draft post cannot be marked synced", ErrInvalidPost)
+	}
+
+	now := r.timestamp(opts.Now)
+	if err := os.WriteFile(filepath.Join(r.postDir(slug), remoteSyncedFileName), []byte(formatTime(now)), fileMode); err != nil {
+		return Post{}, err
+	}
+	return r.LoadPost(slug)
+}
+
+func (r *Repository) ClearPostSynced(slug string) (Post, error) {
+	if err := ValidateSlug(slug); err != nil {
+		return Post{}, err
+	}
+	post, err := r.LoadPost(slug)
+	if err != nil {
+		return Post{}, err
+	}
+	if !post.IsPublished() {
+		return Post{}, fmt.Errorf("%w: draft post cannot be marked unsynced", ErrInvalidPost)
+	}
+	if err := os.Remove(filepath.Join(r.postDir(slug), remoteSyncedFileName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Post{}, err
+	}
+	return r.LoadPost(slug)
 }
 
 func (r *Repository) ReadFeatured() ([]string, error) {
@@ -252,7 +339,10 @@ func (r *Repository) WriteCover(slug string, name string, reader io.Reader) erro
 			return err
 		}
 	}
-	return writeReader(filepath.Join(dir, name), reader)
+	if err := writeReader(filepath.Join(dir, name), reader); err != nil {
+		return err
+	}
+	return r.touchPostUpdated(slug)
 }
 
 func (r *Repository) DeleteCover(slug string) error {
@@ -276,7 +366,7 @@ func (r *Repository) DeleteCover(slug string) error {
 			return err
 		}
 	}
-	return nil
+	return r.touchPostUpdated(slug)
 }
 
 func (r *Repository) WriteAsset(slug string, assetPath string, reader io.Reader) error {
@@ -287,7 +377,10 @@ func (r *Repository) WriteAsset(slug string, assetPath string, reader io.Reader)
 	if err != nil {
 		return err
 	}
-	return writeReader(filepath.Join(r.postDir(slug), assetsDirName, filepath.FromSlash(cleaned)), reader)
+	if err := writeReader(filepath.Join(r.postDir(slug), assetsDirName, filepath.FromSlash(cleaned)), reader); err != nil {
+		return err
+	}
+	return r.touchPostUpdated(slug)
 }
 
 func (r *Repository) DeleteAsset(slug string, assetPath string) error {
@@ -301,7 +394,7 @@ func (r *Repository) DeleteAsset(slug string, assetPath string) error {
 	if err := os.Remove(filepath.Join(r.postDir(slug), assetsDirName, filepath.FromSlash(cleaned))); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return nil
+	return r.touchPostUpdated(slug)
 }
 
 func (r *Repository) writePost(post Post, update bool, opts WritePostOptions) (Post, error) {
@@ -309,11 +402,7 @@ func (r *Repository) writePost(post Post, update bool, opts WritePostOptions) (P
 		return Post{}, err
 	}
 
-	now := opts.Now
-	if now.IsZero() {
-		now = r.now()
-	}
-	now = now.UTC().Truncate(0)
+	now := r.timestamp(opts.Now)
 
 	dir := r.postDir(post.Slug)
 	if update {
@@ -322,13 +411,15 @@ func (r *Repository) writePost(post Post, update bool, opts WritePostOptions) (P
 			return Post{}, err
 		}
 		post.PublishedAt = existing.PublishedAt
+		post.SyncedAt = existing.SyncedAt
 		post.UpdatedAt = now
 	} else {
-		if post.PublishedAt.IsZero() {
-			post.PublishedAt = now
-		}
 		if post.UpdatedAt.IsZero() {
-			post.UpdatedAt = post.PublishedAt
+			if post.PublishedAt.IsZero() {
+				post.UpdatedAt = now
+			} else {
+				post.UpdatedAt = post.PublishedAt
+			}
 		}
 	}
 
@@ -337,10 +428,19 @@ func (r *Repository) writePost(post Post, update bool, opts WritePostOptions) (P
 	}
 
 	files := map[string]string{
-		sourceFileName:    post.Source,
-		titleFileName:     strings.TrimSpace(post.Title) + "\n",
-		publishedFileName: post.PublishedAt.UTC().Format(time.RFC3339) + "\n",
-		updatedFileName:   post.UpdatedAt.UTC().Format(time.RFC3339) + "\n",
+		sourceFileName:  post.Source,
+		titleFileName:   strings.TrimSpace(post.Title) + "\n",
+		updatedFileName: formatTime(post.UpdatedAt),
+	}
+	if post.IsPublished() {
+		files[publishedFileName] = formatTime(post.PublishedAt)
+	} else if err := os.Remove(filepath.Join(dir, publishedFileName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Post{}, err
+	}
+	if !post.SyncedAt.IsZero() {
+		files[remoteSyncedFileName] = formatTime(post.SyncedAt)
+	} else if err := os.Remove(filepath.Join(dir, remoteSyncedFileName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Post{}, err
 	}
 	if strings.TrimSpace(post.Description) != "" {
 		files[descriptionFileName] = strings.TrimSpace(post.Description) + "\n"
@@ -356,6 +456,46 @@ func (r *Repository) writePost(post Post, update bool, opts WritePostOptions) (P
 		}
 	}
 	return r.LoadPost(post.Slug)
+}
+
+func (r *Repository) hasPostMetadata(slug string) (bool, error) {
+	dir := r.postDir(slug)
+	info, err := os.Stat(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !info.IsDir() {
+		return false, fmt.Errorf("%w: post path is not a directory", ErrInvalidPost)
+	}
+
+	for _, name := range []string{sourceFileName, titleFileName, descriptionFileName, publishedFileName, remoteSyncedFileName, updatedFileName} {
+		_, err := os.Stat(filepath.Join(dir, name))
+		if err == nil {
+			return true, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+func (r *Repository) timestamp(value time.Time) time.Time {
+	if value.IsZero() {
+		value = r.now()
+	}
+	return value.UTC()
+}
+
+func (r *Repository) touchPostUpdated(slug string) error {
+	hasMetadata, err := r.hasPostMetadata(slug)
+	if err != nil || !hasMetadata {
+		return err
+	}
+	return os.WriteFile(filepath.Join(r.postDir(slug), updatedFileName), []byte(formatTime(r.timestamp(time.Time{}))), fileMode)
 }
 
 func (r *Repository) postDir(slug string) string {
@@ -377,13 +517,38 @@ func validatePost(post Post) error {
 	if post.Cover != "" && !isCoverFile(post.Cover) {
 		return ErrUnsupportedCover
 	}
+	if !post.SyncedAt.IsZero() && post.PublishedAt.IsZero() {
+		return fmt.Errorf("%w: synced post must have published_at", ErrInvalidPost)
+	}
 	return nil
+}
+
+func (p Post) IsPublished() bool {
+	return !p.PublishedAt.IsZero()
+}
+
+func (p Post) PublishStatus() PublishStatus {
+	if !p.IsPublished() {
+		return PublishStatusDraft
+	}
+	if p.SyncedAt.IsZero() || p.UpdatedAt.After(p.SyncedAt) {
+		return PublishStatusPendingPublish
+	}
+	return PublishStatusPublished
 }
 
 func sortPosts(posts []Post) {
 	sort.Slice(posts, func(i, j int) bool {
-		if !posts[i].PublishedAt.Equal(posts[j].PublishedAt) {
+		iPublished := posts[i].IsPublished()
+		jPublished := posts[j].IsPublished()
+		if iPublished != jPublished {
+			return iPublished
+		}
+		if iPublished && !posts[i].PublishedAt.Equal(posts[j].PublishedAt) {
 			return posts[i].PublishedAt.After(posts[j].PublishedAt)
+		}
+		if !iPublished && !posts[i].UpdatedAt.Equal(posts[j].UpdatedAt) {
+			return posts[i].UpdatedAt.After(posts[j].UpdatedAt)
 		}
 		return posts[i].Slug < posts[j].Slug
 	})
@@ -492,11 +657,30 @@ func readRequiredTimeFile(path string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
 	if err != nil {
 		return time.Time{}, fmt.Errorf("%w: %s must be RFC3339", ErrInvalidPost, filepath.Base(path))
 	}
 	return parsed, nil
+}
+
+func readOptionalTimeFile(path string) (time.Time, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(data)))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: %s must be RFC3339", ErrInvalidPost, filepath.Base(path))
+	}
+	return parsed, nil
+}
+
+func formatTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339Nano) + "\n"
 }
 
 func writeReader(path string, reader io.Reader) error {

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import ConfirmPrompt from './ui/ConfirmPrompt.vue'
 import UiBadge from './ui/UiBadge.vue'
 import UiButton from './ui/UiButton.vue'
@@ -7,16 +7,14 @@ import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
 import { useAuthStore } from '../stores/auth'
 import { useConfigStore } from '../stores/config'
-import { usePostsStore } from '../stores/posts'
 import { usePublishingStore } from '../stores/publishing'
-import { useSiteConfigStore } from '../stores/siteConfig'
+import { useSiteWorkspaceStore } from '../stores/siteWorkspace'
 import { useUiStore } from '../stores/ui'
 
 const authStore = useAuthStore()
 const configStore = useConfigStore()
-const postsStore = usePostsStore()
 const publishingStore = usePublishingStore()
-const siteConfigStore = useSiteConfigStore()
+const siteWorkspaceStore = useSiteWorkspaceStore()
 const uiStore = useUiStore()
 const newSiteName = ref('')
 
@@ -47,14 +45,30 @@ async function openSite(site) {
 }
 
 async function openActiveSite() {
-    postsStore.newPost()
-    await Promise.all([
-        siteConfigStore.loadSiteConfig(),
-        postsStore.loadPosts(),
-        postsStore.loadFeatured()
-    ])
+    siteWorkspaceStore.reset()
     publishingStore.prepareSSHForSite(configStore.activeSiteId, configStore.config)
-    uiStore.setActiveView('config')
+    if (!publishingStore.sshEnabled) {
+        uiStore.setActiveView('config')
+        await siteWorkspaceStore.loadCurrentSite({ force: true })
+        return
+    }
+
+    uiStore.setActiveView('access')
+    if (publishingStore.sshNeedsPassphrase) {
+        return
+    }
+
+    await nextTick()
+    try {
+        const ok = await publishingStore.testSSH()
+        if (!ok) {
+            return
+        }
+        await siteWorkspaceStore.loadCurrentSite({ force: true })
+        uiStore.setActiveView('config')
+    } catch {
+        uiStore.setActiveView('access')
+    }
 }
 
 async function deleteSite(site) {
@@ -102,7 +116,7 @@ async function deleteSite(site) {
                 <div class="site-card-actions">
                     <UiButton
                         tone="primary"
-                        :busy="configStore.switching && site.id !== configStore.activeSiteId"
+                        :busy="(configStore.switching && site.id !== configStore.activeSiteId) || publishingStore.testing"
                         @click="openSite(site)"
                     >
                         Open site

@@ -33,6 +33,7 @@ type Config struct {
 	RemoteHost         string `json:"remoteHost"`
 	RemoteUser         string `json:"remoteUser"`
 	SSHKeyPath         string `json:"sshKeyPath"`
+	SSHUsePassphrase   bool   `json:"sshUsePassphrase"`
 	RemotePublicDir    string `json:"remotePublicDir"`
 	RemoteContentDir   string `json:"remoteContentDir"`
 }
@@ -139,17 +140,18 @@ func WithDefaults(cfg Config) Config {
 }
 
 func encode(w io.Writer, cfg Config) error {
-	values := map[string]string{
-		"name":                 cfg.Name,
-		"site_base_url":        cfg.SiteBaseURL,
-		"content_dir":          cfg.ContentDir,
-		"public_dir":           cfg.PublicDir,
-		"content_storage_mode": cfg.ContentStorageMode,
-		"remote_host":          cfg.RemoteHost,
-		"remote_user":          cfg.RemoteUser,
-		"ssh_key_path":         cfg.SSHKeyPath,
-		"remote_public_dir":    cfg.RemotePublicDir,
-		"remote_content_dir":   cfg.RemoteContentDir,
+	values := map[string]configValue{
+		"name":                 stringConfigValue(cfg.Name),
+		"site_base_url":        stringConfigValue(cfg.SiteBaseURL),
+		"content_dir":          stringConfigValue(cfg.ContentDir),
+		"public_dir":           stringConfigValue(cfg.PublicDir),
+		"content_storage_mode": stringConfigValue(cfg.ContentStorageMode),
+		"remote_host":          stringConfigValue(cfg.RemoteHost),
+		"remote_user":          stringConfigValue(cfg.RemoteUser),
+		"ssh_key_path":         stringConfigValue(cfg.SSHKeyPath),
+		"ssh_use_passphrase":   boolConfigValue(cfg.SSHUsePassphrase),
+		"remote_public_dir":    stringConfigValue(cfg.RemotePublicDir),
+		"remote_content_dir":   stringConfigValue(cfg.RemoteContentDir),
 	}
 
 	keys := make([]string, 0, len(values))
@@ -159,11 +161,29 @@ func encode(w io.Writer, cfg Config) error {
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		if _, err := fmt.Fprintf(w, "%s = %s\n", key, strconv.Quote(values[key])); err != nil {
+		value := values[key]
+		encoded := value.Value
+		if value.Quoted {
+			encoded = strconv.Quote(value.Value)
+		}
+		if _, err := fmt.Fprintf(w, "%s = %s\n", key, encoded); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+type configValue struct {
+	Value  string
+	Quoted bool
+}
+
+func stringConfigValue(value string) configValue {
+	return configValue{Value: value, Quoted: true}
+}
+
+func boolConfigValue(value bool) configValue {
+	return configValue{Value: strconv.FormatBool(value)}
 }
 
 func decode(r io.Reader, cfg *Config) error {
@@ -181,7 +201,19 @@ func decode(r io.Reader, cfg *Config) error {
 			return fmt.Errorf("%w: line %d must be key = value", ErrInvalidConfig, lineNumber)
 		}
 		key = strings.TrimSpace(key)
-		value, err := strconv.Unquote(strings.TrimSpace(rawValue))
+		rawValue = strings.TrimSpace(rawValue)
+
+		switch key {
+		case "ssh_use_passphrase":
+			value, err := strconv.ParseBool(rawValue)
+			if err != nil {
+				return fmt.Errorf("%w: line %d ssh_use_passphrase must be true or false", ErrInvalidConfig, lineNumber)
+			}
+			cfg.SSHUsePassphrase = value
+			continue
+		}
+
+		value, err := strconv.Unquote(rawValue)
 		if err != nil {
 			return fmt.Errorf("%w: line %d value must be a quoted string", ErrInvalidConfig, lineNumber)
 		}
@@ -203,10 +235,10 @@ func decode(r io.Reader, cfg *Config) error {
 			cfg.RemoteUser = value
 		case "ssh_key_path":
 			cfg.SSHKeyPath = value
-		case "remote_public_dir":
-			cfg.RemotePublicDir = value
 		case "remote_content_dir":
 			cfg.RemoteContentDir = value
+		case "remote_public_dir":
+			cfg.RemotePublicDir = value
 		default:
 			return fmt.Errorf("%w: unknown key %q", ErrInvalidConfig, key)
 		}

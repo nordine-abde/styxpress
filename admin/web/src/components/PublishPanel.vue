@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from 'vue'
 import UiButton from './ui/UiButton.vue'
 import UiBadge from './ui/UiBadge.vue'
 import UiPanel from './ui/UiPanel.vue'
@@ -7,10 +8,23 @@ import { usePublishingStore } from '../stores/publishing'
 
 const postsStore = usePostsStore()
 const publishingStore = usePublishingStore()
+
+const canRenderPost = computed(() => postsStore.draft.slug && postsStore.draft.publishStatus !== 'draft')
+const canVerifyRemote = computed(() => publishingStore.sshStatus === 'ok' && !publishingStore.rendering && !publishingStore.publishing)
+
+function formatDate(value) {
+    if (!value) {
+        return ''
+    }
+    return new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+    }).format(new Date(value))
+}
 </script>
 
 <template>
-    <UiPanel title="Publish" subtitle="Rendering updates the local public directory before upload.">
+    <UiPanel title="Publish" subtitle="Drafts publish first; rendering updates public output for published posts.">
         <div class="field-grid">
             <div class="publish-connection">
                 <UiBadge :tone="publishingStore.sshStatusTone">
@@ -23,7 +37,7 @@ const publishingStore = usePublishingStore()
                 <UiButton
                     tone="ghost"
                     :busy="publishingStore.rendering"
-                    :disabled="!postsStore.draft.slug"
+                    :disabled="!canRenderPost"
                     @click="publishingStore.renderPost(postsStore.draft.slug)"
                 >
                     Render
@@ -36,6 +50,27 @@ const publishingStore = usePublishingStore()
                 >
                     Publish
                 </UiButton>
+                <UiButton
+                    tone="ghost"
+                    :busy="publishingStore.verifying"
+                    :disabled="!canVerifyRemote"
+                    @click="publishingStore.verifyRemote(publishingStore.sshPassphrase)"
+                >
+                    Verify remote
+                </UiButton>
+            </div>
+
+            <div class="result">
+                <div class="result-heading">
+                    <strong>Remote verification</strong>
+                    <UiBadge :tone="publishingStore.verificationStatusTone(publishingStore.siteShellVerification)">
+                        {{ publishingStore.verificationStatusLabel(publishingStore.siteShellVerification) }}
+                    </UiBadge>
+                </div>
+                <p>{{ publishingStore.verificationSummaryText }}</p>
+                <p v-if="publishingStore.verificationCheckedAt">
+                    Checked {{ formatDate(publishingStore.verificationCheckedAt) }}
+                </p>
             </div>
 
             <div v-if="publishingStore.lastResult" class="result">
@@ -66,6 +101,14 @@ const publishingStore = usePublishingStore()
 
 strong {
     color: var(--color-heading);
+}
+
+.result-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
 }
 
 p {

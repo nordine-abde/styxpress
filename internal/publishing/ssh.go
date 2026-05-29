@@ -79,6 +79,14 @@ func (c *client) Create(path string) (RemoteFile, error) {
 	return c.Client.Create(path)
 }
 
+func (c *client) Stat(path string) (os.FileInfo, error) {
+	return c.Client.Stat(path)
+}
+
+func (c *client) Open(path string) (RemoteReader, error) {
+	return c.Client.Open(path)
+}
+
 func (c *client) Close() error {
 	sftpErr := c.Client.Close()
 	sshErr := c.sshClient.Close()

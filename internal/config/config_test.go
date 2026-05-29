@@ -33,6 +33,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		RemoteHost:         "example.com",
 		RemoteUser:         "deploy",
 		SSHKeyPath:         "/home/me/.ssh/id_ed25519",
+		SSHUsePassphrase:   true,
 		RemotePublicDir:    "/srv/site/public",
 		RemoteContentDir:   "/srv/site/content",
 	}

@@ -2,6 +2,8 @@ package publishing
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,11 +22,18 @@ var ErrInvalidPublishConfig = errors.New("invalid publish config")
 type Client interface {
 	MkdirAll(path string) error
 	Create(path string) (RemoteFile, error)
+	Stat(path string) (os.FileInfo, error)
+	Open(path string) (RemoteReader, error)
 	Close() error
 }
 
 type RemoteFile interface {
 	io.Writer
+	Close() error
+}
+
+type RemoteReader interface {
+	io.Reader
 	Close() error
 }
 
@@ -45,12 +54,49 @@ type Publisher struct {
 }
 
 type Options struct {
-	Passphrase string
+	Passphrase      string
+	RemoteOnlyPaths []string
 }
 
 type Result struct {
 	UploadedPaths []string `json:"uploadedPaths"`
 	CleanupPaths  []string `json:"cleanupPaths,omitempty"`
+}
+
+type VerificationStatus string
+
+const (
+	VerificationStatusNotOnRemote    VerificationStatus = "not_on_remote"
+	VerificationStatusChangesPending VerificationStatus = "changes_pending"
+	VerificationStatusPublished      VerificationStatus = "published"
+	VerificationStatusUnknown        VerificationStatus = "unknown"
+	VerificationStatusStillOnRemote  VerificationStatus = "still_on_remote"
+)
+
+type VerificationResult struct {
+	Files   []FileVerification  `json:"files"`
+	Summary VerificationSummary `json:"summary"`
+}
+
+type VerificationSummary struct {
+	Total          int `json:"total"`
+	Published      int `json:"published"`
+	ChangesPending int `json:"changesPending"`
+	NotOnRemote    int `json:"notOnRemote"`
+	Unknown        int `json:"unknown"`
+	StillOnRemote  int `json:"stillOnRemote"`
+}
+
+type FileVerification struct {
+	RelativePath string             `json:"relativePath"`
+	LocalPath    string             `json:"localPath"`
+	RemotePath   string             `json:"remotePath"`
+	Status       VerificationStatus `json:"status"`
+	LocalSize    int64              `json:"localSize"`
+	RemoteSize   int64              `json:"remoteSize"`
+	LocalSHA256  string             `json:"localSha256,omitempty"`
+	RemoteSHA256 string             `json:"remoteSha256,omitempty"`
+	Error        string             `json:"error,omitempty"`
 }
 
 type UploadError struct {
@@ -107,6 +153,36 @@ func (p *Publisher) Publish(ctx context.Context, opts Options) (Result, error) {
 		if err := p.uploadTree(client, p.cfg.ContentDir, p.cfg.RemoteContentDir, &result); err != nil {
 			return result, err
 		}
+	}
+	return result, nil
+}
+
+func (p *Publisher) VerifyRemote(ctx context.Context, opts Options) (VerificationResult, error) {
+	if err := validatePublishConfig(p.cfg); err != nil {
+		return VerificationResult{}, err
+	}
+
+	client, err := p.dial(ctx, opts.Passphrase)
+	if err != nil {
+		return VerificationResult{}, err
+	}
+	defer client.Close()
+
+	result := VerificationResult{Files: []FileVerification{}}
+	if err := p.verifyTree(client, p.cfg.PublicDir, p.cfg.RemotePublicDir, &result); err != nil {
+		return result, err
+	}
+	remoteRoot, err := cleanRemoteDir(p.cfg.RemotePublicDir)
+	if err != nil {
+		return result, err
+	}
+	for _, relativePath := range opts.RemoteOnlyPaths {
+		verification := verifyRemoteOnlyFile(client, remoteRoot, relativePath)
+		if verification.Status == VerificationStatusNotOnRemote {
+			continue
+		}
+		result.Files = append(result.Files, verification)
+		result.Summary.add(verification.Status)
 	}
 	return result, nil
 }
@@ -172,6 +248,142 @@ func (p *Publisher) uploadTree(client Client, localRoot string, remoteRoot strin
 	})
 }
 
+func (p *Publisher) verifyTree(client Client, localRoot string, remoteRoot string, result *VerificationResult) error {
+	localRoot = filepath.Clean(localRoot)
+	remoteRoot, err := cleanRemoteDir(remoteRoot)
+	if err != nil {
+		return err
+	}
+
+	return filepath.WalkDir(localRoot, func(localPath string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if localPath == localRoot {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: symlink %s", ErrInvalidPublishConfig, localPath)
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+
+		rel, err := filepath.Rel(localRoot, localPath)
+		if err != nil {
+			return err
+		}
+		relativePath := filepath.ToSlash(rel)
+		remotePath, err := joinRemotePath(remoteRoot, relativePath)
+		if err != nil {
+			return err
+		}
+
+		verification := verifyFile(client, localPath, remotePath, relativePath)
+		result.Files = append(result.Files, verification)
+		result.Summary.add(verification.Status)
+		return nil
+	})
+}
+
+func verifyFile(client Client, localPath string, remotePath string, relativePath string) FileVerification {
+	verification := FileVerification{
+		RelativePath: relativePath,
+		LocalPath:    localPath,
+		RemotePath:   remotePath,
+		Status:       VerificationStatusUnknown,
+	}
+
+	localInfo, err := os.Stat(localPath)
+	if err != nil {
+		verification.Error = err.Error()
+		return verification
+	}
+	verification.LocalSize = localInfo.Size()
+
+	remoteInfo, err := client.Stat(remotePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			verification.Status = VerificationStatusNotOnRemote
+			return verification
+		}
+		verification.Error = err.Error()
+		return verification
+	}
+	if remoteInfo.IsDir() {
+		verification.Error = "remote path is a directory"
+		return verification
+	}
+	verification.RemoteSize = remoteInfo.Size()
+
+	if verification.LocalSize != verification.RemoteSize {
+		verification.Status = VerificationStatusChangesPending
+		return verification
+	}
+
+	localHash, err := hashLocalFile(localPath)
+	if err != nil {
+		verification.Error = err.Error()
+		return verification
+	}
+	remoteHash, err := hashRemoteFile(client, remotePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			verification.Status = VerificationStatusNotOnRemote
+			return verification
+		}
+		verification.Error = err.Error()
+		return verification
+	}
+	verification.LocalSHA256 = localHash
+	verification.RemoteSHA256 = remoteHash
+
+	if localHash != remoteHash {
+		verification.Status = VerificationStatusChangesPending
+		return verification
+	}
+
+	verification.Status = VerificationStatusPublished
+	return verification
+}
+
+func verifyRemoteOnlyFile(client Client, remoteRoot string, relativePath string) FileVerification {
+	relativePath = filepath.ToSlash(relativePath)
+	remotePath, err := joinRemotePath(remoteRoot, relativePath)
+	verification := FileVerification{
+		RelativePath: relativePath,
+		RemotePath:   remotePath,
+		Status:       VerificationStatusNotOnRemote,
+	}
+	if err != nil {
+		verification.Status = VerificationStatusUnknown
+		verification.Error = err.Error()
+		return verification
+	}
+
+	remoteInfo, err := client.Stat(remotePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return verification
+		}
+		verification.Status = VerificationStatusUnknown
+		verification.Error = err.Error()
+		return verification
+	}
+	if remoteInfo.IsDir() {
+		verification.Status = VerificationStatusUnknown
+		verification.Error = "remote path is a directory"
+		return verification
+	}
+
+	verification.RemoteSize = remoteInfo.Size()
+	verification.Status = VerificationStatusStillOnRemote
+	return verification
+}
+
 func uploadFile(client Client, localPath string, remotePath string) error {
 	if err := client.MkdirAll(path.Dir(remotePath)); err != nil {
 		return err
@@ -192,6 +404,32 @@ func uploadFile(client Client, localPath string, remotePath string) error {
 		return err
 	}
 	return nil
+}
+
+func hashLocalFile(localPath string) (string, error) {
+	file, err := os.Open(localPath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	return hashReader(file)
+}
+
+func hashRemoteFile(client Client, remotePath string) (string, error) {
+	file, err := client.Open(remotePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	return hashReader(file)
+}
+
+func hashReader(reader io.Reader) (string, error) {
+	hash := sha256.New()
+	if _, err := io.Copy(hash, reader); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func validatePublishConfig(cfg config.Config) error {
@@ -258,6 +496,22 @@ func appendCleanup(paths []string, path string) []string {
 	paths = append(paths, path)
 	sort.Strings(paths)
 	return compactStrings(paths)
+}
+
+func (s *VerificationSummary) add(status VerificationStatus) {
+	s.Total++
+	switch status {
+	case VerificationStatusPublished:
+		s.Published++
+	case VerificationStatusChangesPending:
+		s.ChangesPending++
+	case VerificationStatusNotOnRemote:
+		s.NotOnRemote++
+	case VerificationStatusStillOnRemote:
+		s.StillOnRemote++
+	default:
+		s.Unknown++
+	}
 }
 
 func compactStrings(values []string) []string {
