@@ -16,6 +16,11 @@ export const useSiteWorkspaceStore = defineStore('siteWorkspace', () => {
         const siteConfigStore = useSiteConfigStore()
         const uiStore = useUiStore()
         const siteId = configStore.activeSiteId || 'single-site'
+        if (configStore.multiSite && !configStore.activeSiteId) {
+            reset()
+            uiStore.setActiveView('sites')
+            return
+        }
 
         if (!options.force && loadedSiteId.value === siteId) {
             return

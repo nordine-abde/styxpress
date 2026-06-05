@@ -35,7 +35,7 @@ export const useConfigStore = defineStore('config', () => {
         error.value = ''
         try {
             applySites(await apiRequest('/api/sites'))
-            if (!activeSite.value?.config) {
+            if (!activeSite.value?.config && !multiSite.value) {
                 config.value = mergeConfig(await apiRequest('/api/config'))
             }
         } catch (err) {
@@ -142,7 +142,9 @@ export const useConfigStore = defineStore('config', () => {
         const active = sites.value.find((site) => site.id === activeSiteId.value)
         if (active?.config) {
             config.value = mergeConfig(active.config)
+            return
         }
+        config.value = mergeConfig()
     }
 
     function syncActiveSiteConfig(nextConfig) {

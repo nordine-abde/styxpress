@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import ConfirmPrompt from './ui/ConfirmPrompt.vue'
+import EmptyState from './ui/EmptyState.vue'
 import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
@@ -13,7 +14,7 @@ const postsStore = usePostsStore()
 const siteConfigStore = useSiteConfigStore()
 const newSiteName = ref('')
 
-const canDelete = computed(() => configStore.multiSite && configStore.sites.length > 1)
+const canDelete = computed(() => configStore.multiSite && configStore.sites.length > 0)
 
 async function createSite() {
     const name = newSiteName.value.trim()
@@ -35,6 +36,11 @@ async function selectSite(site) {
 
 async function deleteSite(site) {
     await configStore.deleteSite(site.id)
+    if (!configStore.activeSiteId) {
+        postsStore.reset()
+        siteConfigStore.reset()
+        return
+    }
     await reloadSiteWorkspace()
 }
 
@@ -66,7 +72,13 @@ async function reloadSiteWorkspace() {
             This admin session is using the explicit config file passed with -config.
         </p>
 
-        <ul class="site-list">
+        <EmptyState
+            v-if="configStore.sites.length === 0"
+            title="No sites yet"
+            message="Create a site to start."
+        />
+
+        <ul v-else class="site-list">
             <li v-for="site in configStore.sites" :key="site.id" class="site-item">
                 <div>
                     <div class="site-title-row">

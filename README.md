@@ -165,7 +165,10 @@ go build -o styxpress-admin ./cmd/styxpress-admin
 3. Open the printed local URL. The embedded admin UI receives its local API
    session automatically.
 
-4. Configure the local paths and publishing target:
+4. Create or open a site from the My sites screen. A fresh default multi-site
+   store can be empty; creating the first site selects it automatically.
+
+5. Configure the local paths and publishing target:
 
 - `siteBaseUrl`: the public canonical URL, for example `https://blog.example.com`.
 - `contentDir`: local source content directory.
@@ -174,29 +177,29 @@ go build -o styxpress-admin ./cmd/styxpress-admin
 - `remoteHost`, `remoteUser`, `sshKeyPath`, and `remotePublicDir` for SSH/SFTP publishing.
 - `remoteContentDir` when `contentStorageMode` is `server`.
 
-5. Configure site presentation in the Site admin page. Style settings are saved
+6. Configure site presentation in the Site admin page. Style settings are saved
    in `content/site.toml` and include the site title, description,
    header/footer links, `theme.palette`, `theme.font`, `theme.layout`,
    `theme.radius`, `theme.customCss`, and root-level `savedThemes` for named
    theme presets.
 
-6. Preview site presentation changes before saving. The Site page renders a
+7. Preview site presentation changes before saving. The Site page renders a
    draft homepage from the current form without writing public files, shows the
    current generated site CSS next to the custom CSS editor, can populate the
    editor from base theme CSS or a blank class-block template, and
    keeps the selector reference behind an "Open guide" action.
 
-7. Create or edit posts in the admin UI. Saving writes source files under `content/posts/{slug}/`.
+8. Create or edit posts in the admin UI. Saving writes source files under `content/posts/{slug}/`.
 
-8. Render a post or render the whole site locally. Rendering writes public
+9. Render a post or render the whole site locally. Rendering writes public
    post pages, the homepage, `feed.xml`, `sitemap.xml`, and the site stylesheet
    under `public/`.
 
-9. Publish a post or publish the whole site. Styxpress renders locally first,
+10. Publish a post or publish the whole site. Styxpress renders locally first,
    then uploads generated public files over SSH/SFTP. In server-backed content
    mode it also uploads `content/`.
 
-10. Serve the remote `public/` directory with Caddy, Nginx, or another static
+11. Serve the remote `public/` directory with Caddy, Nginx, or another static
     file server using the route allowlist in `docs/reverse-proxy.md`.
 
 ## Local Fixture

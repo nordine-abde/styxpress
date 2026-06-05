@@ -19,7 +19,7 @@ const (
 var (
 	ErrInvalidSiteID = errors.New("invalid site id")
 	ErrSiteNotFound  = errors.New("site not found")
-	ErrLastSite      = errors.New("cannot delete the last site")
+	ErrNoActiveSite  = errors.New("no active site selected")
 )
 
 type Site struct {
@@ -52,6 +52,9 @@ func (s *SiteStore) List() ([]Site, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	if len(sites) == 0 {
+		return sites, "", nil
+	}
 	activeID, err := s.activeSiteID()
 	if err != nil && !errors.Is(err, ErrInvalidSiteID) && !errors.Is(err, os.ErrNotExist) {
 		return nil, "", err
@@ -69,6 +72,9 @@ func (s *SiteStore) Active() (Site, error) {
 	sites, activeID, err := s.List()
 	if err != nil {
 		return Site{}, err
+	}
+	if activeID == "" {
+		return Site{}, ErrNoActiveSite
 	}
 	for _, site := range sites {
 		if site.ID == activeID {
@@ -137,9 +143,6 @@ func (s *SiteStore) Delete(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(sites) == 1 {
-		return "", ErrLastSite
-	}
 	if !containsSite(sites, id) {
 		return "", fmt.Errorf("%w: %q", ErrSiteNotFound, id)
 	}
@@ -152,6 +155,12 @@ func (s *SiteStore) Delete(id string) (string, error) {
 	remaining, err := s.loadSites()
 	if err != nil {
 		return "", err
+	}
+	if len(remaining) == 0 {
+		if err := s.writeNoActiveSiteID(); err != nil {
+			return "", err
+		}
+		return "", nil
 	}
 	nextID := remaining[0].ID
 	if err := s.writeActiveSiteID(nextID); err != nil {
@@ -169,26 +178,44 @@ func (s *SiteStore) ensureInitialized() error {
 		return err
 	}
 	if len(sites) == 0 {
-		cfg := Default()
-		legacyPath := filepath.Join(s.root, configFileName)
-		if legacy, err := Load(legacyPath); err == nil {
-			cfg = legacy
+		if _, err := os.Stat(s.activePath()); err == nil {
+			return nil
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if cfg.Name == "" {
-			cfg.Name = "Default site"
-		}
-		if err := s.saveSite(defaultSiteID, cfg); err != nil {
+		migrated, err := s.migrateLegacyConfig()
+		if err != nil {
 			return err
 		}
+		if migrated {
+			return s.writeActiveSiteID(defaultSiteID)
+		}
+		return s.writeNoActiveSiteID()
 	}
 	if _, err := os.Stat(s.activePath()); errors.Is(err, os.ErrNotExist) {
-		return s.writeActiveSiteID(defaultSiteID)
+		return s.writeActiveSiteID(sites[0].ID)
 	} else if err != nil {
 		return err
 	}
 	return nil
+}
+
+func (s *SiteStore) migrateLegacyConfig() (bool, error) {
+	legacyPath := filepath.Join(s.root, configFileName)
+	cfg, err := Load(legacyPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if cfg.Name == "" {
+		cfg.Name = siteName(defaultSiteID, cfg)
+	}
+	if err := s.saveSite(defaultSiteID, cfg); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *SiteStore) loadSites() ([]Site, error) {
@@ -289,6 +316,13 @@ func (s *SiteStore) writeActiveSiteID(id string) error {
 		return err
 	}
 	return os.WriteFile(s.activePath(), []byte(id+"\n"), filePermission)
+}
+
+func (s *SiteStore) writeNoActiveSiteID() error {
+	if err := os.MkdirAll(s.root, directoryPermission); err != nil {
+		return err
+	}
+	return os.WriteFile(s.activePath(), []byte("\n"), filePermission)
 }
 
 func (s *SiteStore) sitePath(id string) string {

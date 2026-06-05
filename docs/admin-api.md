@@ -18,12 +18,25 @@ Errors use this shape:
 ## Config
 
 - `GET /api/config`
-  Returns the saved config or defaults.
+  Returns the active site config. In default multi-site mode, this requires an
+  active site.
 - `POST /api/config`
-  Saves a config object. SSH passphrases are not part of the config and are not
-  stored.
+  Saves the active site config. SSH passphrases are not part of the config and
+  are not stored.
 - `POST /api/test-ssh`
   Body: `{"passphrase":"optional"}`. Tests the configured SSH key and host.
+
+## Sites
+
+- `GET /api/sites`
+  Returns saved site configs, `activeSiteId`, and `multiSite`. In default
+  multi-site mode the list can be empty.
+- `POST /api/sites`
+  Creates a site from `{"name":"My site","config":{...}}` and selects it.
+- `POST /api/sites/{id}/select`
+  Selects an existing site.
+- `DELETE /api/sites/{id}`
+  Deletes a site. Deleting the last site leaves no active site.
 
 Config object:
 

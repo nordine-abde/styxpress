@@ -230,8 +230,7 @@ func (s *Server) deleteSite(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getConfig(w http.ResponseWriter, _ *http.Request) {
 	cfg, err := s.loadConfig()
 	if err != nil {
-		s.logger.Printf("load config: %v", err)
-		WriteError(w, http.StatusInternalServerError, "config_load_failed", "failed to load config")
+		s.writeConfigPathError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg)
@@ -250,6 +249,10 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, config.ErrInvalidConfig) {
 			WriteError(w, http.StatusBadRequest, "invalid_config", err.Error())
+			return
+		}
+		if errors.Is(err, config.ErrNoActiveSite) || errors.Is(err, config.ErrSiteNotFound) {
+			s.writeConfigPathError(w, err)
 			return
 		}
 		s.logger.Printf("save config: %v", err)
@@ -426,8 +429,7 @@ func (s *Server) testSSH(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := s.loadConfig()
 	if err != nil {
-		s.logger.Printf("load config: %v", err)
-		WriteError(w, http.StatusInternalServerError, "config_load_failed", "failed to load config")
+		s.writeConfigPathError(w, err)
 		return
 	}
 
@@ -1056,6 +1058,10 @@ func (s *Server) writeConfigPathError(w http.ResponseWriter, err error) {
 		WriteError(w, http.StatusBadRequest, "invalid_config", err.Error())
 		return
 	}
+	if errors.Is(err, config.ErrNoActiveSite) {
+		WriteError(w, http.StatusBadRequest, "site_required", "create or select a site first")
+		return
+	}
 	if errors.Is(err, config.ErrSiteNotFound) {
 		WriteError(w, http.StatusNotFound, "site_not_found", err.Error())
 		return
@@ -1068,10 +1074,10 @@ func (s *Server) writeSiteStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, config.ErrInvalidConfig), errors.Is(err, config.ErrInvalidSiteID):
 		WriteError(w, http.StatusBadRequest, "invalid_site", err.Error())
+	case errors.Is(err, config.ErrNoActiveSite):
+		WriteError(w, http.StatusBadRequest, "site_required", "create or select a site first")
 	case errors.Is(err, config.ErrSiteNotFound):
 		WriteError(w, http.StatusNotFound, "site_not_found", err.Error())
-	case errors.Is(err, config.ErrLastSite):
-		WriteError(w, http.StatusBadRequest, "last_site", err.Error())
 	default:
 		s.logger.Printf("site store error: %v", err)
 		WriteError(w, http.StatusInternalServerError, "site_store_failed", "failed to access saved sites")

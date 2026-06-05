@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import ConfirmPrompt from './ui/ConfirmPrompt.vue'
+import EmptyState from './ui/EmptyState.vue'
 import UiBadge from './ui/UiBadge.vue'
 import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
@@ -19,7 +20,7 @@ const uiStore = useUiStore()
 const newSiteName = ref('')
 
 const canCreateSites = computed(() => configStore.multiSite)
-const canDelete = computed(() => configStore.multiSite && configStore.sites.length > 1)
+const canDelete = computed(() => configStore.multiSite && configStore.sites.length > 0)
 
 onMounted(async () => {
     if (authStore.hasToken && configStore.sites.length === 0) {
@@ -99,7 +100,13 @@ async function deleteSite(site) {
             Loading sites...
         </p>
 
-        <ul class="site-library" aria-label="Configured sites">
+        <EmptyState
+            v-if="!configStore.loading && configStore.sites.length === 0"
+            title="No sites yet"
+            message="Create a site to start."
+        />
+
+        <ul v-if="!configStore.loading && configStore.sites.length > 0" class="site-library" aria-label="Configured sites">
             <li v-for="site in configStore.sites" :key="site.id" class="site-card">
                 <div class="site-card-main">
                     <div class="site-title-row">

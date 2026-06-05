@@ -417,8 +417,8 @@ func TestSiteEndpointsManageActiveConfig(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &listed); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if !listed.MultiSite || listed.ActiveSiteID == "" || len(listed.Sites) != 1 {
-		t.Fatalf("sites response = %#v, want one active multi-site entry", listed)
+	if !listed.MultiSite || listed.ActiveSiteID != "" || len(listed.Sites) != 0 {
+		t.Fatalf("sites response = %#v, want empty multi-site registry", listed)
 	}
 
 	create := authedRequest(t, server, http.MethodPost, "/api/sites", `{
@@ -474,11 +474,39 @@ func TestSiteEndpointsManageActiveConfig(t *testing.T) {
 		t.Fatalf("active config = %#v, want saved client config", active)
 	}
 
-	selectDefault := authedRequest(t, server, http.MethodPost, "/api/sites/default/select", "")
+	deleteLast := authedRequest(t, server, http.MethodDelete, "/api/sites/client-site", "")
 	recorder = httptest.NewRecorder()
-	server.Handler().ServeHTTP(recorder, selectDefault)
+	server.Handler().ServeHTTP(recorder, deleteLast)
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("select status = %d, body = %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("delete status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var empty sitesResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &empty); err != nil {
+		t.Fatalf("decode delete response: %v", err)
+	}
+	if empty.ActiveSiteID != "" || len(empty.Sites) != 0 {
+		t.Fatalf("delete response = %#v, want empty registry", empty)
+	}
+}
+
+func TestConfigEndpointRequiresActiveSiteInMultiSiteMode(t *testing.T) {
+	server, err := newServer("", config.NewSiteStore(t.TempDir()), nil)
+	if err != nil {
+		t.Fatalf("newServer returned error: %v", err)
+	}
+
+	request := authedRequest(t, server, http.MethodGet, "/api/config", "")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("config status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body ErrorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != "site_required" {
+		t.Fatalf("error code = %q, want site_required", body.Error.Code)
 	}
 }
 

@@ -127,6 +127,32 @@ func TestSiteStoreMigratesLegacyConfig(t *testing.T) {
 	}
 }
 
+func TestSiteStoreDoesNotRemigrateLegacyConfigAfterDeletingLastSite(t *testing.T) {
+	root := t.TempDir()
+	if err := Save(filepath.Join(root, configFileName), Config{Name: "Legacy site"}); err != nil {
+		t.Fatalf("Save legacy config: %v", err)
+	}
+	store := NewSiteStore(root)
+	sites, _, err := store.List()
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(sites) != 1 {
+		t.Fatalf("sites len = %d, want migrated site", len(sites))
+	}
+
+	if _, err := store.Delete(sites[0].ID); err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+	sites, activeID, err := store.List()
+	if err != nil {
+		t.Fatalf("List returned error after delete: %v", err)
+	}
+	if len(sites) != 0 || activeID != "" {
+		t.Fatalf("List() = sites %#v, activeID %q; want no remigrated site", sites, activeID)
+	}
+}
+
 func TestSiteStoreCreatesSelectsSavesAndDeletesSites(t *testing.T) {
 	store := NewSiteStore(t.TempDir())
 
@@ -170,16 +196,42 @@ func TestSiteStoreCreatesSelectsSavesAndDeletesSites(t *testing.T) {
 	}
 }
 
-func TestSiteStoreRefusesDeletingLastSite(t *testing.T) {
+func TestSiteStoreAllowsNoSites(t *testing.T) {
 	store := NewSiteStore(t.TempDir())
-	site, err := store.Active()
+
+	sites, activeID, err := store.List()
 	if err != nil {
-		t.Fatalf("Active returned error: %v", err)
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(sites) != 0 || activeID != "" {
+		t.Fatalf("List() = sites %#v, activeID %q; want empty registry", sites, activeID)
 	}
 
-	_, err = store.Delete(site.ID)
-	if !errors.Is(err, ErrLastSite) {
-		t.Fatalf("Delete error = %v, want ErrLastSite", err)
+	if _, err := store.Active(); !errors.Is(err, ErrNoActiveSite) {
+		t.Fatalf("Active error = %v, want ErrNoActiveSite", err)
+	}
+}
+
+func TestSiteStoreAllowsDeletingLastSite(t *testing.T) {
+	store := NewSiteStore(t.TempDir())
+	site, err := store.Create(Config{Name: "Temporary site"})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	activeID, err := store.Delete(site.ID)
+	if err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+	if activeID != "" {
+		t.Fatalf("activeID = %q, want no active site", activeID)
+	}
+	sites, activeID, err := store.List()
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(sites) != 0 || activeID != "" {
+		t.Fatalf("List() = sites %#v, activeID %q; want empty registry", sites, activeID)
 	}
 }
 
