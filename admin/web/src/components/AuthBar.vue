@@ -5,16 +5,19 @@ import UiField from './ui/UiField.vue'
 import { useAuthStore } from '../stores/auth'
 import { useConfigStore } from '../stores/config'
 import { usePostsStore } from '../stores/posts'
+import { useSiteConfigStore } from '../stores/siteConfig'
 import { useUiStore } from '../stores/ui'
 
 const authStore = useAuthStore()
 const configStore = useConfigStore()
 const postsStore = usePostsStore()
+const siteConfigStore = useSiteConfigStore()
 const uiStore = useUiStore()
 const tokenInput = ref(authStore.token)
 const showSessionBox = computed(() => {
     return !authStore.hasInjectedSession || uiStore.unauthorized || uiStore.notice || uiStore.error
 })
+const hasUnsavedChanges = computed(() => siteConfigStore.isDirty || postsStore.isDirty)
 
 async function applyToken() {
     authStore.setToken(tokenInput.value)
@@ -26,10 +29,25 @@ async function applyToken() {
 }
 
 function clearToken() {
+    if (!confirmDiscardUnsavedChanges()) {
+        return
+    }
     authStore.logout()
     tokenInput.value = ''
-    postsStore.newPost()
+    postsStore.clearSelection()
     uiStore.setActiveView('sites')
+}
+
+function confirmDiscardUnsavedChanges() {
+    if (!hasUnsavedChanges.value) {
+        return true
+    }
+    const confirmed = window.confirm('You have unsaved changes. Leave without saving?')
+    if (confirmed) {
+        siteConfigStore.setDirty(false)
+        postsStore.discardDraftChanges()
+    }
+    return confirmed
 }
 </script>
 

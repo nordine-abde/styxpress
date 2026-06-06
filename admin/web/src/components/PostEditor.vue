@@ -49,6 +49,29 @@ async function saveAndRenderPost() {
 async function uploadAsset(file) {
     await postsStore.uploadAsset(file, assetPath.value)
     assetPath.value = ''
+    await renderCurrentPost()
+}
+
+async function uploadCover(file) {
+    await postsStore.uploadCover(file)
+    await renderCurrentPost()
+}
+
+async function deleteCover() {
+    await postsStore.deleteCover()
+    await renderCurrentPost()
+}
+
+async function deleteAsset(asset) {
+    await postsStore.deleteAsset(asset)
+    await renderCurrentPost()
+}
+
+async function renderCurrentPost() {
+    if (!postsStore.selectedSlug) {
+        return
+    }
+    await buildStore.publishPost(postsStore.selectedSlug)
 }
 </script>
 
@@ -98,13 +121,13 @@ async function uploadAsset(file) {
                     v-if="canUpload"
                     label="Upload cover"
                     accept=".jpg,.jpeg,.png,.webp,.avif,image/jpeg,image/png,image/webp,image/avif"
-                    @selected="postsStore.uploadCover"
+                    @selected="uploadCover"
                 />
                 <ConfirmPrompt
                     v-if="canUpload && postsStore.draft.cover"
                     label="Remove cover"
                     confirm-label="Remove"
-                    @confirm="postsStore.deleteCover"
+                    @confirm="deleteCover"
                 />
 
                 <div v-if="canUpload" class="asset-upload">
@@ -123,7 +146,7 @@ async function uploadAsset(file) {
                             v-if="canUpload"
                             label="Remove"
                             confirm-label="Remove"
-                            @confirm="postsStore.deleteAsset(asset)"
+                            @confirm="deleteAsset(asset)"
                         />
                     </li>
                 </ul>
