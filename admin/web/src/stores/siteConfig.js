@@ -6,6 +6,7 @@ import { useUiStore } from './ui'
 export const defaultSiteConfig = {
     title: 'Styxpress',
     description: 'Latest posts',
+    favicon: 'favicon.ico',
     header: {
         links: [
             { label: 'Home', href: '/' },
@@ -25,6 +26,7 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
     const config = ref(cloneDefault())
     const loading = ref(false)
     const saving = ref(false)
+    const faviconUploading = ref(false)
     const previewing = ref(false)
     const previewHtml = ref('')
     const previewUrl = ref('')
@@ -99,6 +101,49 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         }
     }
 
+    async function uploadFavicon(file) {
+        const uiStore = useUiStore()
+        const formData = new FormData()
+        formData.append('file', file)
+        faviconUploading.value = true
+        error.value = ''
+        try {
+            config.value = mergeConfig(await apiRequest('/api/site-config/favicon', {
+                method: 'POST',
+                body: formData
+            }))
+            isDirty.value = false
+            uiStore.setNotice('Site favicon saved.')
+            return config.value
+        } catch (err) {
+            error.value = err.message
+            uiStore.captureError(err)
+            throw err
+        } finally {
+            faviconUploading.value = false
+        }
+    }
+
+    async function resetFavicon() {
+        const uiStore = useUiStore()
+        faviconUploading.value = true
+        error.value = ''
+        try {
+            config.value = mergeConfig(await apiRequest('/api/site-config/favicon', {
+                method: 'DELETE'
+            }))
+            isDirty.value = false
+            uiStore.setNotice('Default favicon restored.')
+            return config.value
+        } catch (err) {
+            error.value = err.message
+            uiStore.captureError(err)
+            throw err
+        } finally {
+            faviconUploading.value = false
+        }
+    }
+
     function setPreviewUrl(html) {
         if (previewUrl.value) {
             URL.revokeObjectURL(previewUrl.value)
@@ -125,6 +170,7 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         config,
         loading,
         saving,
+        faviconUploading,
         previewing,
         previewHtml,
         previewUrl,
@@ -134,6 +180,8 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         loadSiteConfig,
         saveSiteConfig,
         previewSiteConfig,
+        uploadFavicon,
+        resetFavicon,
         setDirty,
         reset
     }
@@ -148,6 +196,9 @@ export function mergeConfig(value = {}) {
     return {
         ...defaults,
         ...value,
+        favicon: typeof value.favicon === 'string' && value.favicon.trim()
+            ? value.favicon.trim()
+            : defaults.favicon,
         header: {
             ...defaults.header,
             ...(value.header || {}),

@@ -13,6 +13,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -27,7 +28,11 @@ import (
 
 const SessionHeader = "X-Styxpress-Session"
 
-const maxUploadBytes = 64 << 20
+const (
+	maxUploadBytes      = 64 << 20
+	siteAssetFileMode   = 0o644
+	siteAssetFolderMode = 0o755
+)
 
 type Server struct {
 	configPath     string
@@ -92,6 +97,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/site-config", s.withAuth(s.getSiteConfig))
 	mux.HandleFunc("POST /api/site-config", s.withAuth(s.saveSiteConfig))
 	mux.HandleFunc("POST /api/site-config/preview", s.withAuth(s.previewSiteConfig))
+	mux.HandleFunc("POST /api/site-config/favicon", s.withAuth(s.uploadSiteFavicon))
+	mux.HandleFunc("DELETE /api/site-config/favicon", s.withAuth(s.resetSiteFavicon))
 	mux.HandleFunc("GET /api/posts", s.withAuth(s.listPosts))
 	mux.HandleFunc("POST /api/posts", s.withAuth(s.savePost))
 	mux.HandleFunc("GET /api/posts/{slug}", s.withAuth(s.getPost))
@@ -326,6 +333,62 @@ func (s *Server) previewSiteConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, previewResponse{HTML: html})
+}
+
+func (s *Server) uploadSiteFavicon(w http.ResponseWriter, r *http.Request) {
+	file, header, ok := readUpload(w, r, false)
+	if !ok {
+		return
+	}
+	defer file.Close()
+
+	faviconName, err := faviconUploadName(header.Filename)
+	if err != nil {
+		s.writeContentError(w, err)
+		return
+	}
+	contentDir, err := s.configuredContentDir()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+
+	faviconPath := path.Join("assets", faviconName)
+	if err := writeUploadedFile(filepath.Join(contentDir, filepath.FromSlash(faviconPath)), file); err != nil {
+		s.logger.Printf("site favicon upload: %v", err)
+		WriteError(w, http.StatusInternalServerError, "site_favicon_failed", "failed to save site favicon")
+		return
+	}
+	cfg, err := siteconfig.LoadOrDefault(contentDir)
+	if err != nil {
+		s.writeSiteConfigError(w, err)
+		return
+	}
+	cfg.Favicon = faviconPath
+	if err := siteconfig.Save(contentDir, cfg); err != nil {
+		s.writeSiteConfigError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, siteconfig.WithDefaults(cfg))
+}
+
+func (s *Server) resetSiteFavicon(w http.ResponseWriter, _ *http.Request) {
+	contentDir, err := s.configuredContentDir()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	cfg, err := siteconfig.LoadOrDefault(contentDir)
+	if err != nil {
+		s.writeSiteConfigError(w, err)
+		return
+	}
+	cfg.Favicon = siteconfig.DefaultFaviconPath
+	if err := siteconfig.Save(contentDir, cfg); err != nil {
+		s.writeSiteConfigError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, siteconfig.WithDefaults(cfg))
 }
 
 type postPayload struct {
@@ -1152,6 +1215,17 @@ func coverUploadName(filename string) (string, error) {
 	}
 }
 
+func faviconUploadName(filename string) (string, error) {
+	cleaned, err := content.CleanAssetPath(filepath.Base(strings.TrimSpace(filename)))
+	if err != nil || strings.Contains(cleaned, "/") {
+		return "", content.ErrInvalidAsset
+	}
+	if !strings.EqualFold(filepath.Ext(cleaned), ".ico") {
+		return "", fmt.Errorf("%w: favicon must be an .ico file", content.ErrInvalidAsset)
+	}
+	return cleaned, nil
+}
+
 func isSupportedImageFile(filename string) bool {
 	switch strings.ToLower(filepath.Ext(filepath.Base(filename))) {
 	case ".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif":
@@ -1168,6 +1242,38 @@ func postHasAsset(post content.Post, assetPath string) bool {
 		}
 	}
 	return false
+}
+
+func writeUploadedFile(destination string, reader io.Reader) error {
+	dir := filepath.Dir(destination)
+	if err := os.MkdirAll(dir, siteAssetFolderMode); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(dir, "."+filepath.Base(destination)+".*")
+	if err != nil {
+		return err
+	}
+	temp := file.Name()
+	_, copyErr := io.Copy(file, reader)
+	chmodErr := file.Chmod(siteAssetFileMode)
+	closeErr := file.Close()
+	if copyErr != nil {
+		_ = os.Remove(temp)
+		return copyErr
+	}
+	if chmodErr != nil {
+		_ = os.Remove(temp)
+		return chmodErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(temp)
+		return closeErr
+	}
+	if err := os.Rename(temp, destination); err != nil {
+		_ = os.Remove(temp)
+		return err
+	}
+	return nil
 }
 
 func decodeJSONBody(r *http.Request, target any, message string) error {

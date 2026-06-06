@@ -62,6 +62,11 @@ Styxpress defaults to `~/Styxpress/<site-id>/content` and
 - `POST /api/site-config/preview`
   Body is a site config object. Returns `{"html":"..."}` for a draft homepage
   preview without writing public files.
+- `POST /api/site-config/favicon`
+  Multipart form with `file`. The file must be `.ico`; it is saved under
+  `content/assets/` and selected in `site.toml`.
+- `DELETE /api/site-config/favicon`
+  Restores the built-in default favicon.
 
 Site config object:
 
@@ -69,6 +74,7 @@ Site config object:
 {
   "title": "Styxpress",
   "description": "Latest posts",
+  "favicon": "favicon.ico",
   "header": {
     "links": [
       { "label": "Home", "href": "/" },

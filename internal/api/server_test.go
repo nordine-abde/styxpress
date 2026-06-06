@@ -426,6 +426,40 @@ func TestSiteConfigEndpointSavesUnderConfiguredContentDir(t *testing.T) {
 	}
 }
 
+func TestSiteFaviconUploadAndReset(t *testing.T) {
+	server, contentDir, _ := newTestServer(t)
+
+	uploadCover(t, server, "/api/site-config/favicon", "brand.ico", "ico body", "")
+	cfg, err := siteconfig.Load(contentDir)
+	if err != nil {
+		t.Fatalf("load site config: %v", err)
+	}
+	if cfg.Favicon != "assets/brand.ico" {
+		t.Fatalf("Favicon = %q, want assets/brand.ico", cfg.Favicon)
+	}
+	data, err := os.ReadFile(filepath.Join(contentDir, "assets", "brand.ico"))
+	if err != nil {
+		t.Fatalf("read uploaded favicon: %v", err)
+	}
+	if string(data) != "ico body" {
+		t.Fatalf("uploaded favicon = %q, want ico body", data)
+	}
+
+	request := authedRequest(t, server, http.MethodDelete, "/api/site-config/favicon", "")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("reset favicon status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	cfg, err = siteconfig.Load(contentDir)
+	if err != nil {
+		t.Fatalf("load reset site config: %v", err)
+	}
+	if cfg.Favicon != siteconfig.DefaultFaviconPath {
+		t.Fatalf("Favicon after reset = %q, want %q", cfg.Favicon, siteconfig.DefaultFaviconPath)
+	}
+}
+
 func TestRenderAndPublishEndpointsUseLocalOutput(t *testing.T) {
 	server, contentDir, publicDir := newTestServer(t)
 	repo := content.NewRepository(contentDir)

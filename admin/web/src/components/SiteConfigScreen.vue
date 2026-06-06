@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, watch } from 'vue'
 import DeployPanel from './DeployPanel.vue'
+import SiteFaviconEditor from './SiteFaviconEditor.vue'
 import SiteLinkEditor from './SiteLinkEditor.vue'
 import UiBadge from './ui/UiBadge.vue'
 import UiButton from './ui/UiButton.vue'
@@ -13,7 +14,7 @@ import { useBuildStore } from '../stores/build'
 const siteConfigStore = useSiteConfigStore()
 const buildStore = useBuildStore()
 const form = reactive(cloneDefault())
-const saving = computed(() => siteConfigStore.saving || buildStore.rendering)
+const saving = computed(() => siteConfigStore.saving || siteConfigStore.faviconUploading || buildStore.rendering)
 let savedSnapshot = snapshotConfig(form)
 let previewTimer = null
 
@@ -41,6 +42,31 @@ watch(
 async function saveAndRender() {
     const saved = await siteConfigStore.saveSiteConfig(form)
     savedSnapshot = snapshotConfig(saved)
+    siteConfigStore.setDirty(false)
+    await buildStore.renderSite()
+    schedulePreview(0)
+}
+
+async function uploadFavicon(file) {
+    if (!file) {
+        return
+    }
+    const saved = await siteConfigStore.saveSiteConfig(form)
+    savedSnapshot = snapshotConfig(saved)
+    const updated = await siteConfigStore.uploadFavicon(file)
+    Object.assign(form, mergeConfig(updated))
+    savedSnapshot = snapshotConfig(updated)
+    siteConfigStore.setDirty(false)
+    await buildStore.renderSite()
+    schedulePreview(0)
+}
+
+async function resetFavicon() {
+    const saved = await siteConfigStore.saveSiteConfig(form)
+    savedSnapshot = snapshotConfig(saved)
+    const updated = await siteConfigStore.resetFavicon()
+    Object.assign(form, mergeConfig(updated))
+    savedSnapshot = snapshotConfig(updated)
     siteConfigStore.setDirty(false)
     await buildStore.renderSite()
     schedulePreview(0)
@@ -89,6 +115,13 @@ onBeforeUnmount(() => {
                             <UiField v-model="form.title" label="Title" placeholder="My Blog" />
                             <UiField v-model="form.description" label="Description" placeholder="Latest posts" />
                         </div>
+
+                        <SiteFaviconEditor
+                            :model-value="form.favicon"
+                            :disabled="saving"
+                            @selected="uploadFavicon"
+                            @reset="resetFavicon"
+                        />
 
                         <SiteLinkEditor v-model="form.header.links" title="Header links" />
 

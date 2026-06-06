@@ -18,6 +18,8 @@ Source content:
 ```text
 content/
   site.toml
+  assets/
+    brand.ico
   posts/
     hello-world/
       source.md
@@ -33,11 +35,13 @@ Generated output:
 
 ```text
 public/
+  favicon.ico
   index.html
   feed.xml
   sitemap.xml
   assets/
     styxpress.css
+    brand.ico
   posts/
     hello-world/
       index.html
@@ -53,6 +57,7 @@ public/
 
 - site title
 - site description
+- favicon
 - header links
 - footer text
 - footer links
@@ -84,6 +89,7 @@ Rendering writes:
 - feed
 - sitemap
 - stylesheet
+- favicon
 - copied covers
 - copied post assets
 

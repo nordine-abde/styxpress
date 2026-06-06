@@ -24,6 +24,7 @@ Included:
 - Local preview and render.
 - One clean public stylesheet.
 - Site title and description.
+- Generated favicon with optional `.ico` replacement.
 - Header links.
 - Footer text and footer links.
 - Footer watermark toggle for `Published with Styx Press`.
@@ -46,6 +47,8 @@ Source content lives under the configured `contentDir`:
 ```text
 content/
   site.toml
+  assets/
+    brand.ico
   posts/
     hello-world/
       source.md
@@ -61,11 +64,13 @@ Generated output lives under the configured `publicDir`:
 
 ```text
 public/
+  favicon.ico
   index.html
   feed.xml
   sitemap.xml
   assets/
     styxpress.css
+    brand.ico
   posts/
     hello-world/
       index.html
@@ -116,6 +121,7 @@ The admin server binds to `127.0.0.1` by default.
 3. In **Site**, edit:
    - title
    - description
+   - favicon
    - header links
    - footer text
    - footer links

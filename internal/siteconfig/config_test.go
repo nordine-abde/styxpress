@@ -12,8 +12,8 @@ func TestLoadOrDefaultMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOrDefault returned error: %v", err)
 	}
-	if cfg.Title != "Styxpress" || !cfg.Footer.ShowWatermark {
-		t.Fatalf("LoadOrDefault() = %#v, want default title and watermark", cfg)
+	if cfg.Title != "Styxpress" || cfg.Favicon != DefaultFaviconPath || !cfg.Footer.ShowWatermark {
+		t.Fatalf("LoadOrDefault() = %#v, want default title, favicon, and watermark", cfg)
 	}
 	if len(cfg.Header.Links) == 0 || cfg.Header.Links[0].Href != "/" {
 		t.Fatalf("Header links = %#v, want default home link", cfg.Header.Links)
@@ -25,6 +25,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	cfg := Config{
 		Title:       "Anordine",
 		Description: "Software notes",
+		Favicon:     "assets/custom.ico",
 		Header: HeaderConfig{
 			Links: []Link{
 				{Label: "Home", Href: "/"},
@@ -48,7 +49,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if got.Title != cfg.Title || got.Description != cfg.Description || got.Footer.Text != cfg.Footer.Text || got.Footer.ShowWatermark != cfg.Footer.ShowWatermark {
+	if got.Title != cfg.Title || got.Description != cfg.Description || got.Favicon != cfg.Favicon || got.Footer.Text != cfg.Footer.Text || got.Footer.ShowWatermark != cfg.Footer.ShowWatermark {
 		t.Fatalf("Load() = %#v, want %#v", got, cfg)
 	}
 	if len(got.Header.Links) != 2 || got.Header.Links[1].Href != "https://github.com/nordine-abde" {
@@ -122,6 +123,21 @@ func TestValidateRejectsUnsafeLinksAndNULText(t *testing.T) {
 	cfg.Footer.Text = "bad\x00"
 	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("Validate NUL text = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestValidateRejectsInvalidFaviconPath(t *testing.T) {
+	for _, favicon := range []string{
+		"assets/favicon.png",
+		"../favicon.ico",
+		"/favicon.ico",
+		"assets/../favicon.ico",
+	} {
+		cfg := Default()
+		cfg.Favicon = favicon
+		if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("Validate favicon %q = %v, want ErrInvalidConfig", favicon, err)
+		}
 	}
 }
 

@@ -10,11 +10,14 @@ import (
 	"html/template"
 	"io"
 	"mime"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	_ "embed"
 
 	"github.com/nordine-abde/styxpress/internal/content"
 	"github.com/nordine-abde/styxpress/internal/siteconfig"
@@ -33,6 +36,9 @@ const (
 	fileMode      = 0o644
 	timeFormatRSS = "Mon, 02 Jan 2006 15:04:05 GMT"
 )
+
+//go:embed assets/favicon.ico
+var defaultFavicon []byte
 
 var (
 	ErrInvalidRenderConfig = errors.New("invalid render config")
@@ -60,6 +66,7 @@ type SiteResult struct {
 	FeedPath       string
 	SitemapPath    string
 	StylesheetPath string
+	FaviconPath    string
 }
 
 type AllResult struct {
@@ -88,6 +95,7 @@ type sitePageData struct {
 type siteTemplateData struct {
 	Title       string
 	Description string
+	FaviconHref template.URL
 	Style       styleTemplateData
 	Header      headerTemplateData
 	Footer      footerTemplateData
@@ -203,6 +211,10 @@ func (r *Renderer) RenderSite() (SiteResult, error) {
 	if err != nil {
 		return SiteResult{}, err
 	}
+	faviconPath, err := r.writeFavicon()
+	if err != nil {
+		return SiteResult{}, err
+	}
 
 	indexPath := filepath.Join(r.publicRoot, indexFileName)
 	feedPath := filepath.Join(r.publicRoot, "feed.xml")
@@ -222,6 +234,7 @@ func (r *Renderer) RenderSite() (SiteResult, error) {
 		FeedPath:       feedPath,
 		SitemapPath:    sitemapPath,
 		StylesheetPath: stylesheetPath,
+		FaviconPath:    faviconPath,
 	}, nil
 }
 
@@ -270,6 +283,9 @@ func (r *Renderer) RenderPost(slug string) (Result, error) {
 		return Result{}, err
 	}
 	if _, err := r.writeStyleSheet(); err != nil {
+		return Result{}, err
+	}
+	if _, err := r.writeFavicon(); err != nil {
 		return Result{}, err
 	}
 	return result, nil
@@ -616,6 +632,7 @@ func (r *Renderer) siteData(cfg siteconfig.Config, style styleTemplateData) site
 	return siteTemplateData{
 		Title:       cfg.Title,
 		Description: cfg.Description,
+		FaviconHref: faviconHref(cfg.Favicon),
 		Style:       style,
 		Header: headerTemplateData{
 			Title: cfg.Title,
@@ -634,12 +651,38 @@ func (r *Renderer) writeStyleSheet() (string, error) {
 	return path, writeAtomic(path, []byte(styleSheet(r.siteConfig)))
 }
 
+func (r *Renderer) writeFavicon() (string, error) {
+	cfg := siteconfig.WithDefaults(r.siteConfig)
+	faviconPath, err := siteconfig.CleanFaviconPath(cfg.Favicon)
+	if err != nil {
+		return "", err
+	}
+
+	destination := filepath.Join(r.publicRoot, filepath.FromSlash(faviconPath))
+	source := filepath.Join(r.contentRoot, filepath.FromSlash(faviconPath))
+	if err := copyFile(destination, source); err != nil {
+		if errors.Is(err, os.ErrNotExist) && faviconPath == siteconfig.DefaultFaviconPath {
+			return destination, writeAtomic(destination, defaultFavicon)
+		}
+		return "", err
+	}
+	return destination, nil
+}
+
 func linkedStyle() styleTemplateData {
 	return styleTemplateData{Href: "/assets/styxpress.css"}
 }
 
 func inlineStyle() styleTemplateData {
 	return styleTemplateData{InlineCSS: template.CSS(styleElementCSS(siteStyleSheet))}
+}
+
+func faviconHref(faviconPath string) template.URL {
+	cleaned, err := siteconfig.CleanFaviconPath(faviconPath)
+	if err != nil {
+		return ""
+	}
+	return template.URL((&url.URL{Path: "/" + cleaned}).EscapedPath())
 }
 
 func styleSheet(cfg siteconfig.Config) string {
@@ -788,6 +831,9 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ .Title }}</title>
+{{- if .Site.FaviconHref }}
+<link rel="icon" href="{{ .Site.FaviconHref }}" type="image/x-icon">
+{{- end }}
 {{- if .Site.Style.InlineCSS }}
 <style>
 {{ .Site.Style.InlineCSS }}</style>
@@ -877,6 +923,9 @@ var homepageTemplate = template.Must(template.New("homepage").Parse(`<!doctype h
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ .Title }}</title>
+{{- if .Site.FaviconHref }}
+<link rel="icon" href="{{ .Site.FaviconHref }}" type="image/x-icon">
+{{- end }}
 {{- if .Site.Style.InlineCSS }}
 <style>
 {{ .Site.Style.InlineCSS }}</style>

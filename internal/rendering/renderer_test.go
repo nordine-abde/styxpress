@@ -434,6 +434,7 @@ func TestRenderUsesSiteConfigHeaderFooterAndStylesheet(t *testing.T) {
 	}
 
 	assertFileContent(t, siteResult.IndexPath, []string{
+		`<link rel="icon" href="/favicon.ico" type="image/x-icon">`,
 		`<a class="site-title" href="/">Anordine</a>`,
 		`<a href="/feed.xml">RSS</a>`,
 		`Built from Markdown files.`,
@@ -441,9 +442,11 @@ func TestRenderUsesSiteConfigHeaderFooterAndStylesheet(t *testing.T) {
 	})
 	assertFileOmits(t, siteResult.IndexPath, []string{`Published with Styx Press`})
 	assertFileContent(t, postResult.IndexPath, []string{
+		`<link rel="icon" href="/favicon.ico" type="image/x-icon">`,
 		`<link rel="stylesheet" href="/assets/styxpress.css">`,
 		`<h1>Configured</h1>`,
 	})
+	assertFileExists(t, siteResult.FaviconPath)
 	assertFileContent(t, filepath.Join(publicRoot, "assets", "styxpress.css"), []string{
 		`:root`,
 		`font-family:`,
@@ -451,6 +454,47 @@ func TestRenderUsesSiteConfigHeaderFooterAndStylesheet(t *testing.T) {
 		`.post-content img[src$="#small"]`,
 		`@media (min-width: 760px)`,
 	})
+}
+
+func TestRenderUsesCustomFavicon(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	repo := content.NewRepository(contentRoot)
+	publishedAt := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
+	if _, err := repo.WritePost(content.Post{
+		Slug:        "custom-icon",
+		Title:       "Custom Icon",
+		Source:      "Custom icon.",
+		PublishedAt: publishedAt,
+		UpdatedAt:   publishedAt,
+	}, content.WritePostOptions{}); err != nil {
+		t.Fatalf("write post: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(contentRoot, "assets"), 0o755); err != nil {
+		t.Fatalf("make assets dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contentRoot, "assets", "site icon.ico"), []byte("ico"), 0o644); err != nil {
+		t.Fatalf("write favicon: %v", err)
+	}
+	cfg := siteconfig.Default()
+	cfg.Favicon = "assets/site icon.ico"
+	if err := siteconfig.Save(contentRoot, cfg); err != nil {
+		t.Fatalf("save site config: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot)
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	result, err := renderer.RenderSite()
+	if err != nil {
+		t.Fatalf("render site: %v", err)
+	}
+
+	assertFileContent(t, result.IndexPath, []string{
+		`<link rel="icon" href="/assets/site%20icon.ico" type="image/x-icon">`,
+	})
+	assertFileEquals(t, filepath.Join(publicRoot, "assets", "site icon.ico"), "ico")
 }
 
 func TestRenderSitePreviewUsesProvidedConfigAndDoesNotWritePublicFiles(t *testing.T) {
@@ -634,6 +678,13 @@ func assertFileEquals(t *testing.T, path string, expected string) {
 	}
 	if string(data) != expected {
 		t.Fatalf("unexpected %s content: got %q want %q", path, string(data), expected)
+	}
+}
+
+func assertFileExists(t *testing.T, path string) {
+	t.Helper()
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		t.Fatalf("expected %s to exist as a file, stat info: %#v err: %v", path, info, err)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 const (
 	FileName            = "site.toml"
+	DefaultFaviconPath  = "favicon.ico"
 	filePermission      = 0o644
 	directoryPermission = 0o755
 )
@@ -22,6 +24,7 @@ var ErrInvalidConfig = errors.New("invalid site config")
 type Config struct {
 	Title       string       `json:"title"`
 	Description string       `json:"description"`
+	Favicon     string       `json:"favicon"`
 	Header      HeaderConfig `json:"header"`
 	Footer      FooterConfig `json:"footer"`
 }
@@ -45,6 +48,7 @@ func Default() Config {
 	return Config{
 		Title:       "Styxpress",
 		Description: "Latest posts",
+		Favicon:     DefaultFaviconPath,
 		Header: HeaderConfig{
 			Links: []Link{
 				{Label: "Home", Href: "/"},
@@ -118,8 +122,12 @@ func WithDefaults(cfg Config) Config {
 	defaults := Default()
 	cfg.Title = strings.TrimSpace(cfg.Title)
 	cfg.Description = strings.TrimSpace(cfg.Description)
+	cfg.Favicon = normalizeFaviconPath(cfg.Favicon)
 	if cfg.Title == "" {
 		cfg.Title = defaults.Title
+	}
+	if cfg.Favicon == "" {
+		cfg.Favicon = defaults.Favicon
 	}
 	cfg.Header.Links = cleanLinks(cfg.Header.Links)
 	cfg.Footer.Text = strings.TrimSpace(cfg.Footer.Text)
@@ -128,11 +136,14 @@ func WithDefaults(cfg Config) Config {
 }
 
 func (c Config) Validate() error {
-	if strings.Contains(c.Title, "\x00") || strings.Contains(c.Description, "\x00") {
+	if strings.Contains(c.Title, "\x00") || strings.Contains(c.Description, "\x00") || strings.Contains(c.Favicon, "\x00") {
 		return fmt.Errorf("%w: text fields must not contain NUL bytes", ErrInvalidConfig)
 	}
 	if strings.Contains(c.Footer.Text, "\x00") {
 		return fmt.Errorf("%w: footer text must not contain NUL bytes", ErrInvalidConfig)
+	}
+	if _, err := CleanFaviconPath(c.Favicon); err != nil {
+		return err
 	}
 	if err := validateLinks("header", c.Header.Links); err != nil {
 		return err
@@ -147,6 +158,7 @@ func encode(w io.Writer, cfg Config) error {
 	lines := []string{
 		fmt.Sprintf("title = %s\n", strconv.Quote(cfg.Title)),
 		fmt.Sprintf("description = %s\n", strconv.Quote(cfg.Description)),
+		fmt.Sprintf("favicon = %s\n", strconv.Quote(cfg.Favicon)),
 		"\n[header]\n",
 	}
 	for _, line := range lines {
@@ -250,6 +262,8 @@ func assignValue(cfg *Config, section string, key string, rawValue string, heade
 			cfg.Title = value
 		case "description":
 			cfg.Description = value
+		case "favicon":
+			cfg.Favicon = value
 		default:
 			return fmt.Errorf("unknown key %q", key)
 		}
@@ -308,6 +322,35 @@ func assignValue(cfg *Config, section string, key string, rawValue string, heade
 		return fmt.Errorf("unknown section %q", section)
 	}
 	return nil
+}
+
+func CleanFaviconPath(favicon string) (string, error) {
+	favicon = normalizeFaviconPath(favicon)
+	if favicon == "" {
+		return "", fmt.Errorf("%w: favicon path is required", ErrInvalidConfig)
+	}
+	if strings.HasPrefix(favicon, "/") || strings.HasPrefix(favicon, "\\") {
+		return "", fmt.Errorf("%w: favicon path must be relative", ErrInvalidConfig)
+	}
+
+	parts := strings.Split(favicon, "/")
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return "", fmt.Errorf("%w: favicon path must stay inside content", ErrInvalidConfig)
+		}
+	}
+	cleaned := path.Clean(favicon)
+	if cleaned == "." || strings.HasPrefix(cleaned, "../") || cleaned == ".." {
+		return "", fmt.Errorf("%w: favicon path must stay inside content", ErrInvalidConfig)
+	}
+	if !strings.EqualFold(path.Ext(cleaned), ".ico") {
+		return "", fmt.Errorf("%w: favicon must be an .ico file", ErrInvalidConfig)
+	}
+	return cleaned, nil
+}
+
+func normalizeFaviconPath(favicon string) string {
+	return strings.ReplaceAll(strings.TrimSpace(favicon), "\\", "/")
 }
 
 func quotedValue(raw string) (string, error) {
