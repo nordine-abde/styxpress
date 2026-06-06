@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -89,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/posts", s.withAuth(s.savePost))
 	mux.HandleFunc("GET /api/posts/{slug}", s.withAuth(s.getPost))
 	mux.HandleFunc("POST /api/posts/{slug}", s.withAuth(s.savePost))
+	mux.HandleFunc("GET /api/posts/{slug}/cover", s.withAuth(s.getCover))
 	mux.HandleFunc("POST /api/posts/{slug}/cover", s.withAuth(s.uploadCover))
 	mux.HandleFunc("DELETE /api/posts/{slug}/cover", s.withAuth(s.deleteCover))
 	mux.HandleFunc("POST /api/posts/{slug}/assets", s.withAuth(s.uploadAsset))
@@ -423,6 +426,49 @@ func (s *Server) savePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, newPostResponse(saved, true))
+}
+
+func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	repo, err := s.repository()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	post, err := repo.LoadPost(slug)
+	if err != nil {
+		s.writeContentError(w, err)
+		return
+	}
+	if post.Cover == "" {
+		WriteError(w, http.StatusNotFound, "cover_not_found", "cover not found")
+		return
+	}
+	contentDir, err := s.configuredContentDir()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	coverPath := filepath.Join(contentDir, "posts", slug, post.Cover)
+	info, err := os.Lstat(coverPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			WriteError(w, http.StatusNotFound, "cover_not_found", "cover not found")
+			return
+		}
+		s.writeContentError(w, err)
+		return
+	}
+	if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		s.writeContentError(w, content.ErrInvalidAsset)
+		return
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(post.Cover))
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeFile(w, r, coverPath)
 }
 
 func (s *Server) uploadCover(w http.ResponseWriter, r *http.Request) {

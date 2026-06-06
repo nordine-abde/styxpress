@@ -121,6 +121,8 @@ Post object:
 
 ## Uploads
 
+- `GET /api/posts/{slug}/cover`
+  Returns the current cover file for admin previews.
 - `POST /api/posts/{slug}/cover`
   Multipart form with `file`. Supported extensions are `.jpg`, `.jpeg`,
   `.png`, `.webp`, and `.avif`. The uploaded file is saved as

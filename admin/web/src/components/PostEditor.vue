@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import FileField from './ui/FileField.vue'
 import ConfirmPrompt from './ui/ConfirmPrompt.vue'
+import PostCoverImage from './PostCoverImage.vue'
 import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
@@ -117,6 +118,12 @@ async function renderCurrentPost() {
                     <span class="media-label">Cover</span>
                     <strong>{{ postsStore.draft.cover || 'none' }}</strong>
                 </div>
+                <PostCoverImage
+                    v-if="postsStore.selectedSlug && postsStore.draft.cover"
+                    :slug="postsStore.selectedSlug"
+                    :cover="postsStore.draft.cover"
+                    :alt="`${postsStore.draft.title} cover`"
+                />
                 <FileField
                     v-if="canUpload"
                     label="Upload cover"

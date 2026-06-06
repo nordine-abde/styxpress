@@ -2,6 +2,9 @@
 
 # Local runtime data
 site/
+/content/
+/public/
+.playwright-mcp/
 *.local
 
 # Logs

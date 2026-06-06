@@ -210,6 +210,15 @@ func TestPostWorkflowPreviewAndMediaEndpoints(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(contentDir, "posts", "hello-world", "cover.jpg")); err != nil {
 		t.Fatalf("cover was not written: %v", err)
 	}
+	getCover := authedRequest(t, server, http.MethodGet, "/api/posts/hello-world/cover", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, getCover)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("get cover status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.String() != "cover image" {
+		t.Fatalf("cover body = %q, want cover image", recorder.Body.String())
+	}
 	uploadCover(t, server, "/api/posts/hello-world/assets", "asset.txt", "asset body", "docs/asset.txt")
 	if _, err := os.Stat(filepath.Join(contentDir, "posts", "hello-world", "assets", "docs", "asset.txt")); err != nil {
 		t.Fatalf("asset was not written: %v", err)

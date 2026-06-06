@@ -41,6 +41,37 @@ export async function apiRequest(path, options = {}) {
     return payload
 }
 
+export async function apiBlobRequest(path, options = {}) {
+    const authStore = useAuthStore()
+    const headers = new Headers(options.headers || {})
+    if (authStore.token) {
+        headers.set('X-Styxpress-Session', authStore.token)
+    }
+
+    const response = await fetch(path, {
+        ...options,
+        headers
+    })
+
+    if (!response.ok) {
+        const text = await response.text()
+        let payload = null
+        try {
+            payload = text ? JSON.parse(text) : null
+        } catch {
+            payload = null
+        }
+        const error = payload?.error || {}
+        throw new ApiError(
+            response.status,
+            error.code || 'request_failed',
+            error.message || 'request failed'
+        )
+    }
+
+    return response.blob()
+}
+
 function serializeBody(body) {
     if (body === undefined || body instanceof FormData) {
         return body
