@@ -1,8 +1,7 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AuthBar from './components/AuthBar.vue'
 import ConfigScreen from './components/ConfigScreen.vue'
-import EmptyState from './components/ui/EmptyState.vue'
 import PostEditor from './components/PostEditor.vue'
 import PostList from './components/PostList.vue'
 import SiteConfigScreen from './components/SiteConfigScreen.vue'
@@ -25,6 +24,7 @@ const postsStore = usePostsStore()
 const siteConfigStore = useSiteConfigStore()
 const siteWorkspaceStore = useSiteWorkspaceStore()
 const uiStore = useUiStore()
+const sidebarOpen = ref(true)
 
 const activeLabel = computed(() => {
     if (uiStore.activeView === 'sites') {
@@ -45,6 +45,13 @@ const activeSiteName = computed(() => {
 
 const hasUnsavedChanges = computed(() => siteConfigStore.isDirty || postsStore.isDirty)
 
+const workspaceTitle = computed(() => {
+    if (uiStore.activeView === 'posts') {
+        return postsStore.editorOpen ? (postsStore.draft.title || 'Post editor') : 'Posts'
+    }
+    return activeLabel.value
+})
+
 onMounted(async () => {
     window.addEventListener('beforeunload', handleBeforeUnload)
     if (!authStore.hasToken) {
@@ -58,6 +65,19 @@ onBeforeUnmount(() => {
     window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 
+watch(
+    () => uiStore.activeView,
+    (view) => {
+        if (view === 'posts') {
+            sidebarOpen.value = false
+            return
+        }
+        if (view !== 'sites') {
+            sidebarOpen.value = true
+        }
+    }
+)
+
 function leaveSite() {
     if (!confirmDiscardUnsavedChanges()) {
         return
@@ -68,6 +88,10 @@ function leaveSite() {
 }
 
 function setSiteView(view) {
+    if (view === 'posts') {
+        openPostsList()
+        return
+    }
     if (view === uiStore.activeView) {
         return
     }
@@ -75,6 +99,20 @@ function setSiteView(view) {
         return
     }
     uiStore.setActiveView(view)
+    sidebarOpen.value = true
+}
+
+function openPostsList() {
+    if (!confirmDiscardUnsavedChanges()) {
+        return
+    }
+    postsStore.clearSelection()
+    uiStore.setActiveView('posts')
+    sidebarOpen.value = false
+}
+
+function toggleSidebar() {
+    sidebarOpen.value = !sidebarOpen.value
 }
 
 function handleBeforeUnload(event) {
@@ -129,8 +167,8 @@ function confirmDiscardUnsavedChanges() {
         </main>
     </div>
 
-    <div v-else class="app-shell">
-        <aside class="sidebar">
+    <div v-else class="app-shell" :class="{ 'sidebar-open': sidebarOpen }">
+        <aside v-if="sidebarOpen" id="admin-sidebar" class="sidebar">
             <div class="brand">
                 <img
                     class="mark"
@@ -144,6 +182,13 @@ function confirmDiscardUnsavedChanges() {
                     <p class="eyebrow">Styxpress</p>
                     <h1>Admin</h1>
                 </div>
+                <UiButton class="sidebar-close" tone="ghost" aria-label="Close menu" @click="toggleSidebar">
+                    <span class="hamburger-icon" aria-hidden="true">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </span>
+                </UiButton>
             </div>
 
             <section class="site-context">
@@ -186,9 +231,23 @@ function confirmDiscardUnsavedChanges() {
 
         <main class="workspace">
             <header class="topbar">
+                <UiButton
+                    class="menu-button"
+                    tone="ghost"
+                    :aria-expanded="sidebarOpen"
+                    aria-controls="admin-sidebar"
+                    @click="toggleSidebar"
+                >
+                    <span class="hamburger-icon" aria-hidden="true">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </span>
+                    <span>{{ sidebarOpen ? 'Close' : 'Menu' }}</span>
+                </UiButton>
                 <div>
                     <p class="eyebrow">{{ activeSiteName }}</p>
-                    <h2>{{ activeLabel === 'Posts' ? 'Content workspace' : activeLabel }}</h2>
+                    <h2>{{ workspaceTitle }}</h2>
                 </div>
                 <div class="status-row">
                     <UiBadge :tone="authStore.hasToken ? 'success' : 'warning'">
@@ -199,16 +258,11 @@ function confirmDiscardUnsavedChanges() {
             </header>
 
             <section v-if="uiStore.activeView === 'posts'" class="posts-layout">
-                <div class="posts-list-column">
+                <div v-if="!postsStore.editorOpen" class="posts-list-only">
                     <PostList />
                 </div>
-                <div class="posts-editor-column">
-                    <PostEditor v-if="postsStore.editorOpen" />
-                    <EmptyState
-                        v-else
-                        title="Select a post"
-                        message="Choose a post from the list or create a new one."
-                    />
+                <div v-else class="posts-editor-only">
+                    <PostEditor />
                 </div>
             </section>
 

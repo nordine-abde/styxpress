@@ -219,9 +219,18 @@ func TestPostWorkflowPreviewAndMediaEndpoints(t *testing.T) {
 	if recorder.Body.String() != "cover image" {
 		t.Fatalf("cover body = %q, want cover image", recorder.Body.String())
 	}
-	uploadCover(t, server, "/api/posts/hello-world/assets", "asset.txt", "asset body", "docs/asset.txt")
-	if _, err := os.Stat(filepath.Join(contentDir, "posts", "hello-world", "assets", "docs", "asset.txt")); err != nil {
+	uploadCover(t, server, "/api/posts/hello-world/assets", "asset.png", "asset body", "docs/asset.png")
+	if _, err := os.Stat(filepath.Join(contentDir, "posts", "hello-world", "assets", "docs", "asset.png")); err != nil {
 		t.Fatalf("asset was not written: %v", err)
+	}
+	getAsset := authedRequest(t, server, http.MethodGet, "/api/posts/hello-world/assets/docs/asset.png", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, getAsset)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("get asset status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.String() != "asset body" {
+		t.Fatalf("asset body = %q, want asset body", recorder.Body.String())
 	}
 
 	preview := authedRequest(t, server, http.MethodPost, "/api/render-preview", `{
@@ -434,6 +443,38 @@ func TestUploadRejectsTraversalFilename(t *testing.T) {
 	}
 
 	request := httptest.NewRequest(http.MethodPost, "/api/posts/hello-world/cover", &body)
+	request.Header.Set(SessionHeader, server.Token())
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s; want %d", recorder.Code, recorder.Body.String(), http.StatusBadRequest)
+	}
+}
+
+func TestUploadAssetRejectsNonImage(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	repo, err := server.repository()
+	if err != nil {
+		t.Fatalf("repository: %v", err)
+	}
+	writePost(t, repo, content.Post{Slug: "hello-world", Title: "Hello", Source: "Body"})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "notes.txt")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := part.Write([]byte("notes")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/posts/hello-world/assets", &body)
 	request.Header.Set(SessionHeader, server.Token())
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	recorder := httptest.NewRecorder()

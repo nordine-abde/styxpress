@@ -94,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/posts/{slug}/cover", s.withAuth(s.getCover))
 	mux.HandleFunc("POST /api/posts/{slug}/cover", s.withAuth(s.uploadCover))
 	mux.HandleFunc("DELETE /api/posts/{slug}/cover", s.withAuth(s.deleteCover))
+	mux.HandleFunc("GET /api/posts/{slug}/assets/{assetPath...}", s.withAuth(s.getAsset))
 	mux.HandleFunc("POST /api/posts/{slug}/assets", s.withAuth(s.uploadAsset))
 	mux.HandleFunc("DELETE /api/posts/{slug}/assets/{assetPath...}", s.withAuth(s.deleteAsset))
 	mux.HandleFunc("POST /api/render-preview", s.withAuth(s.renderPreview))
@@ -509,6 +510,55 @@ func (s *Server) deleteCover(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	assetPath, err := content.CleanAssetPath(r.PathValue("assetPath"))
+	if err != nil {
+		s.writeContentError(w, err)
+		return
+	}
+	repo, err := s.repository()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	post, err := repo.LoadPost(slug)
+	if err != nil {
+		s.writeContentError(w, err)
+		return
+	}
+	if !postHasAsset(post, assetPath) {
+		WriteError(w, http.StatusNotFound, "asset_not_found", "asset not found")
+		return
+	}
+
+	contentDir, err := s.configuredContentDir()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	filePath := filepath.Join(contentDir, "posts", slug, "assets", filepath.FromSlash(assetPath))
+	info, err := os.Lstat(filePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			WriteError(w, http.StatusNotFound, "asset_not_found", "asset not found")
+			return
+		}
+		s.writeContentError(w, err)
+		return
+	}
+	if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		s.writeContentError(w, content.ErrInvalidAsset)
+		return
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(assetPath))
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeFile(w, r, filePath)
+}
+
 func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	file, header, ok := readUpload(w, r, true)
@@ -524,6 +574,10 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 	cleaned, err := content.CleanAssetPath(assetPath)
 	if err != nil {
 		s.writeContentError(w, err)
+		return
+	}
+	if !isSupportedImageFile(cleaned) {
+		s.writeContentError(w, fmt.Errorf("%w: asset must be an image", content.ErrInvalidAsset))
 		return
 	}
 	repo, err := s.repository()
@@ -852,6 +906,24 @@ func coverUploadName(filename string) (string, error) {
 	default:
 		return "", content.ErrUnsupportedCover
 	}
+}
+
+func isSupportedImageFile(filename string) bool {
+	switch strings.ToLower(filepath.Ext(filepath.Base(filename))) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif":
+		return true
+	default:
+		return false
+	}
+}
+
+func postHasAsset(post content.Post, assetPath string) bool {
+	for _, asset := range post.Assets {
+		if asset == assetPath {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeJSONBody(r *http.Request, target any, message string) error {

@@ -379,6 +379,9 @@ func TestRenderUsesSiteConfigHeaderFooterAndStylesheet(t *testing.T) {
 	assertFileContent(t, filepath.Join(publicRoot, "assets", "styxpress.css"), []string{
 		`:root`,
 		`font-family:`,
+		`.post-header img`,
+		`.post-content img[src$="#small"]`,
+		`@media (min-width: 760px)`,
 	})
 }
 

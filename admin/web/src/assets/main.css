@@ -114,6 +114,10 @@ a {
     align-items: center;
 }
 
+.sidebar .brand {
+    justify-content: space-between;
+}
+
 .mark {
     display: block;
     flex: 0 0 auto;
@@ -209,6 +213,27 @@ a {
     box-shadow: 0 10px 26px rgb(89 47 15 / 9%);
 }
 
+.menu-button {
+    flex: 0 0 auto;
+}
+
+.sidebar-close {
+    flex: 0 0 auto;
+}
+
+.hamburger-icon {
+    display: inline-grid;
+    gap: 0.18rem;
+    width: 1rem;
+}
+
+.hamburger-icon span {
+    display: block;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+}
+
 .status-row,
 .button-row,
 .inline-row {
@@ -225,23 +250,13 @@ a {
     gap: 1rem;
 }
 
-.posts-layout {
-    grid-template-areas:
-        "list"
-        "editor";
-}
-
-.posts-list-column,
-.posts-editor-column {
+.posts-list-only,
+.posts-editor-only {
     min-width: 0;
 }
 
-.posts-list-column {
-    grid-area: list;
-}
-
-.posts-editor-column {
-    grid-area: editor;
+.posts-list-only {
+    width: min(100%, 920px);
 }
 
 .field-grid {
@@ -286,7 +301,7 @@ a {
 }
 
 @media (min-width: 900px) {
-    .app-shell {
+    .app-shell.sidebar-open {
         grid-template-columns: 16.5rem minmax(0, 1fr);
     }
 
@@ -312,12 +327,6 @@ a {
 }
 
 @media (min-width: 1100px) {
-    .posts-layout {
-        grid-template-areas: "list editor";
-        grid-template-columns: minmax(15rem, 0.58fr) minmax(0, 1.42fr);
-        align-items: start;
-    }
-
     .single-layout {
         width: min(100%, 1120px);
     }
@@ -328,11 +337,7 @@ a {
 }
 
 @media (min-width: 1380px) {
-    .posts-layout {
-        grid-template-columns: minmax(16rem, 0.56fr) minmax(34rem, 1.44fr);
-    }
-
-    .posts-list-column {
-        grid-area: list;
+    .posts-list-only {
+        width: min(100%, 980px);
     }
 }
