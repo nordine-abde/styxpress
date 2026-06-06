@@ -2,8 +2,7 @@ package deploy
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +32,8 @@ type Config struct {
 	KeyPath        string
 	KnownHostsPath string
 	DeleteExtra    bool
+	Secret         string
+	StatePath      string
 }
 
 type Summary struct {
@@ -58,6 +59,16 @@ type remoteMeta struct {
 	modTime time.Time
 }
 
+type stateFile struct {
+	Version int                   `json:"version"`
+	Files   map[string]stateEntry `json:"files"`
+}
+
+type stateEntry struct {
+	Size            int64 `json:"size"`
+	ModTimeUnixNano int64 `json:"mtimeUnixNano"`
+}
+
 type plan struct {
 	summary Summary
 	uploads []fileMeta
@@ -70,26 +81,20 @@ type client struct {
 	sftp *sftp.Client
 }
 
-func Status(ctx context.Context, localRoot string, cfg Config) (Summary, error) {
+func Status(_ context.Context, localRoot string, cfg Config) (Summary, error) {
 	localRoot, cfg, err := prepare(localRoot, cfg)
 	if err != nil {
 		return Summary{}, err
 	}
-	conn, err := connect(ctx, cfg)
-	if err != nil {
-		return Summary{}, err
-	}
-	defer conn.close()
-
 	local, err := localFiles(localRoot)
 	if err != nil {
 		return Summary{}, err
 	}
-	remote, err := remoteFiles(conn.sftp, cfg.RemotePath)
+	previous, err := loadState(cfg.StatePath)
 	if err != nil {
 		return Summary{}, err
 	}
-	return buildPlan(local, remote, cfg.DeleteExtra).summary, nil
+	return buildPlan(local, previous, cfg.DeleteExtra).summary, nil
 }
 
 func Sync(ctx context.Context, localRoot string, cfg Config) (Summary, error) {
@@ -97,44 +102,62 @@ func Sync(ctx context.Context, localRoot string, cfg Config) (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
+	local, err := localFiles(localRoot)
+	if err != nil {
+		return Summary{}, err
+	}
+	previous, err := loadState(cfg.StatePath)
+	if err != nil {
+		return Summary{}, err
+	}
+	next := buildPlan(local, previous, cfg.DeleteExtra)
+	if !next.summary.OutOfSync && !cfg.DeleteExtra {
+		return next.summary, nil
+	}
+
 	conn, err := connect(ctx, cfg)
 	if err != nil {
 		return Summary{}, err
 	}
 	defer conn.close()
 
-	if err := mkdirAll(conn.sftp, cfg.RemotePath); err != nil {
+	if err := ensureRemoteRoot(conn.sftp, cfg.RemotePath); err != nil {
 		return Summary{}, err
 	}
-	local, err := localFiles(localRoot)
-	if err != nil {
-		return Summary{}, err
-	}
-	remote, err := remoteFiles(conn.sftp, cfg.RemotePath)
-	if err != nil {
-		return Summary{}, err
-	}
-	next := buildPlan(local, remote, cfg.DeleteExtra)
 	for _, file := range append(next.uploads, next.updates...) {
 		if err := ctx.Err(); err != nil {
 			return Summary{}, err
 		}
-		if err := uploadFile(conn.sftp, file, path.Join(cfg.RemotePath, file.rel)); err != nil {
+		if err := uploadFile(conn.sftp, cfg.RemotePath, file); err != nil {
 			return Summary{}, err
 		}
 	}
 	if cfg.DeleteExtra {
+		remote, err := remoteFiles(conn.sftp, cfg.RemotePath)
+		if err != nil {
+			return Summary{}, err
+		}
+		next.deletes = remoteOnlyFiles(local, remote)
+		next.summary.Deleted = len(next.deletes)
+		next.summary.RemoteOnly = len(next.deletes)
 		for _, file := range next.deletes {
 			if err := ctx.Err(); err != nil {
 				return Summary{}, err
 			}
-			if err := conn.sftp.Remove(path.Join(cfg.RemotePath, file.rel)); err != nil && !isNotExist(err) {
+			remotePath, err := remoteFilePath(cfg.RemotePath, file.rel)
+			if err != nil {
 				return Summary{}, err
+			}
+			if err := conn.sftp.Remove(remotePath); err != nil && !isNotExist(err) {
+				return Summary{}, fmt.Errorf("sftp delete remote file %s: %w", remotePath, err)
 			}
 		}
 		if err := removeEmptyDirs(conn.sftp, cfg.RemotePath); err != nil {
 			return Summary{}, err
 		}
+	}
+	if err := saveState(cfg.StatePath, nextState(local, previous, cfg.DeleteExtra)); err != nil {
+		return Summary{}, err
 	}
 	next.summary.OutOfSync = false
 	return next.summary, nil
@@ -161,6 +184,7 @@ func prepare(localRoot string, cfg Config) (string, Config, error) {
 	cfg.RemotePath = strings.TrimSpace(cfg.RemotePath)
 	cfg.KeyPath = strings.TrimSpace(cfg.KeyPath)
 	cfg.KnownHostsPath = strings.TrimSpace(cfg.KnownHostsPath)
+	cfg.StatePath = strings.TrimSpace(cfg.StatePath)
 	if cfg.Port == 0 {
 		cfg.Port = 22
 	}
@@ -178,6 +202,14 @@ func prepare(localRoot string, cfg Config) (string, Config, error) {
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return "", Config{}, fmt.Errorf("%w: SFTP port must be between 1 and 65535", ErrInvalidConfig)
 	}
+	if cfg.StatePath == "" {
+		return "", Config{}, fmt.Errorf("%w: deploy state path is required", ErrInvalidConfig)
+	}
+	statePath, err := filepath.Abs(cfg.StatePath)
+	if err != nil {
+		return "", Config{}, err
+	}
+	cfg.StatePath = filepath.Clean(statePath)
 	return filepath.Clean(absLocalRoot), cfg, nil
 }
 
@@ -254,7 +286,7 @@ func authMethods(cfg Config) ([]ssh.AuthMethod, func(), error) {
 	keyPaths := candidateKeyPaths(cfg.KeyPath)
 	var encryptedKey bool
 	for _, keyPath := range keyPaths {
-		signer, err := signerFromKeyFile(keyPath)
+		signer, err := signerFromKeyFile(keyPath, cfg.Secret)
 		if err == nil {
 			methods = append(methods, ssh.PublicKeys(signer))
 			continue
@@ -267,18 +299,28 @@ func authMethods(cfg Config) ([]ssh.AuthMethod, func(), error) {
 			if cfg.KeyPath == "" {
 				continue
 			}
-			return nil, closeAll(cleanup), fmt.Errorf("%w: encrypted private keys require ssh-agent", ErrInvalidConfig)
+			return nil, closeAll(cleanup), fmt.Errorf("%w: encrypted private keys require a session passphrase or ssh-agent", ErrInvalidConfig)
 		}
 		if cfg.KeyPath != "" {
 			return nil, closeAll(cleanup), err
 		}
 	}
+	if cfg.Secret != "" {
+		methods = append(methods, ssh.Password(cfg.Secret))
+		methods = append(methods, ssh.KeyboardInteractive(func(_ string, _ string, questions []string, _ []bool) ([]string, error) {
+			answers := make([]string, len(questions))
+			for i := range answers {
+				answers[i] = cfg.Secret
+			}
+			return answers, nil
+		}))
+	}
 	if len(methods) == 0 {
 		message := "no SSH auth methods available; load a key into ssh-agent"
 		if encryptedKey {
-			message += " or add the encrypted key to ssh-agent"
+			message += ", add the encrypted key to ssh-agent, or set a session passphrase"
 		} else {
-			message += " or configure an unencrypted key path"
+			message += ", configure an unencrypted key path, or set a session password"
 		}
 		return nil, closeAll(cleanup), fmt.Errorf("%w: %s", ErrInvalidConfig, message)
 	}
@@ -312,12 +354,19 @@ func candidateKeyPaths(configured string) []string {
 	}
 }
 
-func signerFromKeyFile(keyPath string) (ssh.Signer, error) {
+func signerFromKeyFile(keyPath string, secret string) (ssh.Signer, error) {
 	data, err := os.ReadFile(keyPath)
 	if err != nil {
 		return nil, err
 	}
-	return ssh.ParsePrivateKey(data)
+	signer, err := ssh.ParsePrivateKey(data)
+	if err == nil {
+		return signer, nil
+	}
+	if secret != "" && isEncryptedKeyError(err) {
+		return ssh.ParsePrivateKeyWithPassphrase(data, []byte(secret))
+	}
+	return nil, err
 }
 
 func isEncryptedKeyError(err error) bool {
@@ -419,7 +468,7 @@ func remoteFiles(client *sftp.Client, root string) (map[string]remoteMeta, error
 		if isNotExist(err) {
 			return files, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("sftp stat remote folder %s: %w", root, err)
 	}
 	err := walkRemote(client, root, "", files)
 	return files, err
@@ -431,7 +480,7 @@ func walkRemote(client *sftp.Client, dir string, relDir string, files map[string
 		if isNotExist(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("sftp read remote directory %s: %w", dir, err)
 	}
 	for _, entry := range entries {
 		name := entry.Name()
@@ -456,6 +505,70 @@ func walkRemote(client *sftp.Client, dir string, relDir string, files map[string
 		}
 	}
 	return nil
+}
+
+func loadState(statePath string) (map[string]remoteMeta, error) {
+	files := map[string]remoteMeta{}
+	data, err := os.ReadFile(statePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return files, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read deploy state %s: %w", statePath, err)
+	}
+	var state stateFile
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, fmt.Errorf("decode deploy state %s: %w", statePath, err)
+	}
+	for rel, entry := range state.Files {
+		if !validRelativePath(rel) {
+			continue
+		}
+		files[rel] = remoteMeta{
+			rel:     rel,
+			size:    entry.Size,
+			modTime: time.Unix(0, entry.ModTimeUnixNano).UTC(),
+		}
+	}
+	return files, nil
+}
+
+func saveState(statePath string, files map[string]remoteMeta) error {
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+		return fmt.Errorf("create deploy state folder %s: %w", filepath.Dir(statePath), err)
+	}
+	state := stateFile{
+		Version: 1,
+		Files:   make(map[string]stateEntry, len(files)),
+	}
+	for rel, file := range files {
+		if !validRelativePath(rel) {
+			continue
+		}
+		state.Files[rel] = stateEntry{
+			Size:            file.size,
+			ModTimeUnixNano: file.modTime.UnixNano(),
+		}
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode deploy state %s: %w", statePath, err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(statePath, data, 0o600); err != nil {
+		return fmt.Errorf("write deploy state %s: %w", statePath, err)
+	}
+	return nil
+}
+
+func validRelativePath(rel string) bool {
+	return rel != "" &&
+		!strings.HasPrefix(rel, "/") &&
+		!strings.Contains(rel, "\x00") &&
+		rel == path.Clean(rel) &&
+		rel != "." &&
+		!strings.HasPrefix(rel, "../") &&
+		rel != ".."
 }
 
 func buildPlan(local map[string]fileMeta, remote map[string]remoteMeta, deleteExtra bool) plan {
@@ -500,75 +613,118 @@ func buildPlan(local map[string]fileMeta, remote map[string]remoteMeta, deleteEx
 }
 
 func sameFile(local fileMeta, remote remoteMeta) bool {
-	if local.size != remote.size {
-		return false
-	}
-	delta := local.modTime.Unix() - remote.modTime.Unix()
-	return delta >= -1 && delta <= 1
+	return local.size == remote.size && local.modTime.Equal(remote.modTime)
 }
 
-func uploadFile(client *sftp.Client, local fileMeta, remotePath string) error {
-	if err := mkdirAll(client, path.Dir(remotePath)); err != nil {
+func remoteOnlyFiles(local map[string]fileMeta, remote map[string]remoteMeta) []remoteMeta {
+	remoteKeys := make([]string, 0, len(remote))
+	for rel := range remote {
+		remoteKeys = append(remoteKeys, rel)
+	}
+	sort.Strings(remoteKeys)
+	files := make([]remoteMeta, 0)
+	for _, rel := range remoteKeys {
+		if _, ok := local[rel]; ok {
+			continue
+		}
+		files = append(files, remote[rel])
+	}
+	return files
+}
+
+func nextState(local map[string]fileMeta, previous map[string]remoteMeta, deleteExtra bool) map[string]remoteMeta {
+	state := map[string]remoteMeta{}
+	if !deleteExtra {
+		for rel, file := range previous {
+			state[rel] = file
+		}
+	}
+	for rel, file := range local {
+		state[rel] = remoteMeta{
+			rel:     rel,
+			size:    file.size,
+			modTime: file.modTime,
+		}
+	}
+	return state
+}
+
+func uploadFile(client *sftp.Client, remoteRoot string, local fileMeta) error {
+	remotePath, err := remoteFilePath(remoteRoot, local.rel)
+	if err != nil {
+		return err
+	}
+	if err := mkdirRelativeAll(client, remoteRoot, path.Dir(local.rel)); err != nil {
 		return err
 	}
 	source, err := os.Open(local.local)
 	if err != nil {
-		return err
+		return fmt.Errorf("open local file %s: %w", local.local, err)
 	}
 	defer source.Close()
 
-	tmpPath := remotePath + ".styxpress-tmp-" + randomSuffix()
-	target, err := client.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+	target, err := client.OpenFile(remotePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
 	if err != nil {
-		return err
+		return fmt.Errorf("sftp open remote file %s: %w", remotePath, err)
 	}
 	_, copyErr := io.Copy(target, source)
 	closeErr := target.Close()
 	if copyErr != nil {
-		_ = client.Remove(tmpPath)
-		return copyErr
+		return fmt.Errorf("sftp upload remote file %s: %w", remotePath, copyErr)
 	}
 	if closeErr != nil {
-		_ = client.Remove(tmpPath)
-		return closeErr
+		return fmt.Errorf("sftp close remote file %s: %w", remotePath, closeErr)
 	}
-	if err := client.Chmod(tmpPath, 0o644); err != nil {
-		_ = client.Remove(tmpPath)
-		return err
-	}
-	if err := client.Rename(tmpPath, remotePath); err != nil {
-		if removeErr := client.Remove(remotePath); removeErr != nil && !isNotExist(removeErr) {
-			_ = client.Remove(tmpPath)
-			return err
-		}
-		if renameErr := client.Rename(tmpPath, remotePath); renameErr != nil {
-			_ = client.Remove(tmpPath)
-			return renameErr
-		}
-	}
-	return client.Chtimes(remotePath, local.modTime, local.modTime)
+	return nil
 }
 
-func mkdirAll(client *sftp.Client, dir string) error {
-	dir = path.Clean(dir)
-	if dir == "." || dir == "/" {
+func ensureRemoteRoot(client *sftp.Client, remoteRoot string) error {
+	info, err := client.Stat(remoteRoot)
+	if err != nil {
+		return fmt.Errorf("sftp remote folder must already exist %s: %w", remoteRoot, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: SFTP remote path must be a directory: %s", ErrInvalidConfig, remoteRoot)
+	}
+	return nil
+}
+
+func mkdirRelativeAll(client *sftp.Client, remoteRoot string, relDir string) error {
+	relDir = path.Clean(relDir)
+	if relDir == "." || relDir == "" {
 		return nil
 	}
-	parts := strings.Split(strings.TrimPrefix(dir, "/"), "/")
-	current := ""
-	if strings.HasPrefix(dir, "/") {
-		current = "/"
+	if !validRelativePath(relDir) {
+		return fmt.Errorf("%w: invalid relative public folder %s", ErrInvalidConfig, relDir)
 	}
-	for _, part := range parts {
+	current := remoteRoot
+	for _, part := range strings.Split(relDir, "/") {
 		if part == "" {
 			continue
 		}
 		current = path.Join(current, part)
-		if err := client.Mkdir(current); err != nil && !isExist(err) {
-			return err
+		info, err := client.Stat(current)
+		if err == nil {
+			if !info.IsDir() {
+				return fmt.Errorf("%w: SFTP remote path must be a directory: %s", ErrInvalidConfig, current)
+			}
+			continue
+		}
+		if !isNotExist(err) {
+			return fmt.Errorf("sftp stat remote directory %s: %w", current, err)
+		}
+		if err := client.Mkdir(current); err != nil {
+			return fmt.Errorf("sftp create remote directory %s: %w", current, err)
 		}
 	}
 	return nil
+}
+
+func remoteFilePath(remoteRoot string, rel string) (string, error) {
+	if !validRelativePath(rel) {
+		return "", fmt.Errorf("%w: invalid relative public file %s", ErrInvalidConfig, rel)
+	}
+	return path.Join(remoteRoot, rel), nil
 }
 
 func removeEmptyDirs(client *sftp.Client, root string) error {
@@ -600,7 +756,7 @@ func remoteDirs(client *sftp.Client, root string) ([]string, error) {
 			if isNotExist(err) {
 				return nil
 			}
-			return err
+			return fmt.Errorf("sftp read remote directory %s: %w", dir, err)
 		}
 		for _, entry := range entries {
 			if entry.IsDir() {
@@ -612,14 +768,6 @@ func remoteDirs(client *sftp.Client, root string) ([]string, error) {
 		return nil
 	}
 	return dirs, walk(root)
-}
-
-func randomSuffix() string {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return strconv.FormatInt(time.Now().UnixNano(), 36)
-	}
-	return hex.EncodeToString(b[:])
 }
 
 func isExist(err error) bool {

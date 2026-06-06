@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import UiBadge from './ui/UiBadge.vue'
 import UiButton from './ui/UiButton.vue'
+import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
 import { useDeployStore } from '../stores/deploy'
 
@@ -13,6 +14,7 @@ defineProps({
 })
 
 const deployStore = useDeployStore()
+const secret = ref('')
 
 const summaryText = computed(() => {
     const summary = deployStore.status.summary
@@ -36,6 +38,25 @@ const statusLabel = computed(() => {
     return deployStore.status.summary ? 'Synced' : 'Not checked'
 })
 
+const subtitle = computed(() => {
+    return deployStore.automatic
+        ? 'Automatic SFTP deployment for the generated public folder.'
+        : 'Manual SFTP deployment for the generated public folder.'
+})
+
+async function saveSecret() {
+    if (!secret.value) {
+        return
+    }
+    await deployStore.saveSecret(secret.value)
+    secret.value = ''
+}
+
+async function clearSecret() {
+    await deployStore.clearSecret()
+    secret.value = ''
+}
+
 onMounted(() => {
     if (deployStore.enabled && deployStore.status.configured) {
         deployStore.refreshStatus({ quiet: true }).catch(() => {})
@@ -45,9 +66,9 @@ onMounted(() => {
 
 <template>
     <UiPanel
-        v-if="deployStore.manual"
+        v-if="deployStore.enabled"
         title="Deploy"
-        :subtitle="compact ? '' : 'Manual SFTP deployment for the generated public folder.'"
+        :subtitle="compact ? '' : subtitle"
     >
         <div class="deploy-panel">
             <div class="deploy-status">
@@ -58,6 +79,37 @@ onMounted(() => {
                     {{ summaryText }}
                 </p>
             </div>
+
+            <section class="secret-box">
+                <div class="secret-status">
+                    <UiBadge :tone="deployStore.status.secretSet ? 'success' : 'warning'">
+                        {{ deployStore.status.secretSet ? 'Session secret set' : 'Session secret missing' }}
+                    </UiBadge>
+                    <p class="muted compact-text">
+                        Used as SFTP password or encrypted key passphrase. Not saved to config.
+                    </p>
+                </div>
+                <UiField
+                    v-model="secret"
+                    type="password"
+                    label="Password / passphrase"
+                    placeholder="Only kept in this server session"
+                />
+                <div class="button-row">
+                    <UiButton tone="primary" :busy="deployStore.savingSecret" :disabled="!secret" @click="saveSecret">
+                        Use for session
+                    </UiButton>
+                    <UiButton
+                        v-if="deployStore.status.secretSet"
+                        tone="ghost"
+                        :busy="deployStore.clearingSecret"
+                        @click="clearSecret"
+                    >
+                        Clear
+                    </UiButton>
+                </div>
+            </section>
+
             <div class="button-row">
                 <UiButton
                     v-if="deployStore.canDeploy"
@@ -80,9 +132,16 @@ onMounted(() => {
 
 <style scoped>
 .deploy-panel,
-.deploy-status {
+.deploy-status,
+.secret-box,
+.secret-status {
     display: grid;
     gap: 0.65rem;
+}
+
+.secret-box {
+    border-top: 1px solid var(--color-border);
+    padding-top: 0.85rem;
 }
 
 .compact-text {

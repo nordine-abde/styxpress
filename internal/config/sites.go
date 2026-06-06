@@ -44,6 +44,10 @@ func NewSiteStore(root string) *SiteStore {
 	return &SiteStore{root: filepath.Clean(root)}
 }
 
+func (s *SiteStore) Root() string {
+	return s.root
+}
+
 func (s *SiteStore) List() ([]Site, string, error) {
 	if err := s.ensureInitialized(); err != nil {
 		return nil, "", err

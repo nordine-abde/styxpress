@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nordine-abde/styxpress/internal/config"
@@ -29,10 +30,12 @@ const SessionHeader = "X-Styxpress-Session"
 const maxUploadBytes = 64 << 20
 
 type Server struct {
-	configPath string
-	siteStore  *config.SiteStore
-	token      string
-	logger     *log.Logger
+	configPath     string
+	siteStore      *config.SiteStore
+	token          string
+	logger         *log.Logger
+	deploySecretMu sync.RWMutex
+	deploySecret   string
 }
 
 type ErrorResponse struct {
@@ -104,6 +107,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/posts/{slug}/publish", s.withAuth(s.publishPost))
 	mux.HandleFunc("POST /api/site/render", s.withAuth(s.renderSite))
 	mux.HandleFunc("GET /api/deploy/status", s.withAuth(s.deployStatus))
+	mux.HandleFunc("POST /api/deploy/secret", s.withAuth(s.saveDeploySecret))
+	mux.HandleFunc("DELETE /api/deploy/secret", s.withAuth(s.deleteDeploySecret))
 	mux.HandleFunc("POST /api/deploy", s.withAuth(s.deployNow))
 	return mux
 }
@@ -372,7 +377,12 @@ type deployStatusResponse struct {
 	Configured bool               `json:"configured"`
 	Mode       string             `json:"mode"`
 	OutOfSync  bool               `json:"outOfSync"`
+	SecretSet  bool               `json:"secretSet"`
 	Summary    *deploypkg.Summary `json:"summary,omitempty"`
+}
+
+type deploySecretRequest struct {
+	Secret string `json:"secret"`
 }
 
 func (s *Server) listPosts(w http.ResponseWriter, _ *http.Request) {
@@ -710,14 +720,16 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deployStatus(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.loadConfig()
+	site, err := s.activeSite()
 	if err != nil {
 		s.writeConfigPathError(w, err)
 		return
 	}
+	cfg := site.Config
 	response := deployStatusResponse{
-		Enabled: cfg.Deploy.Enabled,
-		Mode:    cfg.Deploy.Mode,
+		Enabled:   cfg.Deploy.Enabled,
+		Mode:      cfg.Deploy.Mode,
+		SecretSet: s.deploySecretSet(),
 	}
 	if !cfg.Deploy.Enabled {
 		writeJSON(w, http.StatusOK, response)
@@ -733,7 +745,12 @@ func (s *Server) deployStatus(w http.ResponseWriter, r *http.Request) {
 		s.writeConfigPathError(w, err)
 		return
 	}
-	summary, err := deploypkg.Status(r.Context(), publicDir, deployConfig(cfg))
+	deployConfig, err := s.deployConfig(site)
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	summary, err := deploypkg.Status(r.Context(), publicDir, deployConfig)
 	if err != nil {
 		s.writeDeployError(w, err)
 		return
@@ -743,12 +760,34 @@ func (s *Server) deployStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (s *Server) saveDeploySecret(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	var req deploySecretRequest
+	if err := decodeJSONBody(r, &req, "request body must contain a deploy secret"); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if req.Secret == "" {
+		WriteError(w, http.StatusBadRequest, "invalid_deploy_secret", "password or passphrase is required")
+		return
+	}
+	s.setDeploySecret(req.Secret)
+	writeJSON(w, http.StatusOK, map[string]bool{"secretSet": true})
+}
+
+func (s *Server) deleteDeploySecret(w http.ResponseWriter, _ *http.Request) {
+	s.clearDeploySecret()
+	writeJSON(w, http.StatusOK, map[string]bool{"secretSet": false})
+}
+
 func (s *Server) deployNow(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.loadConfig()
+	site, err := s.activeSite()
 	if err != nil {
 		s.writeConfigPathError(w, err)
 		return
 	}
+	cfg := site.Config
 	if !cfg.Deploy.Enabled {
 		WriteError(w, http.StatusBadRequest, "deploy_disabled", "SFTP deploy is disabled")
 		return
@@ -758,7 +797,12 @@ func (s *Server) deployNow(w http.ResponseWriter, r *http.Request) {
 		s.writeConfigPathError(w, err)
 		return
 	}
-	summary, err := deploypkg.Sync(r.Context(), publicDir, deployConfig(cfg))
+	deployConfig, err := s.deployConfig(site)
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	summary, err := deploypkg.Sync(r.Context(), publicDir, deployConfig)
 	if err != nil {
 		s.writeDeployError(w, err)
 		return
@@ -803,10 +847,11 @@ func (s *Server) renderAll() (rendering.AllResult, error) {
 }
 
 func (s *Server) autoDeploy(ctx context.Context) (*deploypkg.Summary, error) {
-	cfg, err := s.loadConfig()
+	site, err := s.activeSite()
 	if err != nil {
 		return nil, err
 	}
+	cfg := site.Config
 	if !cfg.Deploy.Enabled || cfg.Deploy.Mode != "auto" {
 		return nil, nil
 	}
@@ -814,7 +859,11 @@ func (s *Server) autoDeploy(ctx context.Context) (*deploypkg.Summary, error) {
 	if err != nil {
 		return nil, err
 	}
-	summary, err := deploypkg.Sync(ctx, publicDir, deployConfig(cfg))
+	deployConfig, err := s.deployConfig(site)
+	if err != nil {
+		return nil, err
+	}
+	summary, err := deploypkg.Sync(ctx, publicDir, deployConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -853,7 +902,12 @@ func (s *Server) renderer() (*rendering.Renderer, error) {
 	return rendering.New(contentDir, publicDir)
 }
 
-func deployConfig(cfg config.Config) deploypkg.Config {
+func (s *Server) deployConfig(site config.Site) (deploypkg.Config, error) {
+	statePath, err := s.deployStatePath(site.ID)
+	if err != nil {
+		return deploypkg.Config{}, err
+	}
+	cfg := site.Config
 	return deploypkg.Config{
 		Host:           cfg.Deploy.SFTP.Host,
 		Port:           cfg.Deploy.SFTP.Port,
@@ -862,7 +916,53 @@ func deployConfig(cfg config.Config) deploypkg.Config {
 		KeyPath:        cfg.Deploy.SFTP.KeyPath,
 		KnownHostsPath: cfg.Deploy.SFTP.KnownHostsPath,
 		DeleteExtra:    cfg.Deploy.SFTP.DeleteExtra,
+		Secret:         s.deploySecretValue(),
+		StatePath:      statePath,
+	}, nil
+}
+
+func (s *Server) deployStatePath(siteID string) (string, error) {
+	siteID = strings.TrimSpace(siteID)
+	if siteID == "" {
+		siteID = "single"
 	}
+	var root string
+	if s.siteStore != nil {
+		root = s.siteStore.Root()
+	} else if strings.TrimSpace(s.configPath) != "" {
+		root = filepath.Dir(s.configPath)
+	} else {
+		var err error
+		root, err = config.DefaultDir()
+		if err != nil {
+			return "", err
+		}
+	}
+	return filepath.Join(root, "deploy-state", siteID+".json"), nil
+}
+
+func (s *Server) setDeploySecret(secret string) {
+	s.deploySecretMu.Lock()
+	defer s.deploySecretMu.Unlock()
+	s.deploySecret = secret
+}
+
+func (s *Server) clearDeploySecret() {
+	s.deploySecretMu.Lock()
+	defer s.deploySecretMu.Unlock()
+	s.deploySecret = ""
+}
+
+func (s *Server) deploySecretValue() string {
+	s.deploySecretMu.RLock()
+	defer s.deploySecretMu.RUnlock()
+	return s.deploySecret
+}
+
+func (s *Server) deploySecretSet() bool {
+	s.deploySecretMu.RLock()
+	defer s.deploySecretMu.RUnlock()
+	return s.deploySecret != ""
 }
 
 func deployConfigured(cfg config.Config) bool {
@@ -880,6 +980,22 @@ func (s *Server) loadConfig() (config.Config, error) {
 		return site.Config, nil
 	}
 	return config.LoadOrDefault(s.configPath)
+}
+
+func (s *Server) activeSite() (config.Site, error) {
+	if s.siteStore != nil {
+		return s.siteStore.Active()
+	}
+	cfg, err := config.LoadOrDefault(s.configPath)
+	if err != nil {
+		return config.Site{}, err
+	}
+	name := strings.TrimSpace(cfg.Name)
+	if name == "" {
+		name = "Configured site"
+	}
+	cfg.Name = name
+	return config.Site{ID: "single", Name: name, Config: cfg}, nil
 }
 
 func (s *Server) saveActiveConfig(cfg config.Config) (config.Config, error) {

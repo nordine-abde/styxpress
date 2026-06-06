@@ -8,6 +8,7 @@ const emptyStatus = {
     configured: false,
     mode: 'manual',
     outOfSync: false,
+    secretSet: false,
     summary: null
 }
 
@@ -15,6 +16,8 @@ export const useDeployStore = defineStore('deploy', () => {
     const status = ref({ ...emptyStatus })
     const checking = ref(false)
     const deploying = ref(false)
+    const savingSecret = ref(false)
+    const clearingSecret = ref(false)
     const error = ref('')
     let configSignature = ''
 
@@ -22,7 +25,7 @@ export const useDeployStore = defineStore('deploy', () => {
     const automatic = computed(() => enabled.value && status.value.mode === 'auto')
     const manual = computed(() => enabled.value && status.value.mode === 'manual')
     const canDeploy = computed(() => manual.value && status.value.configured && status.value.outOfSync)
-    const busy = computed(() => checking.value || deploying.value)
+    const busy = computed(() => checking.value || deploying.value || savingSecret.value || clearingSecret.value)
 
     function syncFromConfig(config) {
         const deploy = config?.deploy || {}
@@ -46,6 +49,7 @@ export const useDeployStore = defineStore('deploy', () => {
             configured: Boolean(sftp.host && sftp.user && sftp.remotePath),
             mode: deploy.mode === 'auto' ? 'auto' : 'manual',
             outOfSync: sameConfig && deploy.enabled === true ? status.value.outOfSync : false,
+            secretSet: status.value.secretSet,
             summary: sameConfig && deploy.enabled === true ? status.value.summary : null
         }
         if (!status.value.enabled) {
@@ -97,6 +101,51 @@ export const useDeployStore = defineStore('deploy', () => {
         }
     }
 
+    async function saveSecret(secret) {
+        const uiStore = useUiStore()
+        savingSecret.value = true
+        error.value = ''
+        try {
+            const payload = await apiRequest('/api/deploy/secret', {
+                method: 'POST',
+                body: { secret }
+            })
+            status.value = {
+                ...status.value,
+                secretSet: payload?.secretSet === true
+            }
+            uiStore.setNotice('Deploy secret saved for this session.')
+        } catch (err) {
+            error.value = err.message
+            uiStore.captureError(err)
+            throw err
+        } finally {
+            savingSecret.value = false
+        }
+    }
+
+    async function clearSecret() {
+        const uiStore = useUiStore()
+        clearingSecret.value = true
+        error.value = ''
+        try {
+            const payload = await apiRequest('/api/deploy/secret', {
+                method: 'DELETE'
+            })
+            status.value = {
+                ...status.value,
+                secretSet: payload?.secretSet === true
+            }
+            uiStore.setNotice('Deploy secret cleared.')
+        } catch (err) {
+            error.value = err.message
+            uiStore.captureError(err)
+            throw err
+        } finally {
+            clearingSecret.value = false
+        }
+    }
+
     function applyBuildResult(result) {
         if (!enabled.value) {
             return
@@ -106,6 +155,7 @@ export const useDeployStore = defineStore('deploy', () => {
                 ...status.value,
                 configured: true,
                 outOfSync: false,
+                secretSet: status.value.secretSet,
                 summary: result.deploy
             }
             return
@@ -125,6 +175,7 @@ export const useDeployStore = defineStore('deploy', () => {
             configured: payload.configured === true,
             mode: payload.mode === 'auto' ? 'auto' : 'manual',
             outOfSync: payload.outOfSync === true,
+            secretSet: payload.secretSet === true,
             summary: payload.summary || null
         }
     }
@@ -139,6 +190,8 @@ export const useDeployStore = defineStore('deploy', () => {
         status,
         checking,
         deploying,
+        savingSecret,
+        clearingSecret,
         error,
         enabled,
         automatic,
@@ -148,6 +201,8 @@ export const useDeployStore = defineStore('deploy', () => {
         syncFromConfig,
         refreshStatus,
         deployNow,
+        saveSecret,
+        clearSecret,
         applyBuildResult,
         reset
     }

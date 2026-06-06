@@ -122,6 +122,96 @@ func TestDeployEndpointsRequireEnabledSFTPConfig(t *testing.T) {
 	}
 }
 
+func TestDeployStatusUsesLocalStateWithoutSFTPConnection(t *testing.T) {
+	server, contentDir, publicDir := newTestServer(t)
+	if err := os.MkdirAll(publicDir, 0o755); err != nil {
+		t.Fatalf("create public dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(publicDir, "index.html"), []byte("<h1>Hello</h1>"), 0o644); err != nil {
+		t.Fatalf("write public file: %v", err)
+	}
+	save := authedRequest(t, server, http.MethodPost, "/api/config", `{
+		"contentDir":"`+escapeJSON(contentDir)+`",
+		"publicDir":"`+escapeJSON(publicDir)+`",
+		"deploy":{
+			"enabled":true,
+			"mode":"manual",
+			"sftp":{
+				"host":"example.invalid",
+				"port":22,
+				"user":"deploy",
+				"remotePath":"/public_html"
+			}
+		}
+	}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, save)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("save config code = %d, body = %s; want 200", recorder.Code, recorder.Body.String())
+	}
+
+	status := authedRequest(t, server, http.MethodGet, "/api/deploy/status", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, status)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, body = %s; want 200", recorder.Code, recorder.Body.String())
+	}
+	var body deployStatusResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if !body.OutOfSync || body.Summary == nil || body.Summary.Uploaded != 1 {
+		t.Fatalf("status = %#v, want one local file pending upload", body)
+	}
+}
+
+func TestDeploySecretIsStoredOnlyInServerMemory(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	save := authedRequest(t, server, http.MethodPost, "/api/deploy/secret", `{"secret":"session-passphrase"}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, save)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("save secret code = %d, body = %s; want 200", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "session-passphrase") {
+		t.Fatalf("save secret response exposed secret: %s", recorder.Body.String())
+	}
+
+	status := authedRequest(t, server, http.MethodGet, "/api/deploy/status", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, status)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, body = %s; want 200", recorder.Code, recorder.Body.String())
+	}
+	var statusBody deployStatusResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if !statusBody.SecretSet {
+		t.Fatalf("SecretSet = false, want true")
+	}
+	if strings.Contains(recorder.Body.String(), "session-passphrase") {
+		t.Fatalf("status response exposed secret: %s", recorder.Body.String())
+	}
+
+	clear := authedRequest(t, server, http.MethodDelete, "/api/deploy/secret", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, clear)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("clear secret code = %d, body = %s; want 200", recorder.Code, recorder.Body.String())
+	}
+	status = authedRequest(t, server, http.MethodGet, "/api/deploy/status", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, status)
+	if err := json.Unmarshal(recorder.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode cleared status: %v", err)
+	}
+	if statusBody.SecretSet {
+		t.Fatalf("SecretSet = true, want false after clearing")
+	}
+}
+
 func TestSiteRegistryUsesLocalConfig(t *testing.T) {
 	store := config.NewSiteStore(t.TempDir())
 	server, err := newServer("", store, nil)
