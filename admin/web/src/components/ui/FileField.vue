@@ -7,6 +7,10 @@ defineProps({
     accept: {
         type: String,
         default: ''
+    },
+    disabled: {
+        type: Boolean,
+        default: false
     }
 })
 
@@ -19,6 +23,7 @@ defineEmits(['selected'])
         <input
             type="file"
             :accept="accept"
+            :disabled="disabled"
             @change="$emit('selected', $event.target.files[0]); $event.target.value = ''"
         />
     </label>
@@ -42,5 +47,10 @@ input {
     border-radius: 8px;
     padding: 0.6rem;
     background: color-mix(in srgb, var(--color-surface) 92%, white);
+}
+
+input:disabled {
+    cursor: not-allowed;
+    opacity: 0.62;
 }
 </style>

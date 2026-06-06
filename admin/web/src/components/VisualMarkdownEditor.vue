@@ -27,7 +27,11 @@ let syncingFromParent = false
 let imageObserver = null
 let imageRefreshTimer = 0
 let toolbarStateSyncFrame = 0
-let objectUrls = []
+const imageUrlCache = new Map()
+const pendingImageRequests = new Map()
+let staleObjectUrls = []
+
+const imageRefreshInterval = 1500
 
 const toolbarButtonStates = [
     { buttonClass: 'heading', stateKey: 'heading' },
@@ -99,6 +103,7 @@ watch(
 watch(
     () => props.slug,
     () => {
+        clearImageUrlCache()
         queueImageRefresh()
     }
 )
@@ -142,7 +147,9 @@ function currentMarkdown() {
         return props.modelValue || ''
     }
     restoreMarkdownImageSources()
-    return editor.getMarkdown()
+    const markdown = editor.getMarkdown()
+    reapplyCachedImageSources()
+    return markdown
 }
 
 function queueImageRefresh() {
@@ -246,7 +253,6 @@ async function refreshEditorImages() {
     if (!editorRoot.value || !props.slug) {
         return
     }
-    cleanupObjectUrls()
     const images = Array.from(editorRoot.value.querySelectorAll('.toastui-editor-contents img'))
     for (const image of images) {
         const markdownSrc = originalImageSrc(image)
@@ -258,12 +264,21 @@ async function refreshEditorImages() {
         if (!assetPath) {
             continue
         }
+        const key = imageCacheKey(assetPath)
+        image.dataset.styxpressMarkdownSrc = markdownSrc
+        image.dataset.styxpressCacheKey = key
+        const cached = imageUrlCache.get(key)
+        if (cached?.url) {
+            setImageSource(image, cached.url)
+            if (Date.now() - cached.fetchedAt < imageRefreshInterval) {
+                continue
+            }
+        } else {
+            reserveImageBox(image)
+        }
         try {
-            const blob = await apiBlobRequest(`/api/posts/${encodeURIComponent(props.slug)}/assets/${encodeAssetPath(assetPath)}`)
-            const url = URL.createObjectURL(blob)
-            objectUrls.push(url)
-            image.dataset.styxpressMarkdownSrc = markdownSrc
-            image.src = url
+            const url = await fetchEditorImageURL(key, assetPath)
+            applyCachedImageToMatchingImages(key, url)
         } catch {
             image.dataset.styxpressFailed = 'true'
         }
@@ -277,6 +292,24 @@ function restoreMarkdownImageSources() {
     const images = editorRoot.value.querySelectorAll('img[data-styxpress-markdown-src]')
     for (const image of images) {
         image.src = image.dataset.styxpressMarkdownSrc
+    }
+}
+
+function reapplyCachedImageSources() {
+    if (!editorRoot.value || !props.slug) {
+        return
+    }
+    const images = editorRoot.value.querySelectorAll('img[data-styxpress-markdown-src]')
+    for (const image of images) {
+        const markdownSrc = image.dataset.styxpressMarkdownSrc
+        const assetPath = assetPathFromMarkdownSrc(markdownSrc)
+        if (!assetPath) {
+            continue
+        }
+        const cached = imageUrlCache.get(imageCacheKey(assetPath))
+        if (cached?.url) {
+            setImageSource(image, cached.url)
+        }
     }
 }
 
@@ -303,25 +336,139 @@ function assetPathFromMarkdownSrc(src) {
 
 function applyImageSize(image, src) {
     const size = src.includes('#') ? src.split('#').pop() : 'medium'
-    image.dataset.styxpressSize = ['small', 'medium', 'large', 'full'].includes(size) ? size : 'medium'
+    const normalized = ['small', 'medium', 'large', 'full'].includes(size) ? size : 'medium'
+    image.dataset.styxpressSize = normalized
+    image.style.setProperty('--styxpress-image-fallback-height', fallbackImageHeight(normalized))
 }
 
 function encodeAssetPath(path) {
     return path.split('/').map((part) => encodeURIComponent(part)).join('/')
 }
 
-function cleanupObjectUrls() {
-    for (const url of objectUrls) {
+function imageCacheKey(assetPath) {
+    return `${props.slug}:${assetPath}`
+}
+
+async function fetchEditorImageURL(key, assetPath) {
+    const pending = pendingImageRequests.get(key)
+    if (pending) {
+        return pending
+    }
+    const slug = props.slug
+    const request = apiBlobRequest(`/api/posts/${encodeURIComponent(slug)}/assets/${encodeAssetPath(assetPath)}`)
+        .then(async (blob) => {
+            const url = URL.createObjectURL(blob)
+            await preloadImage(url)
+            if (slug !== props.slug) {
+                URL.revokeObjectURL(url)
+                return ''
+            }
+            const previous = imageUrlCache.get(key)
+            imageUrlCache.set(key, {
+                url,
+                fetchedAt: Date.now()
+            })
+            if (previous?.url && previous.url !== url) {
+                staleObjectUrls.push(previous.url)
+                scheduleStaleObjectUrlCleanup()
+            }
+            return url
+        })
+        .finally(() => {
+            pendingImageRequests.delete(key)
+        })
+    pendingImageRequests.set(key, request)
+    return request
+}
+
+function applyCachedImageToMatchingImages(key, url) {
+    if (!editorRoot.value || !url) {
+        return
+    }
+    const images = Array.from(editorRoot.value.querySelectorAll('img[data-styxpress-cache-key]'))
+        .filter((image) => image.dataset.styxpressCacheKey === key)
+    for (const image of images) {
+        setImageSource(image, url)
+    }
+}
+
+function setImageSource(image, url) {
+    if (image.getAttribute('src') === url) {
+        releaseImageBox(image)
+        return
+    }
+    reserveImageBox(image)
+    image.addEventListener('load', () => releaseImageBox(image), { once: true })
+    image.src = url
+    if (image.complete) {
+        releaseImageBox(image)
+    }
+}
+
+function reserveImageBox(image) {
+    const rect = image.getBoundingClientRect()
+    if (rect.height > 24) {
+        image.style.setProperty('--styxpress-image-reserved-height', `${Math.ceil(rect.height)}px`)
+    }
+    image.dataset.styxpressLoading = 'true'
+}
+
+function releaseImageBox(image) {
+    if (!image.complete && image.naturalWidth === 0) {
+        return
+    }
+    const rect = image.getBoundingClientRect()
+    if (rect.height > 24) {
+        image.style.setProperty('--styxpress-image-reserved-height', `${Math.ceil(rect.height)}px`)
+    }
+    delete image.dataset.styxpressLoading
+    delete image.dataset.styxpressFailed
+}
+
+function fallbackImageHeight(size) {
+    return {
+        small: '10rem',
+        medium: '14rem',
+        large: '18rem',
+        full: '20rem'
+    }[size] || '14rem'
+}
+
+function preloadImage(url) {
+    return new Promise((resolve, reject) => {
+        const image = new Image()
+        image.onload = () => resolve()
+        image.onerror = reject
+        image.src = url
+    })
+}
+
+function scheduleStaleObjectUrlCleanup() {
+    window.setTimeout(() => {
+        for (const url of staleObjectUrls) {
+            URL.revokeObjectURL(url)
+        }
+        staleObjectUrls = []
+    }, 1200)
+}
+
+function clearImageUrlCache() {
+    for (const { url } of imageUrlCache.values()) {
         URL.revokeObjectURL(url)
     }
-    objectUrls = []
+    for (const url of staleObjectUrls) {
+        URL.revokeObjectURL(url)
+    }
+    imageUrlCache.clear()
+    pendingImageRequests.clear()
+    staleObjectUrls = []
 }
 
 onBeforeUnmount(() => {
     window.clearTimeout(imageRefreshTimer)
     window.cancelAnimationFrame(toolbarStateSyncFrame)
     imageObserver?.disconnect()
-    cleanupObjectUrls()
+    clearImageUrlCache()
     editor?.destroy()
 })
 
@@ -377,6 +524,11 @@ defineExpose({
     margin-left: auto;
     border-radius: 8px;
     object-fit: contain;
+}
+
+.visual-markdown-editor :deep(.toastui-editor-contents img[data-styxpress-loading='true']) {
+    min-height: var(--styxpress-image-reserved-height, var(--styxpress-image-fallback-height, 14rem));
+    background: color-mix(in srgb, var(--color-surface-muted) 72%, white);
 }
 
 .visual-markdown-editor :deep(.toastui-editor-contents img[data-styxpress-size='small']) {

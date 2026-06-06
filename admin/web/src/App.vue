@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AuthBar from './components/AuthBar.vue'
 import ConfigScreen from './components/ConfigScreen.vue'
+import PostCreateSetup from './components/PostCreateSetup.vue'
 import PostEditor from './components/PostEditor.vue'
 import PostList from './components/PostList.vue'
 import SiteConfigScreen from './components/SiteConfigScreen.vue'
@@ -47,6 +48,9 @@ const hasUnsavedChanges = computed(() => siteConfigStore.isDirty || postsStore.i
 
 const workspaceTitle = computed(() => {
     if (uiStore.activeView === 'posts') {
+        if (postsStore.postSetupOpen) {
+            return 'New post'
+        }
         return postsStore.editorOpen ? (postsStore.draft.title || 'Post editor') : 'Posts'
     }
     return activeLabel.value
@@ -258,7 +262,10 @@ function confirmDiscardUnsavedChanges() {
             </header>
 
             <section v-if="uiStore.activeView === 'posts'" class="posts-layout">
-                <div v-if="!postsStore.editorOpen" class="posts-list-only">
+                <div v-if="postsStore.postSetupOpen" class="posts-editor-only">
+                    <PostCreateSetup />
+                </div>
+                <div v-else-if="!postsStore.editorOpen" class="posts-list-only">
                     <PostList />
                 </div>
                 <div v-else class="posts-editor-only">

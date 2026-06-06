@@ -29,7 +29,17 @@ const imageSize = ref('medium')
 const uploadError = ref('')
 
 const canUpload = computed(() => postsStore.canUploadMedia)
-const busy = computed(() => postsStore.uploading || buildStore.publishing)
+const busy = computed(() => postsStore.saving || postsStore.uploading || buildStore.publishing)
+const uploadDisabled = computed(() => !canUpload.value || busy.value)
+const uploadHelp = computed(() => {
+    if (!canUpload.value) {
+        return 'Enter a slug before uploading images.'
+    }
+    if (postsStore.mediaUploadNeedsSave) {
+        return 'Uploads save the current draft first.'
+    }
+    return ''
+})
 const imageAssets = computed(() => {
     return (postsStore.draft.assets || []).filter((asset) => isImagePath(asset))
 })
@@ -116,27 +126,33 @@ function assetLabel(asset) {
                         :alt="`${postsStore.draft.title} cover`"
                     />
                     <FileField
-                        v-if="canUpload"
                         label="Upload cover"
                         :accept="coverAccept"
+                        :disabled="uploadDisabled"
                         @selected="uploadCover"
                     />
                     <ConfirmPrompt
-                        v-if="canUpload && postsStore.draft.cover"
+                        v-if="postsStore.draft.cover"
                         label="Remove cover"
                         confirm-label="Remove"
+                        :disabled="uploadDisabled"
                         @confirm="deleteCover"
                     />
                 </section>
 
                 <section class="asset-section">
                     <UiSelect v-model="imageSize" label="Insert size" :options="imageSizeOptions" />
-                    <div v-if="canUpload" class="asset-upload">
+                    <div class="asset-upload">
                         <UiField v-model="assetPath" label="Image path" placeholder="images/photo.png" />
-                        <FileField label="Upload image" :accept="imageAccept" @selected="uploadAsset" />
+                        <FileField
+                            label="Upload image"
+                            :accept="imageAccept"
+                            :disabled="uploadDisabled"
+                            @selected="uploadAsset"
+                        />
                     </div>
-                    <p v-else class="muted compact-text">
-                        Save the post before uploading images.
+                    <p v-if="uploadHelp" class="muted compact-text">
+                        {{ uploadHelp }}
                     </p>
                     <p v-if="uploadError" class="error-text compact-text">
                         {{ uploadError }}
@@ -160,6 +176,7 @@ function assetLabel(asset) {
                                 v-if="canUpload"
                                 label="Remove"
                                 confirm-label="Remove"
+                                :disabled="uploadDisabled"
                                 @confirm="deleteAsset(asset)"
                             />
                         </div>

@@ -51,9 +51,14 @@ func TestRenderPostWritesDocumentAndAssets(t *testing.T) {
 		`<title>Hello &#34;World&#34;</title>`,
 		`<meta name="description" content="A &lt;safe&gt; description &amp; summary.">`,
 		`<meta property="og:image" content="/posts/hello-world/cover.jpg">`,
+		`<img src="/posts/hello-world/cover.jpg" alt="">`,
 		`<h1>Heading</h1>`,
 		`<strong>Markdown</strong>`,
 		`<img src="assets/images/diagram.png" alt="Diagram" />`,
+	})
+	assertOrderAfter(t, result.IndexPath, `<header class="post-header">`, []string{
+		`<img src="/posts/hello-world/cover.jpg" alt="">`,
+		`<h1>Hello &#34;World&#34;</h1>`,
 	})
 	assertFileEquals(t, filepath.Join(publicRoot, "posts", "hello-world", "cover.jpg"), "cover image")
 	assertFileEquals(t, filepath.Join(publicRoot, "posts", "hello-world", "assets", "images", "diagram.png"), "diagram")
@@ -212,11 +217,16 @@ func TestRenderPreviewDoesNotWritePublicFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
+	repo := content.NewRepository(contentRoot)
+	if err := repo.WriteCover("preview", "cover.jpg", strings.NewReader("cover image")); err != nil {
+		t.Fatalf("write preview cover: %v", err)
+	}
 	html, err := renderer.RenderPreview(content.Post{
 		Slug:        "preview",
 		Title:       "Preview",
 		Description: "Draft preview",
 		Source:      "# Preview\n",
+		Cover:       "cover.jpg",
 		PublishedAt: time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC),
 		UpdatedAt:   time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC),
 	})
@@ -226,6 +236,13 @@ func TestRenderPreviewDoesNotWritePublicFiles(t *testing.T) {
 	if !strings.Contains(html, "<h1>Preview</h1>") {
 		t.Fatalf("preview did not render markdown:\n%s", html)
 	}
+	if !strings.Contains(html, `<img src="data:image/jpeg;base64,`) {
+		t.Fatalf("preview did not inline the cover:\n%s", html)
+	}
+	assertStringOrder(t, html, `<header class="post-header">`, []string{
+		`<img src="data:image/jpeg;base64,`,
+		`<h1>Preview</h1>`,
+	})
 	if !strings.Contains(html, "<style>") || !strings.Contains(html, "font-family:") {
 		t.Fatalf("preview did not inline the stylesheet:\n%s", html)
 	}
@@ -535,20 +552,24 @@ func assertOrderAfter(t *testing.T, path string, marker string, values []string)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
-	content := string(data)
+	assertStringOrder(t, string(data), marker, values)
+}
+
+func assertStringOrder(t *testing.T, content string, marker string, values []string) {
+	t.Helper()
 	markerIndex := strings.Index(content, marker)
 	if markerIndex == -1 {
-		t.Fatalf("expected marker %q in %s:\n%s", marker, path, content)
+		t.Fatalf("expected marker %q in content:\n%s", marker, content)
 	}
 	content = content[markerIndex:]
 	previous := -1
 	for _, value := range values {
 		current := strings.Index(content, value)
 		if current == -1 {
-			t.Fatalf("expected %q in %s:\n%s", value, path, content)
+			t.Fatalf("expected %q in content:\n%s", value, content)
 		}
 		if current <= previous {
-			t.Fatalf("expected %q after previous value in %s:\n%s", value, path, content)
+			t.Fatalf("expected %q after previous value in content:\n%s", value, content)
 		}
 		previous = current
 	}

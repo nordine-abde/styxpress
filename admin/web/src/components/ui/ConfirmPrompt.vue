@@ -10,6 +10,10 @@ defineProps({
     confirmLabel: {
         type: String,
         default: 'Confirm'
+    },
+    disabled: {
+        type: Boolean,
+        default: false
     }
 })
 
@@ -24,11 +28,11 @@ function confirm() {
 
 <template>
     <div class="confirm-prompt">
-        <UiButton v-if="!confirming" tone="danger" @click="confirming = true">
+        <UiButton v-if="!confirming" tone="danger" :disabled="disabled" @click="confirming = true">
             {{ label }}
         </UiButton>
         <template v-else>
-            <UiButton tone="danger" @click="confirm">
+            <UiButton tone="danger" :disabled="disabled" @click="confirm">
                 {{ confirmLabel }}
             </UiButton>
             <UiButton tone="ghost" @click="confirming = false">

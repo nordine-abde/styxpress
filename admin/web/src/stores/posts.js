@@ -42,6 +42,7 @@ export const usePostsStore = defineStore('posts', () => {
     const selectedSlug = ref('')
     const draft = ref({ ...emptyPost })
     const editorOpen = ref(false)
+    const postSetupOpen = ref(false)
     const loading = ref(false)
     const saving = ref(false)
     const uploading = ref(false)
@@ -50,7 +51,8 @@ export const usePostsStore = defineStore('posts', () => {
     let cleanDraftSnapshot = snapshotPost(draft.value)
 
     const selectedPost = computed(() => posts.value.find((post) => post.slug === selectedSlug.value))
-    const canUploadMedia = computed(() => Boolean(selectedSlug.value) && !isDirty.value)
+    const canUploadMedia = computed(() => Boolean(selectedSlug.value || draft.value.slug.trim()))
+    const mediaUploadNeedsSave = computed(() => canUploadMedia.value && (!selectedSlug.value || isDirty.value))
 
     watch(
         draft,
@@ -86,6 +88,7 @@ export const usePostsStore = defineStore('posts', () => {
             draft.value = normalizePost(await apiRequest(`/api/posts/${encodeURIComponent(slug)}`))
             selectedSlug.value = slug
             editorOpen.value = true
+            postSetupOpen.value = false
             markDraftClean()
         } catch (err) {
             error.value = err.message
@@ -98,7 +101,9 @@ export const usePostsStore = defineStore('posts', () => {
     function newPost() {
         selectedSlug.value = ''
         draft.value = normalizePost()
-        editorOpen.value = true
+        editorOpen.value = false
+        postSetupOpen.value = true
+        error.value = ''
         markDraftClean()
     }
 
@@ -106,6 +111,7 @@ export const usePostsStore = defineStore('posts', () => {
         selectedSlug.value = ''
         draft.value = normalizePost()
         editorOpen.value = false
+        postSetupOpen.value = false
         markDraftClean()
     }
 
@@ -151,9 +157,22 @@ export const usePostsStore = defineStore('posts', () => {
         }
     }
 
+    async function createPreparedPost() {
+        const title = draft.value.title.trim()
+        draft.value = normalizePost({
+            ...draft.value,
+            slug: draft.value.slug.trim(),
+            title,
+            source: draft.value.source === emptyPost.source ? `# ${title}\n` : draft.value.source
+        })
+        const saved = await saveDraft()
+        postSetupOpen.value = false
+        editorOpen.value = true
+        return saved
+    }
+
     async function uploadCover(file) {
         const uiStore = useUiStore()
-        const slug = selectedSlug.value
         if (!canUploadMedia.value || !file) {
             return
         }
@@ -161,6 +180,7 @@ export const usePostsStore = defineStore('posts', () => {
         form.append('file', file)
         uploading.value = true
         try {
+            const slug = await ensureMediaPostSaved()
             await apiRequest(`/api/posts/${encodeURIComponent(slug)}/cover`, {
                 method: 'POST',
                 body: form
@@ -178,12 +198,12 @@ export const usePostsStore = defineStore('posts', () => {
 
     async function deleteCover() {
         const uiStore = useUiStore()
-        const slug = selectedSlug.value
         if (!canUploadMedia.value) {
             return
         }
         uploading.value = true
         try {
+            const slug = await ensureMediaPostSaved()
             await apiRequest(`/api/posts/${encodeURIComponent(slug)}/cover`, {
                 method: 'DELETE'
             })
@@ -200,7 +220,6 @@ export const usePostsStore = defineStore('posts', () => {
 
     async function uploadAsset(file, path) {
         const uiStore = useUiStore()
-        const slug = selectedSlug.value
         if (!canUploadMedia.value || !file) {
             return
         }
@@ -212,6 +231,7 @@ export const usePostsStore = defineStore('posts', () => {
         }
         uploading.value = true
         try {
+            const slug = await ensureMediaPostSaved()
             await apiRequest(`/api/posts/${encodeURIComponent(slug)}/assets`, {
                 method: 'POST',
                 body: form
@@ -229,12 +249,12 @@ export const usePostsStore = defineStore('posts', () => {
 
     async function deleteAsset(assetPath) {
         const uiStore = useUiStore()
-        const slug = selectedSlug.value
         if (!canUploadMedia.value || !assetPath) {
             return
         }
         uploading.value = true
         try {
+            const slug = await ensureMediaPostSaved()
             const encodedPath = assetPath.split('/').map((part) => encodeURIComponent(part)).join('/')
             await apiRequest(`/api/posts/${encodeURIComponent(slug)}/assets/${encodedPath}`, {
                 method: 'DELETE'
@@ -250,6 +270,14 @@ export const usePostsStore = defineStore('posts', () => {
         }
     }
 
+    async function ensureMediaPostSaved() {
+        if (!selectedSlug.value || isDirty.value) {
+            const saved = await saveDraft()
+            return saved.slug
+        }
+        return selectedSlug.value
+    }
+
     function markDraftClean() {
         cleanDraftSnapshot = snapshotPost(draft.value)
         isDirty.value = false
@@ -260,6 +288,7 @@ export const usePostsStore = defineStore('posts', () => {
         selectedSlug,
         draft,
         editorOpen,
+        postSetupOpen,
         loading,
         saving,
         uploading,
@@ -267,6 +296,7 @@ export const usePostsStore = defineStore('posts', () => {
         isDirty,
         selectedPost,
         canUploadMedia,
+        mediaUploadNeedsSave,
         loadPosts,
         selectPost,
         newPost,
@@ -274,6 +304,7 @@ export const usePostsStore = defineStore('posts', () => {
         discardDraftChanges,
         reset,
         saveDraft,
+        createPreparedPost,
         uploadCover,
         deleteCover,
         uploadAsset,

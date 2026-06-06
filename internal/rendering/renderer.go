@@ -2,12 +2,14 @@ package rendering
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	stdhtml "html"
 	"html/template"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"sort"
@@ -70,8 +72,8 @@ type pageData struct {
 	Title          string
 	Description    string
 	CanonicalURL   string
-	OpenGraphImage string
-	CoverURL       string
+	OpenGraphImage template.URL
+	CoverURL       template.URL
 	PublishedAt    string
 	UpdatedAt      string
 	ArticleHTML    template.HTML
@@ -274,7 +276,7 @@ func (r *Renderer) RenderPost(slug string) (Result, error) {
 }
 
 func (r *Renderer) renderLoadedPost(post content.Post) (Result, error) {
-	document, err := r.renderPostDocument(post, r.siteConfig, linkedStyle())
+	document, err := r.renderPostDocument(post, r.siteConfig, linkedStyle(), false)
 	if err != nil {
 		return Result{}, err
 	}
@@ -307,7 +309,7 @@ func (r *Renderer) renderLoadedPost(post content.Post) (Result, error) {
 }
 
 func (r *Renderer) RenderPreview(post content.Post) (string, error) {
-	return r.renderPostDocument(post, r.siteConfig, inlineStyle())
+	return r.renderPostDocument(post, r.siteConfig, inlineStyle(), true)
 }
 
 func (r *Renderer) RenderSitePreview(cfg siteconfig.Config) (string, error) {
@@ -322,7 +324,7 @@ func (r *Renderer) RenderSitePreview(cfg siteconfig.Config) (string, error) {
 	return r.renderHomepage(posts, cfg, inlineStyle())
 }
 
-func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, style styleTemplateData) (string, error) {
+func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, style styleTemplateData, preview bool) (string, error) {
 	if err := content.ValidateSlug(post.Slug); err != nil {
 		return "", err
 	}
@@ -335,7 +337,15 @@ func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, 
 	basePostURL := "/posts/" + post.Slug
 	coverURL := ""
 	if post.Cover != "" {
-		coverURL = basePostURL + "/" + post.Cover
+		if preview {
+			var err error
+			coverURL, err = r.previewCoverURL(post)
+			if err != nil {
+				return "", err
+			}
+		} else {
+			coverURL = basePostURL + "/" + post.Cover
+		}
 	}
 
 	data := pageData{
@@ -343,8 +353,8 @@ func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, 
 		Title:          post.Title,
 		Description:    post.Description,
 		CanonicalURL:   r.absoluteURL(basePostURL),
-		OpenGraphImage: r.absoluteURL(coverURL),
-		CoverURL:       coverURL,
+		OpenGraphImage: template.URL(r.absoluteURL(coverURL)),
+		CoverURL:       template.URL(coverURL),
 		PublishedAt:    formatOptionalTime(post.PublishedAt, "2006-01-02T15:04:05Z"),
 		UpdatedAt:      formatOptionalTime(post.UpdatedAt, "2006-01-02T15:04:05Z"),
 		ArticleHTML:    template.HTML(article.String()),
@@ -355,6 +365,27 @@ func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, 
 		return "", err
 	}
 	return document.String(), nil
+}
+
+func (r *Renderer) previewCoverURL(post content.Post) (string, error) {
+	if post.Cover == "" {
+		return "", nil
+	}
+	if !isCoverFile(post.Cover) {
+		return "", content.ErrUnsupportedCover
+	}
+	data, err := os.ReadFile(filepath.Join(r.contentRoot, postsDirName, post.Slug, post.Cover))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(post.Cover))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }
 
 func (r *Renderer) homepagePosts(cleanupOutput bool) ([]content.Post, error) {
@@ -769,12 +800,12 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 <main id="content" class="site-main post-main">
 <article class="post-article">
 <header class="post-header">
+{{- if .CoverURL }}
+<img src="{{ .CoverURL }}" alt="">
+{{- end }}
 <h1>{{ .Title }}</h1>
 {{- if .Description }}
 <p>{{ .Description }}</p>
-{{- end }}
-{{- if .CoverURL }}
-<img src="{{ .CoverURL }}" alt="">
 {{- end }}
 </header>
 <div class="post-content">
