@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/nordine-abde/styxpress/internal/config"
 	"github.com/nordine-abde/styxpress/internal/content"
+	deploypkg "github.com/nordine-abde/styxpress/internal/deploy"
 	"github.com/nordine-abde/styxpress/internal/rendering"
 	"github.com/nordine-abde/styxpress/internal/siteconfig"
 )
@@ -101,6 +103,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/posts/{slug}/render", s.withAuth(s.renderPost))
 	mux.HandleFunc("POST /api/posts/{slug}/publish", s.withAuth(s.publishPost))
 	mux.HandleFunc("POST /api/site/render", s.withAuth(s.renderSite))
+	mux.HandleFunc("GET /api/deploy/status", s.withAuth(s.deployStatus))
+	mux.HandleFunc("POST /api/deploy", s.withAuth(s.deployNow))
 	return mux
 }
 
@@ -352,13 +356,23 @@ type previewResponse struct {
 }
 
 type renderPostResponse struct {
-	Post rendering.Result     `json:"post"`
-	Site rendering.SiteResult `json:"site"`
+	Post   rendering.Result     `json:"post"`
+	Site   rendering.SiteResult `json:"site"`
+	Deploy *deploypkg.Summary   `json:"deploy,omitempty"`
 }
 
 type renderSiteResponse struct {
-	Posts []rendering.Result   `json:"posts"`
-	Site  rendering.SiteResult `json:"site"`
+	Posts  []rendering.Result   `json:"posts"`
+	Site   rendering.SiteResult `json:"site"`
+	Deploy *deploypkg.Summary   `json:"deploy,omitempty"`
+}
+
+type deployStatusResponse struct {
+	Enabled    bool               `json:"enabled"`
+	Configured bool               `json:"configured"`
+	Mode       string             `json:"mode"`
+	OutOfSync  bool               `json:"outOfSync"`
+	Summary    *deploypkg.Summary `json:"summary,omitempty"`
 }
 
 func (s *Server) listPosts(w http.ResponseWriter, _ *http.Request) {
@@ -648,13 +662,18 @@ func (s *Server) renderPost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, renderPostResponse{Post: result, Site: site})
 }
 
-func (s *Server) renderSite(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) renderSite(w http.ResponseWriter, r *http.Request) {
 	result, err := s.renderAll()
 	if err != nil {
 		s.writeRenderError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, renderSiteResponse{Posts: result.Posts, Site: result.Site})
+	deploySummary, err := s.autoDeploy(r.Context())
+	if err != nil {
+		s.writeDeployError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, renderSiteResponse{Posts: result.Posts, Site: result.Site, Deploy: deploySummary})
 }
 
 func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
@@ -682,7 +701,69 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 		s.writeRenderError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, renderPostResponse{Post: postResult, Site: siteResult})
+	deploySummary, err := s.autoDeploy(r.Context())
+	if err != nil {
+		s.writeDeployError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, renderPostResponse{Post: postResult, Site: siteResult, Deploy: deploySummary})
+}
+
+func (s *Server) deployStatus(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.loadConfig()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	response := deployStatusResponse{
+		Enabled: cfg.Deploy.Enabled,
+		Mode:    cfg.Deploy.Mode,
+	}
+	if !cfg.Deploy.Enabled {
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+	response.Configured = deployConfigured(cfg)
+	if !response.Configured {
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+	publicDir, err := configuredPath(cfg.PublicDir)
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	summary, err := deploypkg.Status(r.Context(), publicDir, deployConfig(cfg))
+	if err != nil {
+		s.writeDeployError(w, err)
+		return
+	}
+	response.OutOfSync = summary.OutOfSync
+	response.Summary = &summary
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) deployNow(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.loadConfig()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	if !cfg.Deploy.Enabled {
+		WriteError(w, http.StatusBadRequest, "deploy_disabled", "SFTP deploy is disabled")
+		return
+	}
+	publicDir, err := configuredPath(cfg.PublicDir)
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	summary, err := deploypkg.Sync(r.Context(), publicDir, deployConfig(cfg))
+	if err != nil {
+		s.writeDeployError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (s *Server) renderPostAndSite(slug string) (rendering.Result, rendering.SiteResult, error) {
@@ -721,6 +802,25 @@ func (s *Server) renderAll() (rendering.AllResult, error) {
 	return renderer.RenderAll()
 }
 
+func (s *Server) autoDeploy(ctx context.Context) (*deploypkg.Summary, error) {
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.Deploy.Enabled || cfg.Deploy.Mode != "auto" {
+		return nil, nil
+	}
+	publicDir, err := configuredPath(cfg.PublicDir)
+	if err != nil {
+		return nil, err
+	}
+	summary, err := deploypkg.Sync(ctx, publicDir, deployConfig(cfg))
+	if err != nil {
+		return nil, err
+	}
+	return &summary, nil
+}
+
 func (s *Server) repository() (*content.Repository, error) {
 	contentDir, err := s.configuredContentDir()
 	if err != nil {
@@ -751,6 +851,24 @@ func (s *Server) renderer() (*rendering.Renderer, error) {
 		return nil, err
 	}
 	return rendering.New(contentDir, publicDir)
+}
+
+func deployConfig(cfg config.Config) deploypkg.Config {
+	return deploypkg.Config{
+		Host:           cfg.Deploy.SFTP.Host,
+		Port:           cfg.Deploy.SFTP.Port,
+		User:           cfg.Deploy.SFTP.User,
+		RemotePath:     cfg.Deploy.SFTP.RemotePath,
+		KeyPath:        cfg.Deploy.SFTP.KeyPath,
+		KnownHostsPath: cfg.Deploy.SFTP.KnownHostsPath,
+		DeleteExtra:    cfg.Deploy.SFTP.DeleteExtra,
+	}
+}
+
+func deployConfigured(cfg config.Config) bool {
+	return strings.TrimSpace(cfg.Deploy.SFTP.Host) != "" &&
+		strings.TrimSpace(cfg.Deploy.SFTP.User) != "" &&
+		strings.TrimSpace(cfg.Deploy.SFTP.RemotePath) != ""
 }
 
 func (s *Server) loadConfig() (config.Config, error) {
@@ -860,6 +978,16 @@ func (s *Server) writeRenderError(w http.ResponseWriter, err error) {
 	default:
 		s.logger.Printf("render error: %v", err)
 		WriteError(w, http.StatusInternalServerError, "render_failed", "failed to render content")
+	}
+}
+
+func (s *Server) writeDeployError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrInvalidLocalPath), errors.Is(err, config.ErrInvalidConfig), errors.Is(err, deploypkg.ErrInvalidConfig):
+		WriteError(w, http.StatusBadRequest, "invalid_deploy_config", err.Error())
+	default:
+		s.logger.Printf("deploy error: %v", err)
+		WriteError(w, http.StatusBadGateway, "deploy_failed", err.Error())
 	}
 }
 

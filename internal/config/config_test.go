@@ -26,6 +26,19 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		Name:       "My Blog",
 		ContentDir: "/tmp/content",
 		PublicDir:  "/tmp/public",
+		Deploy: DeployConfig{
+			Enabled: true,
+			Mode:    "manual",
+			SFTP: SFTPConfig{
+				Host:           "example.com",
+				Port:           2222,
+				User:           "deploy",
+				RemotePath:     "/public_html",
+				KeyPath:        "~/.ssh/id_ed25519",
+				KnownHostsPath: "~/.ssh/known_hosts",
+				DeleteExtra:    true,
+			},
+		},
 	}
 
 	if err := Save(path, cfg); err != nil {
@@ -55,6 +68,9 @@ func TestSaveAppliesDefaults(t *testing.T) {
 	if got.ContentDir != "content" || got.PublicDir != "public" {
 		t.Fatalf("Load() = %#v, want default paths", got)
 	}
+	if got.Deploy.Mode != "manual" || got.Deploy.SFTP.Port != 22 {
+		t.Fatalf("Load() deploy = %#v, want default manual SFTP port", got.Deploy)
+	}
 }
 
 func TestSaveUsesRestrictiveFilePermissions(t *testing.T) {
@@ -78,10 +94,19 @@ func TestSaveUsesRestrictiveFilePermissions(t *testing.T) {
 
 func TestValidateRejectsNULBytes(t *testing.T) {
 	cfg := Default()
-	cfg.PublicDir = "public\x00"
+	cfg.Deploy.SFTP.Host = "example.com\x00"
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate returned nil, want error")
+	}
+}
+
+func TestValidateRequiresSFTPFieldsWhenDeployEnabled(t *testing.T) {
+	cfg := Default()
+	cfg.Deploy.Enabled = true
+
+	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Validate error = %v, want ErrInvalidConfig", err)
 	}
 }
 

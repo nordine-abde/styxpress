@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, watch } from 'vue'
+import DeployPanel from './DeployPanel.vue'
 import SiteLinkEditor from './SiteLinkEditor.vue'
 import UiBadge from './ui/UiBadge.vue'
 import UiButton from './ui/UiButton.vue'
@@ -146,6 +147,8 @@ onBeforeUnmount(() => {
                     </p>
                 </div>
             </UiPanel>
+
+            <DeployPanel compact />
         </aside>
     </div>
 </template>

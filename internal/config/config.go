@@ -24,15 +24,38 @@ var ErrInvalidConfig = errors.New("invalid config")
 var userHomeDir = os.UserHomeDir
 
 type Config struct {
-	Name       string `json:"name"`
-	ContentDir string `json:"contentDir"`
-	PublicDir  string `json:"publicDir"`
+	Name       string       `json:"name"`
+	ContentDir string       `json:"contentDir"`
+	PublicDir  string       `json:"publicDir"`
+	Deploy     DeployConfig `json:"deploy"`
+}
+
+type DeployConfig struct {
+	Enabled bool       `json:"enabled"`
+	Mode    string     `json:"mode"`
+	SFTP    SFTPConfig `json:"sftp"`
+}
+
+type SFTPConfig struct {
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	User           string `json:"user"`
+	RemotePath     string `json:"remotePath"`
+	KeyPath        string `json:"keyPath"`
+	KnownHostsPath string `json:"knownHostsPath"`
+	DeleteExtra    bool   `json:"deleteExtra"`
 }
 
 func Default() Config {
 	return Config{
 		ContentDir: "content",
 		PublicDir:  "public",
+		Deploy: DeployConfig{
+			Mode: "manual",
+			SFTP: SFTPConfig{
+				Port: 22,
+			},
+		},
 	}
 }
 
@@ -105,8 +128,31 @@ func Save(path string, cfg Config) error {
 func (c Config) Validate() error {
 	if strings.Contains(c.Name, "\x00") ||
 		strings.Contains(c.ContentDir, "\x00") ||
-		strings.Contains(c.PublicDir, "\x00") {
+		strings.Contains(c.PublicDir, "\x00") ||
+		strings.Contains(c.Deploy.Mode, "\x00") ||
+		strings.Contains(c.Deploy.SFTP.Host, "\x00") ||
+		strings.Contains(c.Deploy.SFTP.User, "\x00") ||
+		strings.Contains(c.Deploy.SFTP.RemotePath, "\x00") ||
+		strings.Contains(c.Deploy.SFTP.KeyPath, "\x00") ||
+		strings.Contains(c.Deploy.SFTP.KnownHostsPath, "\x00") {
 		return fmt.Errorf("%w: fields must not contain NUL bytes", ErrInvalidConfig)
+	}
+	if c.Deploy.Mode != "manual" && c.Deploy.Mode != "auto" {
+		return fmt.Errorf("%w: deploy mode must be manual or auto", ErrInvalidConfig)
+	}
+	if c.Deploy.SFTP.Port < 1 || c.Deploy.SFTP.Port > 65535 {
+		return fmt.Errorf("%w: SFTP port must be between 1 and 65535", ErrInvalidConfig)
+	}
+	if c.Deploy.Enabled {
+		if c.Deploy.SFTP.Host == "" {
+			return fmt.Errorf("%w: SFTP host is required when deploy is enabled", ErrInvalidConfig)
+		}
+		if c.Deploy.SFTP.User == "" {
+			return fmt.Errorf("%w: SFTP user is required when deploy is enabled", ErrInvalidConfig)
+		}
+		if c.Deploy.SFTP.RemotePath == "" {
+			return fmt.Errorf("%w: SFTP remote path is required when deploy is enabled", ErrInvalidConfig)
+		}
 	}
 	return nil
 }
@@ -120,14 +166,35 @@ func WithDefaults(cfg Config) Config {
 	if cfg.PublicDir == "" {
 		cfg.PublicDir = defaults.PublicDir
 	}
+	cfg.Deploy.Mode = strings.TrimSpace(cfg.Deploy.Mode)
+	if cfg.Deploy.Mode == "" {
+		cfg.Deploy.Mode = defaults.Deploy.Mode
+	}
+	cfg.Deploy.SFTP.Host = strings.TrimSpace(cfg.Deploy.SFTP.Host)
+	cfg.Deploy.SFTP.User = strings.TrimSpace(cfg.Deploy.SFTP.User)
+	cfg.Deploy.SFTP.RemotePath = strings.TrimSpace(cfg.Deploy.SFTP.RemotePath)
+	cfg.Deploy.SFTP.KeyPath = strings.TrimSpace(cfg.Deploy.SFTP.KeyPath)
+	cfg.Deploy.SFTP.KnownHostsPath = strings.TrimSpace(cfg.Deploy.SFTP.KnownHostsPath)
+	if cfg.Deploy.SFTP.Port == 0 {
+		cfg.Deploy.SFTP.Port = defaults.Deploy.SFTP.Port
+	}
 	return cfg
 }
 
 func encode(w io.Writer, cfg Config) error {
 	values := map[string]configValue{
-		"name":        stringConfigValue(cfg.Name),
-		"content_dir": stringConfigValue(cfg.ContentDir),
-		"public_dir":  stringConfigValue(cfg.PublicDir),
+		"deploy_enabled":        boolConfigValue(cfg.Deploy.Enabled),
+		"deploy_mode":           stringConfigValue(cfg.Deploy.Mode),
+		"name":                  stringConfigValue(cfg.Name),
+		"content_dir":           stringConfigValue(cfg.ContentDir),
+		"public_dir":            stringConfigValue(cfg.PublicDir),
+		"sftp_delete_extra":     boolConfigValue(cfg.Deploy.SFTP.DeleteExtra),
+		"sftp_host":             stringConfigValue(cfg.Deploy.SFTP.Host),
+		"sftp_known_hosts_path": stringConfigValue(cfg.Deploy.SFTP.KnownHostsPath),
+		"sftp_key_path":         stringConfigValue(cfg.Deploy.SFTP.KeyPath),
+		"sftp_port":             intConfigValue(cfg.Deploy.SFTP.Port),
+		"sftp_remote_path":      stringConfigValue(cfg.Deploy.SFTP.RemotePath),
+		"sftp_user":             stringConfigValue(cfg.Deploy.SFTP.User),
 	}
 
 	keys := make([]string, 0, len(values))
@@ -158,6 +225,14 @@ func stringConfigValue(value string) configValue {
 	return configValue{Value: value, Quoted: true}
 }
 
+func boolConfigValue(value bool) configValue {
+	return configValue{Value: strconv.FormatBool(value)}
+}
+
+func intConfigValue(value int) configValue {
+	return configValue{Value: strconv.Itoa(value)}
+}
+
 func decode(r io.Reader, cfg *Config) error {
 	scanner := bufio.NewScanner(r)
 	lineNumber := 0
@@ -175,18 +250,79 @@ func decode(r io.Reader, cfg *Config) error {
 		key = strings.TrimSpace(key)
 		rawValue = strings.TrimSpace(rawValue)
 
-		value, err := strconv.Unquote(rawValue)
-		if err != nil {
-			return fmt.Errorf("%w: line %d value must be a quoted string", ErrInvalidConfig, lineNumber)
-		}
-
 		switch key {
 		case "name":
+			value, err := decodeStringValue(rawValue, lineNumber)
+			if err != nil {
+				return err
+			}
 			cfg.Name = value
 		case "content_dir":
+			value, err := decodeStringValue(rawValue, lineNumber)
+			if err != nil {
+				return err
+			}
 			cfg.ContentDir = value
 		case "public_dir":
+			value, err := decodeStringValue(rawValue, lineNumber)
+			if err != nil {
+				return err
+			}
 			cfg.PublicDir = value
+		case "deploy_enabled":
+			parsed, err := strconv.ParseBool(rawValue)
+			if err != nil {
+				return fmt.Errorf("%w: line %d value must be true or false", ErrInvalidConfig, lineNumber)
+			}
+			cfg.Deploy.Enabled = parsed
+		case "deploy_mode":
+			value, err := decodeStringValue(rawValue, lineNumber)
+			if err != nil {
+				return err
+			}
+			cfg.Deploy.Mode = value
+		case "sftp_host":
+			value, err := decodeStringValue(rawValue, lineNumber)
+			if err != nil {
+				return err
+			}
+			cfg.Deploy.SFTP.Host = value
+		case "sftp_port":
+			parsed, err := strconv.Atoi(rawValue)
+			if err != nil {
+				return fmt.Errorf("%w: line %d value must be an integer", ErrInvalidConfig, lineNumber)
+			}
+			cfg.Deploy.SFTP.Port = parsed
+		case "sftp_user":
+			value, err := decodeStringValue(rawValue, lineNumber)
+			if err != nil {
+				return err
+			}
+			cfg.Deploy.SFTP.User = value
+		case "sftp_remote_path":
+			value, err := decodeStringValue(rawValue, lineNumber)
+			if err != nil {
+				return err
+			}
+			cfg.Deploy.SFTP.RemotePath = value
+		case "sftp_key_path":
+			value, err := decodeStringValue(rawValue, lineNumber)
+			if err != nil {
+				return err
+			}
+			cfg.Deploy.SFTP.KeyPath = value
+		case "sftp_known_hosts_path":
+			value, err := decodeStringValue(rawValue, lineNumber)
+			if err != nil {
+				return err
+			}
+			cfg.Deploy.SFTP.KnownHostsPath = value
+		case "sftp_delete_extra":
+			parsed, err := strconv.ParseBool(rawValue)
+			if err != nil {
+				return fmt.Errorf("%w: line %d value must be true or false", ErrInvalidConfig, lineNumber)
+			}
+			cfg.Deploy.SFTP.DeleteExtra = parsed
 		default:
 			return fmt.Errorf("%w: unknown key %q", ErrInvalidConfig, key)
 		}
@@ -195,4 +331,12 @@ func decode(r io.Reader, cfg *Config) error {
 		return err
 	}
 	return nil
+}
+
+func decodeStringValue(rawValue string, lineNumber int) (string, error) {
+	value, err := strconv.Unquote(rawValue)
+	if err != nil {
+		return "", fmt.Errorf("%w: line %d value must be a quoted string", ErrInvalidConfig, lineNumber)
+	}
+	return value, nil
 }

@@ -1,12 +1,26 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { apiRequest } from '../api/client'
+import { useDeployStore } from './deploy'
 import { useUiStore } from './ui'
 
 const defaultConfig = {
     name: '',
     contentDir: 'content',
-    publicDir: 'public'
+    publicDir: 'public',
+    deploy: {
+        enabled: false,
+        mode: 'manual',
+        sftp: {
+            host: '',
+            port: 22,
+            user: '',
+            remotePath: '',
+            keyPath: '',
+            knownHostsPath: '',
+            deleteExtra: false
+        }
+    }
 }
 
 export const useConfigStore = defineStore('config', () => {
@@ -30,6 +44,7 @@ export const useConfigStore = defineStore('config', () => {
             if (!activeSite.value?.config && !multiSite.value) {
                 config.value = mergeConfig(await apiRequest('/api/config'))
             }
+            syncDeployStore()
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)
@@ -45,12 +60,10 @@ export const useConfigStore = defineStore('config', () => {
         try {
             config.value = mergeConfig(await apiRequest('/api/config', {
                 method: 'POST',
-                body: {
-                    ...defaultConfig,
-                    ...nextConfig
-                }
+                body: mergeConfig(nextConfig)
             }))
             syncActiveSiteConfig(config.value)
+            syncDeployStore()
             uiStore.setNotice('Configuration saved.')
         } catch (err) {
             error.value = err.message
@@ -80,6 +93,7 @@ export const useConfigStore = defineStore('config', () => {
                 }
             })
             await loadConfig()
+            syncDeployStore()
             uiStore.setNotice(`Site "${site.name}" created.`)
             return site
         } catch (err) {
@@ -101,6 +115,7 @@ export const useConfigStore = defineStore('config', () => {
                 body: {}
             })
             await loadConfig()
+            syncDeployStore()
             uiStore.setNotice(`Site "${site.name}" selected.`)
             return site
         } catch (err) {
@@ -120,6 +135,7 @@ export const useConfigStore = defineStore('config', () => {
             applySites(await apiRequest(`/api/sites/${encodeURIComponent(id)}`, {
                 method: 'DELETE'
             }))
+            syncDeployStore()
             uiStore.setNotice('Site deleted.')
         } catch (err) {
             error.value = err.message
@@ -137,9 +153,11 @@ export const useConfigStore = defineStore('config', () => {
         const active = sites.value.find((site) => site.id === activeSiteId.value)
         if (active?.config) {
             config.value = mergeConfig(active.config)
+            syncDeployStore()
             return
         }
         config.value = mergeConfig()
+        syncDeployStore()
     }
 
     function syncActiveSiteConfig(nextConfig) {
@@ -153,6 +171,11 @@ export const useConfigStore = defineStore('config', () => {
                 config: mergeConfig(nextConfig)
             }
         })
+    }
+
+    function syncDeployStore() {
+        const deployStore = useDeployStore()
+        deployStore.syncFromConfig(config.value)
     }
 
     return {
@@ -175,8 +198,30 @@ export const useConfigStore = defineStore('config', () => {
 })
 
 function mergeConfig(value = {}) {
+    const deploy = value.deploy || {}
+    const sftp = deploy.sftp || {}
     return {
         ...defaultConfig,
-        ...value
+        ...value,
+        deploy: {
+            ...defaultConfig.deploy,
+            ...deploy,
+            enabled: deploy.enabled === true,
+            mode: deploy.mode === 'auto' ? 'auto' : 'manual',
+            sftp: {
+                ...defaultConfig.deploy.sftp,
+                ...sftp,
+                port: normalizePort(sftp.port),
+                deleteExtra: sftp.deleteExtra === true
+            }
+        }
     }
+}
+
+function normalizePort(value) {
+    const port = Number(value || defaultConfig.deploy.sftp.port)
+    if (!Number.isFinite(port)) {
+        return defaultConfig.deploy.sftp.port
+    }
+    return Math.min(65535, Math.max(1, Math.trunc(port)))
 }

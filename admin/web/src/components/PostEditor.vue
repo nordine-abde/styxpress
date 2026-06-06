@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue'
+import DeployPanel from './DeployPanel.vue'
 import FileField from './ui/FileField.vue'
 import PostAssetPanel from './PostAssetPanel.vue'
 import UiButton from './ui/UiButton.vue'
@@ -179,6 +180,7 @@ function encodeMarkdownPath(path) {
                     </p>
                 </div>
             </UiPanel>
+            <DeployPanel compact />
         </div>
     </div>
 </template>

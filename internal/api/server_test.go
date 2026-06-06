@@ -57,7 +57,20 @@ func TestConfigEndpointSavesLocalPathsOnly(t *testing.T) {
 	request := authedRequest(t, server, http.MethodPost, "/api/config", `{
 		"name":"Client Live",
 		"contentDir":"`+escapeJSON(contentDir)+`",
-		"publicDir":"`+escapeJSON(publicDir)+`"
+		"publicDir":"`+escapeJSON(publicDir)+`",
+		"deploy":{
+			"enabled":true,
+			"mode":"manual",
+			"sftp":{
+				"host":"example.com",
+				"port":2222,
+				"user":"deploy",
+				"remotePath":"/public_html",
+				"keyPath":"~/.ssh/id_ed25519",
+				"knownHostsPath":"~/.ssh/known_hosts",
+				"deleteExtra":true
+			}
+		}
 	}`)
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
@@ -70,14 +83,42 @@ func TestConfigEndpointSavesLocalPathsOnly(t *testing.T) {
 		t.Fatalf("decode config: %v", err)
 	}
 	if saved.Name != "Client Live" || saved.ContentDir != contentDir || saved.PublicDir != publicDir {
-		t.Fatalf("config = %#v, want local config", saved)
+		t.Fatalf("config = %#v, want local paths", saved)
+	}
+	if !saved.Deploy.Enabled || saved.Deploy.Mode != "manual" || saved.Deploy.SFTP.Host != "example.com" || saved.Deploy.SFTP.DeleteExtra != true {
+		t.Fatalf("deploy config = %#v, want SFTP config without secrets", saved.Deploy)
 	}
 
-	removedField := authedRequest(t, server, http.MethodPost, "/api/config", `{"remoteHost":"example.com"}`)
+	removedField := authedRequest(t, server, http.MethodPost, "/api/config", `{"remoteHost":"example.com","deploy":{"sftp":{"password":"secret"}}}`)
 	recorder = httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, removedField)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("removed field status = %d, body = %s; want 400", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestDeployEndpointsRequireEnabledSFTPConfig(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	status := authedRequest(t, server, http.MethodGet, "/api/deploy/status", "")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, status)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, body = %s; want 200", recorder.Code, recorder.Body.String())
+	}
+	var statusBody deployStatusResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if statusBody.Enabled || statusBody.Configured || statusBody.OutOfSync {
+		t.Fatalf("status = %#v, want disabled deploy status", statusBody)
+	}
+
+	deploy := authedRequest(t, server, http.MethodPost, "/api/deploy", `{}`)
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, deploy)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("deploy code = %d, body = %s; want 400", recorder.Code, recorder.Body.String())
 	}
 }
 
