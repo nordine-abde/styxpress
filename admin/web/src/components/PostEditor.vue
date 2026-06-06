@@ -110,18 +110,23 @@ function encodeMarkdownPath(path) {
                         <UiButton tone="ghost" @click="backToList">
                             Back to posts
                         </UiButton>
-                        <div class="mode-switch" aria-label="Editor mode">
-                            <UiButton
-                                :tone="editorMode === 'compose' ? 'primary' : 'ghost'"
-                                @click="editorMode = 'compose'"
-                            >
-                                Compose
-                            </UiButton>
-                            <UiButton
-                                :tone="editorMode === 'markdown' ? 'primary' : 'ghost'"
-                                @click="editorMode = 'markdown'"
-                            >
-                                MD
+                        <div class="editor-actions-right">
+                            <div class="mode-switch" aria-label="Editor mode">
+                                <UiButton
+                                    :tone="editorMode === 'compose' ? 'primary' : 'ghost'"
+                                    @click="editorMode = 'compose'"
+                                >
+                                    Compose
+                                </UiButton>
+                                <UiButton
+                                    :tone="editorMode === 'markdown' ? 'primary' : 'ghost'"
+                                    @click="editorMode = 'markdown'"
+                                >
+                                    MD
+                                </UiButton>
+                            </div>
+                            <UiButton tone="primary" :busy="saving" @click="saveAndRenderPost">
+                                Save
                             </UiButton>
                         </div>
                     </div>
@@ -197,6 +202,13 @@ function encodeMarkdownPath(path) {
     gap: 0.7rem;
     align-items: center;
     justify-content: space-between;
+}
+
+.editor-actions-right {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
 }
 
 .mode-switch {

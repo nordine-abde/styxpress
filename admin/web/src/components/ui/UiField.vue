@@ -58,6 +58,7 @@ defineEmits(['update:modelValue'])
 .field {
     display: grid;
     gap: 0.35rem;
+    align-content: start;
 }
 
 span {

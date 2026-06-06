@@ -26,7 +26,17 @@ let editor = null
 let syncingFromParent = false
 let imageObserver = null
 let imageRefreshTimer = 0
+let toolbarStateSyncFrame = 0
 let objectUrls = []
+
+const toolbarButtonStates = [
+    { buttonClass: 'heading', stateKey: 'heading' },
+    { buttonClass: 'bold', stateKey: 'strong' },
+    { buttonClass: 'italic', stateKey: 'emph' },
+    { buttonClass: 'bullet-list', stateKey: 'bulletList' },
+    { buttonClass: 'ordered-list', stateKey: 'orderedList' },
+    { buttonClass: 'quote', stateKey: 'blockQuote' }
+]
 
 onMounted(() => {
     editor = new Editor({
@@ -64,6 +74,7 @@ onMounted(() => {
         childList: true,
         subtree: true
     })
+    attachToolbarStateSync()
     queueImageRefresh()
     emit('ready', {
         insertMarkdown,
@@ -139,6 +150,96 @@ function queueImageRefresh() {
     imageRefreshTimer = window.setTimeout(() => {
         refreshEditorImages()
     }, 60)
+}
+
+function attachToolbarStateSync() {
+    const queueFromPayload = ({ toolbarState = {} } = {}) => {
+        queueToolbarStateSync(toolbarState)
+    }
+    const queueCurrentState = () => {
+        queueToolbarStateSync()
+    }
+
+    editor.eventEmitter.listen('changeToolbarState', queueFromPayload)
+    editor.eventEmitter.listen('command', queueCurrentState)
+    editor.on('caretChange', queueCurrentState)
+    editor.on('change', queueCurrentState)
+    editor.on('focus', queueCurrentState)
+    editor.on('keyup', queueCurrentState)
+    queueToolbarStateSync()
+}
+
+function queueToolbarStateSync(toolbarState = {}) {
+    window.cancelAnimationFrame(toolbarStateSyncFrame)
+    toolbarStateSyncFrame = window.requestAnimationFrame(() => {
+        syncToolbarButtonStates(toolbarState)
+    })
+}
+
+function syncToolbarButtonStates(toolbarState = {}) {
+    if (!editorRoot.value) {
+        return
+    }
+    const currentState = {
+        ...toolbarState,
+        ...currentWysiwygToolbarState()
+    }
+
+    for (const { buttonClass, stateKey } of toolbarButtonStates) {
+        const active = Boolean(currentState[stateKey]?.active)
+        const buttons = editorRoot.value.querySelectorAll(`.toastui-editor-toolbar-icons.${buttonClass}`)
+        for (const button of buttons) {
+            button.classList.toggle('active', active)
+            button.setAttribute('aria-pressed', active ? 'true' : 'false')
+        }
+    }
+}
+
+function currentWysiwygToolbarState() {
+    const state = editor?.wwEditor?.view?.state
+    if (!state || !editor.isWysiwygMode()) {
+        return {}
+    }
+
+    // Toast UI omits ProseMirror stored marks from its toolbar state.
+    const markNames = activeMarkNames(state)
+    const nodeNames = activeNodeNames(state.selection.$from)
+
+    return {
+        strong: { active: markNames.has('strong') },
+        emph: { active: markNames.has('emph') },
+        heading: { active: nodeNames.has('heading') },
+        bulletList: { active: nodeNames.has('bulletList') },
+        orderedList: { active: nodeNames.has('orderedList') },
+        blockQuote: { active: nodeNames.has('blockQuote') }
+    }
+}
+
+function activeMarkNames(state) {
+    const { selection, storedMarks } = state
+    const marks = selection.empty
+        ? storedMarks || selection.$from.marks()
+        : selection.$from.marksAcross(selection.$to) || []
+
+    return new Set(marks.map((mark) => mark.type.name))
+}
+
+function activeNodeNames(resolvedPosition) {
+    const names = new Set()
+
+    for (let depth = resolvedPosition.depth; depth > 0; depth -= 1) {
+        const node = resolvedPosition.node(depth)
+        const parent = depth > 0 ? resolvedPosition.node(depth - 1) : null
+        const nodeName = node.type.name
+
+        names.add(nodeName)
+
+        if (nodeName === 'listItem' && parent?.type?.name) {
+            names.add(node.attrs?.task ? 'taskList' : parent.type.name)
+        }
+    }
+
+    return names
 }
 
 async function refreshEditorImages() {
@@ -218,6 +319,7 @@ function cleanupObjectUrls() {
 
 onBeforeUnmount(() => {
     window.clearTimeout(imageRefreshTimer)
+    window.cancelAnimationFrame(toolbarStateSyncFrame)
     imageObserver?.disconnect()
     cleanupObjectUrls()
     editor?.destroy()
@@ -252,6 +354,12 @@ defineExpose({
 
 .visual-markdown-editor :deep(.toastui-editor-toolbar-icons) {
     border-radius: 6px;
+}
+
+.visual-markdown-editor :deep(.toastui-editor-toolbar-icons.active),
+.visual-markdown-editor :deep(.toastui-editor-toolbar-icons:not(:disabled).active) {
+    background-color: color-mix(in srgb, var(--color-accent) 20%, transparent);
+    box-shadow: inset 0 0 0 2px var(--color-accent);
 }
 
 .visual-markdown-editor :deep(.toastui-editor-contents) {
