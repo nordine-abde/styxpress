@@ -113,6 +113,50 @@ func TestSiteRegistryUsesLocalConfig(t *testing.T) {
 	}
 }
 
+func TestSiteSuggestionUsesUniqueHomePaths(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := config.NewSiteStore(t.TempDir())
+	server, err := newServer("", store, nil)
+	if err != nil {
+		t.Fatalf("newServer returned error: %v", err)
+	}
+
+	suggestion := authedRequest(t, server, http.MethodGet, "/api/sites/suggestion?name=My%20Blog", "")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, suggestion)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("suggestion status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body config.Site
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode suggestion: %v", err)
+	}
+	if body.ID != "my-blog" || body.Config.PublicDir != filepath.Join(home, "Styxpress", "my-blog", "public") {
+		t.Fatalf("suggestion = %#v, want normalized home public dir", body)
+	}
+
+	create := authedRequest(t, server, http.MethodPost, "/api/sites", `{"name":"My Blog"}`)
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, create)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	nextSuggestion := authedRequest(t, server, http.MethodGet, "/api/sites/suggestion?name=My%20Blog", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, nextSuggestion)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("next suggestion status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode next suggestion: %v", err)
+	}
+	if body.ID != "my-blog-2" || body.Config.ContentDir != filepath.Join(home, "Styxpress", "my-blog-2", "content") {
+		t.Fatalf("next suggestion = %#v, want unique home content dir", body)
+	}
+}
+
 func TestPostWorkflowPreviewAndMediaEndpoints(t *testing.T) {
 	server, contentDir, _ := newTestServer(t)
 

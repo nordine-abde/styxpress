@@ -76,6 +76,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.withAuth(s.health))
 	mux.HandleFunc("GET /api/sites", s.withAuth(s.listSites))
+	mux.HandleFunc("GET /api/sites/suggestion", s.withAuth(s.suggestSite))
 	mux.HandleFunc("POST /api/sites", s.withAuth(s.createSite))
 	mux.HandleFunc("POST /api/sites/{id}/select", s.withAuth(s.selectSite))
 	mux.HandleFunc("DELETE /api/sites/{id}", s.withAuth(s.deleteSite))
@@ -146,6 +147,19 @@ func (s *Server) listSites(w http.ResponseWriter, _ *http.Request) {
 		ActiveSiteID: activeID,
 		MultiSite:    s.siteStore != nil,
 	})
+}
+
+func (s *Server) suggestSite(w http.ResponseWriter, r *http.Request) {
+	if s.siteStore == nil {
+		WriteError(w, http.StatusBadRequest, "site_registry_unavailable", "multiple sites are only available when styxpress-admin runs without -config")
+		return
+	}
+	site, err := s.siteStore.Suggest(r.URL.Query().Get("name"))
+	if err != nil {
+		s.writeSiteStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, site)
 }
 
 func (s *Server) createSite(w http.ResponseWriter, r *http.Request) {

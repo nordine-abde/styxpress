@@ -39,12 +39,18 @@ Config object:
 
 - `GET /api/sites`
   Returns saved site configs, `activeSiteId`, and `multiSite`.
+- `GET /api/sites/suggestion?name=My%20site`
+  Returns the normalized unique id and default local folders for a new site.
 - `POST /api/sites`
   Creates a site from `{"name":"My site","config":{...}}` and selects it.
 - `POST /api/sites/{id}/select`
   Selects an existing site.
 - `DELETE /api/sites/{id}`
   Deletes a site. Deleting the last site leaves no active site.
+
+When a multi-site admin session creates a site without explicit folders,
+Styxpress defaults to `~/Styxpress/<site-id>/content` and
+`~/Styxpress/<site-id>/public`.
 
 ## Site Config
 

@@ -61,8 +61,14 @@ export const useConfigStore = defineStore('config', () => {
         }
     }
 
-    async function createSite(name) {
+    async function suggestSite(name) {
+        return apiRequest(`/api/sites/suggestion?name=${encodeURIComponent(name)}`)
+    }
+
+    async function createSite(input) {
         const uiStore = useUiStore()
+        const name = typeof input === 'string' ? input : input?.name
+        const configInput = typeof input === 'string' ? {} : input?.config || {}
         switching.value = true
         error.value = ''
         try {
@@ -70,10 +76,7 @@ export const useConfigStore = defineStore('config', () => {
                 method: 'POST',
                 body: {
                     name,
-                    config: {
-                        ...defaultConfig,
-                        name
-                    }
+                    config: configInput
                 }
             })
             await loadConfig()
@@ -164,6 +167,7 @@ export const useConfigStore = defineStore('config', () => {
         activeSite,
         loadConfig,
         saveConfig,
+        suggestSite,
         createSite,
         selectSite,
         deleteSite

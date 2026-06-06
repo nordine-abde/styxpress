@@ -108,7 +108,8 @@ The admin server binds to `127.0.0.1` by default.
 
 ## Workflow
 
-1. Create or open a site from **My sites**.
+1. Create or open a site from **My sites**. New sites get a normalized unique
+   site id and default folders under `~/Styxpress/<site-id>/`.
 2. In **Configuration**, set:
    - `contentDir`: local source content directory.
    - `publicDir`: local generated output directory.

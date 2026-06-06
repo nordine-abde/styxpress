@@ -84,17 +84,50 @@ func (s *SiteStore) Active() (Site, error) {
 	return Site{}, fmt.Errorf("%w: %q", ErrSiteNotFound, activeID)
 }
 
+func (s *SiteStore) Suggest(name string) (Site, error) {
+	if err := s.ensureInitialized(); err != nil {
+		return Site{}, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Untitled site"
+	}
+	id, err := s.nextSiteID(name)
+	if err != nil {
+		return Site{}, err
+	}
+	cfg, err := defaultSiteConfig(id, name)
+	if err != nil {
+		return Site{}, err
+	}
+	return Site{ID: id, Name: name, Config: cfg}, nil
+}
+
 func (s *SiteStore) Create(cfg Config) (Site, error) {
 	if err := s.ensureInitialized(); err != nil {
 		return Site{}, err
 	}
-	cfg = WithDefaults(cfg)
+	cfg.Name = strings.TrimSpace(cfg.Name)
 	if cfg.Name == "" {
 		cfg.Name = "Untitled site"
 	}
 	id, err := s.nextSiteID(cfg.Name)
 	if err != nil {
 		return Site{}, err
+	}
+	needsContentDir := strings.TrimSpace(cfg.ContentDir) == ""
+	needsPublicDir := strings.TrimSpace(cfg.PublicDir) == ""
+	if needsContentDir || needsPublicDir {
+		defaults, err := defaultSiteConfig(id, cfg.Name)
+		if err != nil {
+			return Site{}, err
+		}
+		if needsContentDir {
+			cfg.ContentDir = defaults.ContentDir
+		}
+		if needsPublicDir {
+			cfg.PublicDir = defaults.PublicDir
+		}
 	}
 	if err := s.saveSite(id, cfg); err != nil {
 		return Site{}, err
@@ -378,6 +411,30 @@ func siteName(id string, cfg Config) string {
 		return filepath.Base(filepath.Clean(cfg.ContentDir))
 	}
 	return id
+}
+
+func defaultSiteConfig(id string, name string) (Config, error) {
+	id, err := normalizeSiteID(id)
+	if err != nil {
+		return Config{}, err
+	}
+	root, err := defaultSiteWorkspaceRoot()
+	if err != nil {
+		return Config{}, err
+	}
+	return Config{
+		Name:       strings.TrimSpace(name),
+		ContentDir: filepath.Join(root, id, "content"),
+		PublicDir:  filepath.Join(root, id, "public"),
+	}, nil
+}
+
+func defaultSiteWorkspaceRoot() (string, error) {
+	home, err := userHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "Styxpress"), nil
 }
 
 func containsSite(sites []Site, id string) bool {

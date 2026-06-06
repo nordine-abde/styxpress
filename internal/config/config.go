@@ -21,6 +21,8 @@ const (
 
 var ErrInvalidConfig = errors.New("invalid config")
 
+var userHomeDir = os.UserHomeDir
+
 type Config struct {
 	Name       string `json:"name"`
 	ContentDir string `json:"contentDir"`

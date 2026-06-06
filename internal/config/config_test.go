@@ -198,6 +198,73 @@ func TestSiteStoreCreatesSelectsSavesAndDeletesSites(t *testing.T) {
 	}
 }
 
+func TestSiteStoreSuggestsAndCreatesDefaultHomePaths(t *testing.T) {
+	home := t.TempDir()
+	previousUserHomeDir := userHomeDir
+	userHomeDir = func() (string, error) {
+		return home, nil
+	}
+	t.Cleanup(func() {
+		userHomeDir = previousUserHomeDir
+	})
+
+	store := NewSiteStore(t.TempDir())
+	suggestion, err := store.Suggest("My Blog")
+	if err != nil {
+		t.Fatalf("Suggest returned error: %v", err)
+	}
+	if suggestion.ID != "my-blog" || suggestion.Name != "My Blog" {
+		t.Fatalf("suggestion = %#v, want normalized my-blog site", suggestion)
+	}
+	expectedContentDir := filepath.Join(home, "Styxpress", "my-blog", "content")
+	expectedPublicDir := filepath.Join(home, "Styxpress", "my-blog", "public")
+	if suggestion.Config.ContentDir != expectedContentDir || suggestion.Config.PublicDir != expectedPublicDir {
+		t.Fatalf("suggestion config = %#v, want home workspace paths", suggestion.Config)
+	}
+
+	created, err := store.Create(Config{Name: "My Blog"})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if created.ID != "my-blog" || created.Config.ContentDir != expectedContentDir || created.Config.PublicDir != expectedPublicDir {
+		t.Fatalf("created site = %#v, want suggested home paths", created)
+	}
+
+	nextSuggestion, err := store.Suggest("My Blog")
+	if err != nil {
+		t.Fatalf("second Suggest returned error: %v", err)
+	}
+	if nextSuggestion.ID != "my-blog-2" {
+		t.Fatalf("second suggestion ID = %q, want my-blog-2", nextSuggestion.ID)
+	}
+	if nextSuggestion.Config.PublicDir != filepath.Join(home, "Styxpress", "my-blog-2", "public") {
+		t.Fatalf("second suggestion config = %#v, want unique public path", nextSuggestion.Config)
+	}
+}
+
+func TestSiteStoreCreateWithExplicitPathsDoesNotNeedHome(t *testing.T) {
+	previousUserHomeDir := userHomeDir
+	userHomeDir = func() (string, error) {
+		return "", os.ErrNotExist
+	}
+	t.Cleanup(func() {
+		userHomeDir = previousUserHomeDir
+	})
+
+	store := NewSiteStore(t.TempDir())
+	site, err := store.Create(Config{
+		Name:       "Explicit Paths",
+		ContentDir: "/tmp/content",
+		PublicDir:  "/tmp/public",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if site.Config.ContentDir != "/tmp/content" || site.Config.PublicDir != "/tmp/public" {
+		t.Fatalf("site config = %#v, want explicit paths", site.Config)
+	}
+}
+
 func TestSiteStoreAllowsNoSites(t *testing.T) {
 	store := NewSiteStore(t.TempDir())
 
