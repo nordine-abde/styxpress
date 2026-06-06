@@ -421,7 +421,7 @@ func TestSiteConfigEndpointSavesUnderConfiguredContentDir(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode preview: %v", err)
 	}
-	if !strings.Contains(body.HTML, "Preview Blog") || !strings.Contains(body.HTML, "Published with Styx Press") {
+	if !strings.Contains(body.HTML, "Preview Blog") || !strings.Contains(body.HTML, `Published with <a href="https://styxpress.anordine.com">Styxpress</a>`) {
 		t.Fatalf("preview html = %s, want title and watermark", body.HTML)
 	}
 }

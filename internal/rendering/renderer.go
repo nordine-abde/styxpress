@@ -902,7 +902,7 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 <p>{{ .Site.Footer.Text }}</p>
 {{- end }}
 {{- if .Site.Footer.ShowWatermark }}
-<p>Published with Styx Press</p>
+<p>Published with <a href="https://styxpress.anordine.com">Styxpress</a></p>
 {{- end }}
 {{- if .Site.Footer.Links }}
 <nav class="site-nav" aria-label="Footer">
@@ -983,7 +983,7 @@ var homepageTemplate = template.Must(template.New("homepage").Parse(`<!doctype h
 <p>{{ .Site.Footer.Text }}</p>
 {{- end }}
 {{- if .Site.Footer.ShowWatermark }}
-<p>Published with Styx Press</p>
+<p>Published with <a href="https://styxpress.anordine.com">Styxpress</a></p>
 {{- end }}
 {{- if .Site.Footer.Links }}
 <nav class="site-nav" aria-label="Footer">

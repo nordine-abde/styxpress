@@ -27,7 +27,7 @@ Included:
 - Generated favicon with optional `.ico` replacement.
 - Header links.
 - Footer text and footer links.
-- Footer watermark toggle for `Published with Styx Press`.
+- Footer watermark toggle for `Published with Styxpress`.
 - RSS feed and sitemap output.
 
 Removed from the first release:

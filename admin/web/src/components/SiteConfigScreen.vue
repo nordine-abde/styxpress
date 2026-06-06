@@ -133,8 +133,8 @@ onBeforeUnmount(() => {
                             />
                             <UiSwitch
                                 v-model="form.footer.showWatermark"
-                                label="Show Styx Press watermark"
-                                description="Adds Published with Styx Press in the generated footer."
+                                label="Show Styxpress watermark"
+                                description="Adds Published with Styxpress in the generated footer."
                             />
                         </div>
 

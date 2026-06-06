@@ -362,7 +362,7 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 		`<a href="/posts/alpha/">Alpha &amp; Friends</a>`,
 		`<p>Public &lt;post&gt;</p>`,
 		`<img src="/posts/alpha/cover.jpg" alt="">`,
-		`Published with Styx Press`,
+		`Published with <a href="https://styxpress.anordine.com">Styxpress</a>`,
 	})
 	assertFileOmits(t, result.IndexPath, []string{`Featured Posts`, `Draft Post`, `/posts/draft-post/`})
 	assertOrderAfter(t, result.IndexPath, `<h1 id="latest-posts">Latest Posts</h1>`, []string{
@@ -440,7 +440,7 @@ func TestRenderUsesSiteConfigHeaderFooterAndStylesheet(t *testing.T) {
 		`Built from Markdown files.`,
 		`<a href="mailto:hello@example.com">Email</a>`,
 	})
-	assertFileOmits(t, siteResult.IndexPath, []string{`Published with Styx Press`})
+	assertFileOmits(t, siteResult.IndexPath, []string{`Published with <a href="https://styxpress.anordine.com">Styxpress</a>`})
 	assertFileContent(t, postResult.IndexPath, []string{
 		`<link rel="icon" href="/favicon.ico" type="image/x-icon">`,
 		`<link rel="stylesheet" href="/assets/styxpress.css">`,
@@ -534,7 +534,7 @@ func TestRenderSitePreviewUsesProvidedConfigAndDoesNotWritePublicFiles(t *testin
 			t.Fatalf("expected %q in site preview:\n%s", expected, html)
 		}
 	}
-	if strings.Contains(html, `Published with Styx Press`) {
+	if strings.Contains(html, `Published with <a href="https://styxpress.anordine.com">Styxpress</a>`) {
 		t.Fatalf("site preview should honor disabled watermark:\n%s", html)
 	}
 	if strings.Contains(html, `<link rel="stylesheet" href="/assets/styxpress.css">`) {
