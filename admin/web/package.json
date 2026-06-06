@@ -9,8 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@toast-ui/editor": "^3.2.2",
     "pinia": "^3.0.4",
     "vue": "^3.5.32"
+  },
+  "overrides": {
+    "dompurify": "^3.4.8"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.6",
