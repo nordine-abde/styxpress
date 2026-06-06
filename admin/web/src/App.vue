@@ -1,8 +1,8 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import AuthBar from './components/AuthBar.vue'
-import BuildPanel from './components/BuildPanel.vue'
 import ConfigScreen from './components/ConfigScreen.vue'
+import EmptyState from './components/ui/EmptyState.vue'
 import PostEditor from './components/PostEditor.vue'
 import PostList from './components/PostList.vue'
 import SiteConfigScreen from './components/SiteConfigScreen.vue'
@@ -14,6 +14,7 @@ import { useAuthStore } from './stores/auth'
 import { useBuildStore } from './stores/build'
 import { useConfigStore } from './stores/config'
 import { usePostsStore } from './stores/posts'
+import { useSiteConfigStore } from './stores/siteConfig'
 import { useSiteWorkspaceStore } from './stores/siteWorkspace'
 import { useUiStore } from './stores/ui'
 
@@ -21,6 +22,7 @@ const authStore = useAuthStore()
 const buildStore = useBuildStore()
 const configStore = useConfigStore()
 const postsStore = usePostsStore()
+const siteConfigStore = useSiteConfigStore()
 const siteWorkspaceStore = useSiteWorkspaceStore()
 const uiStore = useUiStore()
 
@@ -41,7 +43,10 @@ const activeSiteName = computed(() => {
     return configStore.activeSite?.name || configStore.config.name || 'Configured site'
 })
 
+const hasUnsavedChanges = computed(() => siteConfigStore.isDirty || postsStore.isDirty)
+
 onMounted(async () => {
+    window.addEventListener('beforeunload', handleBeforeUnload)
     if (!authStore.hasToken) {
         uiStore.setActiveView('sites')
         return
@@ -49,14 +54,47 @@ onMounted(async () => {
     await configStore.loadConfig()
 })
 
+onBeforeUnmount(() => {
+    window.removeEventListener('beforeunload', handleBeforeUnload)
+})
+
 function leaveSite() {
+    if (!confirmDiscardUnsavedChanges()) {
+        return
+    }
     buildStore.reset()
     siteWorkspaceStore.reset()
     uiStore.setActiveView('sites')
 }
 
 function setSiteView(view) {
+    if (view === uiStore.activeView) {
+        return
+    }
+    if (!confirmDiscardUnsavedChanges()) {
+        return
+    }
     uiStore.setActiveView(view)
+}
+
+function handleBeforeUnload(event) {
+    if (!hasUnsavedChanges.value) {
+        return
+    }
+    event.preventDefault()
+    event.returnValue = ''
+}
+
+function confirmDiscardUnsavedChanges() {
+    if (!hasUnsavedChanges.value) {
+        return true
+    }
+    const confirmed = window.confirm('You have unsaved changes. Leave without saving?')
+    if (confirmed) {
+        siteConfigStore.setDirty(false)
+        postsStore.discardDraftChanges()
+    }
+    return confirmed
 }
 </script>
 
@@ -161,16 +199,16 @@ function setSiteView(view) {
             </header>
 
             <section v-if="uiStore.activeView === 'posts'" class="posts-layout">
-                <div class="posts-side-column">
-                    <div class="posts-list-column">
-                        <PostList />
-                    </div>
-                    <div class="posts-action-column">
-                        <BuildPanel />
-                    </div>
+                <div class="posts-list-column">
+                    <PostList />
                 </div>
                 <div class="posts-editor-column">
-                    <PostEditor />
+                    <PostEditor v-if="postsStore.editorOpen" />
+                    <EmptyState
+                        v-else
+                        title="Select a post"
+                        message="Choose a post from the list or create a new one."
+                    />
                 </div>
             </section>
 

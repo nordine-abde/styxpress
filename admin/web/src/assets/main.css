@@ -228,18 +228,11 @@ a {
 .posts-layout {
     grid-template-areas:
         "list"
-        "editor"
-        "actions";
+        "editor";
 }
 
-.posts-side-column {
-    display: contents;
-}
-
-.posts-side-column,
 .posts-list-column,
-.posts-editor-column,
-.posts-action-column {
+.posts-editor-column {
     min-width: 0;
 }
 
@@ -249,10 +242,6 @@ a {
 
 .posts-editor-column {
     grid-area: editor;
-}
-
-.posts-action-column {
-    grid-area: actions;
 }
 
 .field-grid {
@@ -324,21 +313,9 @@ a {
 
 @media (min-width: 1100px) {
     .posts-layout {
-        grid-template-areas: "side editor";
+        grid-template-areas: "list editor";
         grid-template-columns: minmax(15rem, 0.58fr) minmax(0, 1.42fr);
         align-items: start;
-    }
-
-    .posts-side-column {
-        display: grid;
-        grid-area: side;
-        gap: 1rem;
-        align-content: start;
-    }
-
-    .posts-side-column > .posts-list-column,
-    .posts-side-column > .posts-action-column {
-        grid-area: auto;
     }
 
     .single-layout {
@@ -352,21 +329,10 @@ a {
 
 @media (min-width: 1380px) {
     .posts-layout {
-        grid-template-areas: "list editor actions";
-        grid-template-columns: minmax(15rem, 0.72fr) minmax(32rem, 1.6fr) minmax(15rem, 0.68fr);
-    }
-
-    .posts-side-column {
-        display: contents;
+        grid-template-columns: minmax(16rem, 0.56fr) minmax(34rem, 1.44fr);
     }
 
     .posts-list-column {
         grid-area: list;
-    }
-
-    .posts-action-column {
-        grid-area: actions;
-        position: sticky;
-        top: 1.4rem;
     }
 }

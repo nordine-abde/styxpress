@@ -1,19 +1,30 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import FileField from './ui/FileField.vue'
 import ConfirmPrompt from './ui/ConfirmPrompt.vue'
 import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
+import { useBuildStore } from '../stores/build'
 import { usePostsStore } from '../stores/posts'
 import { usePreviewStore } from '../stores/preview'
 
+const buildStore = useBuildStore()
 const postsStore = usePostsStore()
 const previewStore = usePreviewStore()
 const assetPath = ref('')
 const previewVisible = ref(false)
 
-const canUpload = computed(() => Boolean(postsStore.draft.slug))
+const canUpload = computed(() => postsStore.canUploadMedia)
+const saving = computed(() => postsStore.saving || buildStore.publishing)
+
+watch(
+    () => postsStore.selectedSlug,
+    () => {
+        previewVisible.value = false
+        previewStore.clearPreview()
+    }
+)
 
 async function importMarkdown(file) {
     if (!file) {
@@ -29,12 +40,22 @@ async function preview() {
     await previewStore.renderPreview(postsStore.draft)
     previewVisible.value = true
 }
+
+async function saveAndRenderPost() {
+    const saved = await postsStore.saveDraft()
+    await buildStore.publishPost(saved.slug)
+}
+
+async function uploadAsset(file) {
+    await postsStore.uploadAsset(file, assetPath.value)
+    assetPath.value = ''
+}
 </script>
 
 <template>
     <div class="post-editor-stack">
-        <UiPanel title="Editor" subtitle="Save a post before uploading cover images or assets.">
-            <form class="field-grid" @submit.prevent="postsStore.saveDraft">
+        <UiPanel title="Editor">
+            <form class="field-grid" @submit.prevent="saveAndRenderPost">
                 <div class="two-column">
                     <UiField
                         v-model="postsStore.draft.slug"
@@ -54,13 +75,16 @@ async function preview() {
                     placeholder="# Post title"
                 />
                 <div class="button-row">
-                    <UiButton tone="primary" type="submit" :busy="postsStore.saving">
+                    <UiButton tone="primary" type="submit" :busy="saving">
                         Save
                     </UiButton>
                     <UiButton tone="ghost" :busy="previewStore.loading" @click="preview">
                         Preview
                     </UiButton>
                 </div>
+                <p v-if="buildStore.error" class="error-text compact-text">
+                    {{ buildStore.error }}
+                </p>
             </form>
         </UiPanel>
 
@@ -71,20 +95,21 @@ async function preview() {
                     <strong>{{ postsStore.draft.cover || 'none' }}</strong>
                 </div>
                 <FileField
+                    v-if="canUpload"
                     label="Upload cover"
                     accept=".jpg,.jpeg,.png,.webp,.avif,image/jpeg,image/png,image/webp,image/avif"
                     @selected="postsStore.uploadCover"
                 />
                 <ConfirmPrompt
-                    v-if="postsStore.draft.cover"
+                    v-if="canUpload && postsStore.draft.cover"
                     label="Remove cover"
                     confirm-label="Remove"
                     @confirm="postsStore.deleteCover"
                 />
 
-                <div class="asset-upload">
+                <div v-if="canUpload" class="asset-upload">
                     <UiField v-model="assetPath" label="Asset path" placeholder="images/diagram.png" />
-                    <FileField label="Upload asset" @selected="(file) => postsStore.uploadAsset(file, assetPath)" />
+                    <FileField label="Upload asset" @selected="uploadAsset" />
                 </div>
 
                 <p v-if="!canUpload" class="muted">
@@ -94,7 +119,12 @@ async function preview() {
                 <ul v-if="postsStore.draft.assets?.length > 0" class="list">
                     <li v-for="asset in postsStore.draft.assets" :key="asset" class="asset-item">
                         <code>{{ asset }}</code>
-                        <ConfirmPrompt label="Remove" confirm-label="Remove" @confirm="postsStore.deleteAsset(asset)" />
+                        <ConfirmPrompt
+                            v-if="canUpload"
+                            label="Remove"
+                            confirm-label="Remove"
+                            @confirm="postsStore.deleteAsset(asset)"
+                        />
                     </li>
                 </ul>
             </div>
@@ -111,6 +141,10 @@ async function preview() {
     display: grid;
     gap: 1rem;
     min-width: 0;
+}
+
+.compact-text {
+    margin: 0;
 }
 
 .media-label {

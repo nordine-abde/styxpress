@@ -10,25 +10,6 @@ export const useBuildStore = defineStore('build', () => {
     const lastResult = ref(null)
     const error = ref('')
 
-    async function renderPost(slug) {
-        const uiStore = useUiStore()
-        rendering.value = true
-        error.value = ''
-        try {
-            lastResult.value = await apiRequest(`/api/posts/${encodeURIComponent(slug)}/render`, {
-                method: 'POST',
-                body: {}
-            })
-            uiStore.setNotice('Post rendered locally.')
-        } catch (err) {
-            error.value = err.message
-            uiStore.captureError(err)
-            throw err
-        } finally {
-            rendering.value = false
-        }
-    }
-
     async function publishPost(slug) {
         const uiStore = useUiStore()
         const postsStore = usePostsStore()
@@ -41,7 +22,7 @@ export const useBuildStore = defineStore('build', () => {
             })
             await postsStore.loadPosts()
             await postsStore.selectPost(slug)
-            uiStore.setNotice('Post published locally.')
+            uiStore.setNotice('Post saved and rendered.')
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)
@@ -80,7 +61,6 @@ export const useBuildStore = defineStore('build', () => {
         publishing,
         lastResult,
         error,
-        renderPost,
         publishPost,
         renderSite,
         reset

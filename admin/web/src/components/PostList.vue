@@ -35,12 +35,40 @@ function dateLabel(post) {
     }
     return 'Not published'
 }
+
+function startNewPost() {
+    if (!confirmDiscardDraft()) {
+        return
+    }
+    postsStore.newPost()
+}
+
+function selectPost(slug) {
+    if (slug === postsStore.selectedSlug) {
+        return
+    }
+    if (!confirmDiscardDraft()) {
+        return
+    }
+    postsStore.selectPost(slug)
+}
+
+function confirmDiscardDraft() {
+    if (!postsStore.isDirty) {
+        return true
+    }
+    const confirmed = window.confirm('You have unsaved changes. Leave without saving?')
+    if (confirmed) {
+        postsStore.discardDraftChanges()
+    }
+    return confirmed
+}
 </script>
 
 <template>
     <UiPanel title="Posts" subtitle="Create, import, and select Markdown posts.">
         <div class="button-row">
-            <UiButton tone="primary" @click="postsStore.newPost">
+            <UiButton tone="primary" @click="startNewPost">
                 New
             </UiButton>
             <UiButton tone="ghost" :busy="postsStore.loading" @click="postsStore.loadPosts">
@@ -53,7 +81,7 @@ function dateLabel(post) {
         <EmptyState
             v-else-if="postsStore.posts.length === 0"
             title="No posts yet"
-            message="Create the first post from the editor."
+            message="Create the first post from this list."
         />
 
         <ul v-else class="list">
@@ -62,7 +90,7 @@ function dateLabel(post) {
                     type="button"
                     class="post-item"
                     :class="{ active: post.slug === postsStore.selectedSlug }"
-                    @click="postsStore.selectPost(post.slug)"
+                    @click="selectPost(post.slug)"
                 >
                     <strong>{{ post.title }}</strong>
                     <span>{{ post.slug }}</span>

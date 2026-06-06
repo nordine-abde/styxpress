@@ -1,6 +1,7 @@
 <script setup>
-import { reactive, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, watch } from 'vue'
 import SiteLinkEditor from './SiteLinkEditor.vue'
+import UiBadge from './ui/UiBadge.vue'
 import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
@@ -11,76 +12,102 @@ import { useBuildStore } from '../stores/build'
 const siteConfigStore = useSiteConfigStore()
 const buildStore = useBuildStore()
 const form = reactive(cloneDefault())
+const saving = computed(() => siteConfigStore.saving || buildStore.rendering)
+let savedSnapshot = snapshotConfig(form)
+let previewTimer = null
 
 watch(
     () => siteConfigStore.config,
     (value) => {
-        Object.assign(form, mergeConfig(value))
+        const merged = mergeConfig(value)
+        Object.assign(form, merged)
+        savedSnapshot = snapshotConfig(merged)
+        siteConfigStore.setDirty(false)
+        schedulePreview(0)
     },
     { deep: true, immediate: true }
 )
 
-async function save() {
-    await siteConfigStore.saveSiteConfig(form)
-}
-
-async function reload() {
-    await siteConfigStore.loadSiteConfig()
-}
-
-async function preview() {
-    await siteConfigStore.previewSiteConfig(form)
-}
+watch(
+    form,
+    () => {
+        siteConfigStore.setDirty(snapshotConfig(form) !== savedSnapshot)
+        schedulePreview()
+    },
+    { deep: true }
+)
 
 async function saveAndRender() {
-    await save()
+    const saved = await siteConfigStore.saveSiteConfig(form)
+    savedSnapshot = snapshotConfig(saved)
+    siteConfigStore.setDirty(false)
     await buildStore.renderSite()
+    schedulePreview(0)
 }
+
+function schedulePreview(delay = 260) {
+    if (previewTimer) {
+        window.clearTimeout(previewTimer)
+    }
+    previewTimer = window.setTimeout(async () => {
+        try {
+            await siteConfigStore.previewSiteConfig(form)
+        } catch {
+            // The store already captures and exposes preview errors.
+        }
+    }, delay)
+}
+
+function snapshotConfig(value) {
+    return JSON.stringify(mergeConfig(value))
+}
+
+onBeforeUnmount(() => {
+    if (previewTimer) {
+        window.clearTimeout(previewTimer)
+    }
+})
 </script>
 
 <template>
     <div class="site-config-layout">
         <section class="site-config-main">
-            <UiPanel title="Site" subtitle="Basic identity used by the generated homepage, posts, feed, and sitemap.">
-                <form class="field-grid" @submit.prevent="save">
-                    <div class="two-column">
-                        <UiField v-model="form.title" label="Title" placeholder="My Blog" />
-                        <UiField v-model="form.description" label="Description" placeholder="Latest posts" />
+            <form class="site-config-form" @submit.prevent="saveAndRender">
+                <div class="site-config-toolbar">
+                    <UiBadge :tone="siteConfigStore.isDirty ? 'warning' : 'success'">
+                        {{ siteConfigStore.isDirty ? 'Unsaved changes' : 'Saved' }}
+                    </UiBadge>
+                    <UiButton tone="primary" type="submit" :busy="saving">
+                        Save
+                    </UiButton>
+                </div>
+
+                <UiPanel title="Site">
+                    <div class="field-grid">
+                        <div class="two-column">
+                            <UiField v-model="form.title" label="Title" placeholder="My Blog" />
+                            <UiField v-model="form.description" label="Description" placeholder="Latest posts" />
+                        </div>
+
+                        <SiteLinkEditor v-model="form.header.links" title="Header links" />
+
+                        <div class="footer-grid">
+                            <UiField
+                                v-model="form.footer.text"
+                                label="Footer text"
+                                placeholder="Local notes and writing."
+                            />
+                            <UiSwitch
+                                v-model="form.footer.showWatermark"
+                                label="Show Styx Press watermark"
+                                description="Adds Published with Styx Press in the generated footer."
+                            />
+                        </div>
+
+                        <SiteLinkEditor v-model="form.footer.links" title="Footer links" />
                     </div>
-
-                    <SiteLinkEditor v-model="form.header.links" title="Header links" />
-
-                    <div class="footer-grid">
-                        <UiField
-                            v-model="form.footer.text"
-                            label="Footer text"
-                            placeholder="Local notes and writing."
-                        />
-                        <UiSwitch
-                            v-model="form.footer.showWatermark"
-                            label="Show Styx Press watermark"
-                            description="Adds Published with Styx Press in the generated footer."
-                        />
-                    </div>
-
-                    <SiteLinkEditor v-model="form.footer.links" title="Footer links" />
-
-                    <div class="button-row">
-                        <UiButton tone="primary" type="submit" :busy="siteConfigStore.saving">
-                            Save site
-                        </UiButton>
-                        <UiButton tone="ghost" :busy="siteConfigStore.loading" @click="reload">
-                            Reload
-                        </UiButton>
-                        <UiButton tone="ghost" :busy="siteConfigStore.previewing" @click="preview">
-                            Preview
-                        </UiButton>
-                        <UiButton tone="primary" :busy="siteConfigStore.saving || buildStore.rendering" @click="saveAndRender">
-                            Save and render site
-                        </UiButton>
-                    </div>
-                </form>
-            </UiPanel>
+                </UiPanel>
+            </form>
 
             <p v-if="siteConfigStore.error" class="error-text compact-text">
                 {{ siteConfigStore.error }}
@@ -99,7 +126,7 @@ async function saveAndRender() {
                     :src="siteConfigStore.previewUrl"
                 ></iframe>
                 <p v-else class="muted">
-                    Generate a preview to inspect the current site settings.
+                    Preview unavailable.
                 </p>
                 <p v-if="siteConfigStore.previewError" class="error-text compact-text">
                     {{ siteConfigStore.previewError }}
@@ -131,10 +158,19 @@ async function saveAndRender() {
 
 .site-config-main,
 .site-config-preview,
+.site-config-form,
 .footer-grid,
 .result {
     display: grid;
     gap: 1rem;
+}
+
+.site-config-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: flex-end;
 }
 
 .preview-frame {

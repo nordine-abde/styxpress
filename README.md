@@ -120,10 +120,12 @@ The admin server binds to `127.0.0.1` by default.
    - footer text
    - footer links
    - watermark visibility
-4. In **Posts**, create or edit Markdown posts.
+   The preview updates while editing. **Save** writes `site.toml` and renders
+   the public site.
+4. In **Posts**, choose an existing post from the list or create a new one.
 5. Use **Preview** for draft HTML previews without writing public files.
-6. Use **Publish post** to mark a draft as published and render it locally.
-7. Use **Render site** to regenerate all public output locally.
+6. Use **Save** to write the post, mark it as published, and render the public
+   output locally.
 
 ## Site Config
 

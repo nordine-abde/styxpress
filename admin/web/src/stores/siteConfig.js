@@ -30,6 +30,8 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
     const previewUrl = ref('')
     const previewError = ref('')
     const error = ref('')
+    const isDirty = ref(false)
+    let previewRequestId = 0
 
     async function loadSiteConfig() {
         const uiStore = useUiStore()
@@ -37,6 +39,7 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         error.value = ''
         try {
             config.value = mergeConfig(await apiRequest('/api/site-config'))
+            isDirty.value = false
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)
@@ -54,7 +57,9 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
                 method: 'POST',
                 body: mergeConfig(nextConfig)
             }))
+            isDirty.value = false
             uiStore.setNotice('Site configuration saved.')
+            return config.value
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)
@@ -66,6 +71,8 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
 
     async function previewSiteConfig(nextConfig) {
         const uiStore = useUiStore()
+        const requestId = previewRequestId + 1
+        previewRequestId = requestId
         previewing.value = true
         previewError.value = ''
         try {
@@ -73,15 +80,22 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
                 method: 'POST',
                 body: mergeConfig(nextConfig)
             })
+            if (requestId !== previewRequestId) {
+                return payload
+            }
             previewHtml.value = payload?.html || ''
             setPreviewUrl(previewHtml.value)
             return payload
         } catch (err) {
-            previewError.value = err.message
-            uiStore.captureError(err)
+            if (requestId === previewRequestId) {
+                previewError.value = err.message
+                uiStore.captureError(err)
+            }
             throw err
         } finally {
-            previewing.value = false
+            if (requestId === previewRequestId) {
+                previewing.value = false
+            }
         }
     }
 
@@ -96,10 +110,15 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
 
     function reset() {
         config.value = cloneDefault()
+        isDirty.value = false
         previewHtml.value = ''
         setPreviewUrl('')
         previewError.value = ''
         error.value = ''
+    }
+
+    function setDirty(value) {
+        isDirty.value = Boolean(value)
     }
 
     return {
@@ -111,9 +130,11 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         previewUrl,
         previewError,
         error,
+        isDirty,
         loadSiteConfig,
         saveSiteConfig,
         previewSiteConfig,
+        setDirty,
         reset
     }
 })

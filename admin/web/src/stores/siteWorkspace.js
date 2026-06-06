@@ -28,7 +28,7 @@ export const useSiteWorkspaceStore = defineStore('siteWorkspace', () => {
 
         loading.value = true
         error.value = ''
-        postsStore.newPost()
+        postsStore.clearSelection()
 
         try {
             await Promise.all([

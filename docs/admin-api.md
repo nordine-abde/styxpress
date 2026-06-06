@@ -122,8 +122,9 @@ Post object:
 ## Uploads
 
 - `POST /api/posts/{slug}/cover`
-  Multipart form with `file`. Filename must be one of `cover.jpg`,
-  `cover.jpeg`, `cover.png`, `cover.webp`, or `cover.avif`.
+  Multipart form with `file`. Supported extensions are `.jpg`, `.jpeg`,
+  `.png`, `.webp`, and `.avif`. The uploaded file is saved as
+  `cover.<extension>`.
 - `DELETE /api/posts/{slug}/cover`
   Removes the current cover.
 - `POST /api/posts/{slug}/assets`
@@ -142,8 +143,10 @@ Asset paths are cleaned and must remain inside
   Renders an already published post, homepage, feed, sitemap, and stylesheet
   locally. Returns `{"post":{...},"site":{...}}`.
 - `POST /api/posts/{slug}/publish`
-  Marks a draft as published, then renders the post and site locally. Returns
+  Marks a draft as published, then renders the post and site locally. The admin
+  UI calls this as part of the single post **Save** action. Returns
   `{"post":{...},"site":{...}}`.
 - `POST /api/site/render`
   Renders all public posts, homepage, feed, sitemap, and stylesheet locally.
+  The admin UI calls this as part of the single site **Save** action.
   Returns `{"posts":[...],"site":{...}}`.
