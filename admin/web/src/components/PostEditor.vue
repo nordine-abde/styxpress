@@ -144,7 +144,7 @@ function encodeMarkdownPath(path) {
                         @selected="importMarkdown"
                     />
 
-                    <label class="source-field">
+                    <div class="source-field">
                         <span>{{ modeLabel }}</span>
                         <VisualMarkdownEditor
                             v-if="editorMode === 'compose'"
@@ -162,7 +162,7 @@ function encodeMarkdownPath(path) {
                             placeholder="# Post title"
                             @input="postsStore.draft.source = $event.target.value"
                         ></textarea>
-                    </label>
+                    </div>
 
                     <div class="button-row">
                         <UiButton tone="primary" :busy="saving" @click="saveAndRenderPost">
