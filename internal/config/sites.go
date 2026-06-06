@@ -129,6 +129,9 @@ func (s *SiteStore) Create(cfg Config) (Site, error) {
 			cfg.PublicDir = defaults.PublicDir
 		}
 	}
+	if err := initializeSiteWorkspace(cfg); err != nil {
+		return Site{}, err
+	}
 	if err := s.saveSite(id, cfg); err != nil {
 		return Site{}, err
 	}
@@ -435,6 +438,19 @@ func defaultSiteWorkspaceRoot() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, "Styxpress"), nil
+}
+
+func initializeSiteWorkspace(cfg Config) error {
+	cfg = WithDefaults(cfg)
+	for _, dir := range []string{cfg.ContentDir, cfg.PublicDir} {
+		if strings.TrimSpace(dir) == "" {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func containsSite(sites []Site, id string) bool {

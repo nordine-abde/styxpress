@@ -254,6 +254,8 @@ func TestSiteStoreSuggestsAndCreatesDefaultHomePaths(t *testing.T) {
 	if created.ID != "my-blog" || created.Config.ContentDir != expectedContentDir || created.Config.PublicDir != expectedPublicDir {
 		t.Fatalf("created site = %#v, want suggested home paths", created)
 	}
+	assertDirExists(t, expectedContentDir)
+	assertDirExists(t, expectedPublicDir)
 
 	nextSuggestion, err := store.Suggest("My Blog")
 	if err != nil {
@@ -276,18 +278,23 @@ func TestSiteStoreCreateWithExplicitPathsDoesNotNeedHome(t *testing.T) {
 		userHomeDir = previousUserHomeDir
 	})
 
+	root := t.TempDir()
+	contentDir := filepath.Join(root, "content")
+	publicDir := filepath.Join(root, "public")
 	store := NewSiteStore(t.TempDir())
 	site, err := store.Create(Config{
 		Name:       "Explicit Paths",
-		ContentDir: "/tmp/content",
-		PublicDir:  "/tmp/public",
+		ContentDir: contentDir,
+		PublicDir:  publicDir,
 	})
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
-	if site.Config.ContentDir != "/tmp/content" || site.Config.PublicDir != "/tmp/public" {
+	if site.Config.ContentDir != contentDir || site.Config.PublicDir != publicDir {
 		t.Fatalf("site config = %#v, want explicit paths", site.Config)
 	}
+	assertDirExists(t, contentDir)
+	assertDirExists(t, publicDir)
 }
 
 func TestSiteStoreAllowsNoSites(t *testing.T) {
@@ -345,5 +352,16 @@ func TestSiteStoreRecoversInvalidActiveSiteFile(t *testing.T) {
 	}
 	if activeID == "" || !containsSite(sites, activeID) {
 		t.Fatalf("activeID = %q, sites = %#v; want recovered active site", activeID, sites)
+	}
+}
+
+func assertDirExists(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%q) returned error: %v", path, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%q is not a directory", path)
 	}
 }
