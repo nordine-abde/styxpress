@@ -59,6 +59,29 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLoadNormalizesCommonSitemapTypo(t *testing.T) {
+	root := t.TempDir()
+	data := []byte(`title = "Typo"
+
+[footer]
+
+[[footer.links]]
+label = "sitemap"
+href = "/sitmap.xml"
+`)
+	if err := os.WriteFile(filepath.Join(root, FileName), data, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	got, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(got.Footer.Links) != 1 || got.Footer.Links[0].Href != "/sitemap.xml" {
+		t.Fatalf("Footer links = %#v, want normalized sitemap href", got.Footer.Links)
+	}
+}
+
 func TestLoadRejectsRemovedThemeSection(t *testing.T) {
 	root := t.TempDir()
 	data := []byte(`title = "Legacy"

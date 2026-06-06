@@ -108,6 +108,57 @@ func TestRenderPostEscapesRawHTML(t *testing.T) {
 	}
 }
 
+func TestRenderPostNormalizesStandaloneBreakTagsBeforeImages(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	repo := content.NewRepository(contentRoot)
+	if err := repo.WriteAsset("inline-images", "styxpress.png", strings.NewReader("logo")); err != nil {
+		t.Fatalf("write logo asset: %v", err)
+	}
+	imagePath := "WhatsApp Image 2026-05-02 at 21.23.39 (1).jpeg"
+	if err := repo.WriteAsset("inline-images", imagePath, strings.NewReader("photo")); err != nil {
+		t.Fatalf("write photo asset: %v", err)
+	}
+	if _, err := repo.WritePost(content.Post{
+		Slug:  "inline-images",
+		Title: "Inline Images",
+		Source: strings.Join([]string{
+			"# Inline Images",
+			"",
+			"Intro",
+			"<br>",
+			"<br/>",
+			"![styxpress](assets/styxpress.png#small)",
+			"<br />",
+			"![Phone](assets/WhatsApp%20Image%202026-05-02%20at%2021.23.39%20(1).jpeg#small)",
+			"",
+		}, "\n"),
+		PublishedAt: time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC),
+	}, content.WritePostOptions{}); err != nil {
+		t.Fatalf("write post: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot)
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	result, err := renderer.RenderPost("inline-images")
+	if err != nil {
+		t.Fatalf("render post: %v", err)
+	}
+
+	assertFileContent(t, result.IndexPath, []string{
+		`<img src="assets/styxpress.png#small" alt="styxpress" />`,
+		`<img src="assets/WhatsApp%20Image%202026-05-02%20at%2021.23.39%20(1).jpeg#small" alt="Phone" />`,
+	})
+	assertFileOmits(t, result.IndexPath, []string{
+		`&lt;br`,
+		`![styxpress]`,
+		`![Phone]`,
+	})
+}
+
 func TestRenderPostRejectsDraft(t *testing.T) {
 	contentRoot := filepath.Join(t.TempDir(), "content")
 	publicRoot := filepath.Join(t.TempDir(), "public")

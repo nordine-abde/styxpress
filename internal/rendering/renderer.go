@@ -330,7 +330,7 @@ func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, 
 	}
 
 	var article bytes.Buffer
-	if err := r.markdown.Convert([]byte(post.Source), &article); err != nil {
+	if err := r.markdown.Convert([]byte(normalizeMarkdownSource(post.Source)), &article); err != nil {
 		return "", err
 	}
 
@@ -511,6 +511,43 @@ func formatOptionalTime(value time.Time, layout string) string {
 		return ""
 	}
 	return value.UTC().Format(layout)
+}
+
+func normalizeMarkdownSource(source string) string {
+	if source == "" {
+		return ""
+	}
+	lines := strings.SplitAfter(source, "\n")
+	var normalized strings.Builder
+	for _, line := range lines {
+		body, ending := splitLineEnding(line)
+		if isStandaloneBreakTag(body) {
+			normalized.WriteString(ending)
+			continue
+		}
+		normalized.WriteString(line)
+	}
+	return normalized.String()
+}
+
+func splitLineEnding(line string) (string, string) {
+	switch {
+	case strings.HasSuffix(line, "\r\n"):
+		return strings.TrimSuffix(line, "\r\n"), "\r\n"
+	case strings.HasSuffix(line, "\n"):
+		return strings.TrimSuffix(line, "\n"), "\n"
+	default:
+		return line, ""
+	}
+}
+
+func isStandaloneBreakTag(line string) bool {
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "<br>", "<br/>", "<br />":
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Renderer) reconcileCover(post content.Post, publicDir string) (string, error) {

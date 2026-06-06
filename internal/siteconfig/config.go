@@ -325,13 +325,22 @@ func cleanLinks(links []Link) []Link {
 	cleaned := make([]Link, 0, len(links))
 	for _, link := range links {
 		link.Label = strings.TrimSpace(link.Label)
-		link.Href = strings.TrimSpace(link.Href)
+		link.Href = normalizeKnownHref(strings.TrimSpace(link.Href))
 		if link.Label == "" && link.Href == "" {
 			continue
 		}
 		cleaned = append(cleaned, link)
 	}
 	return cleaned
+}
+
+func normalizeKnownHref(href string) string {
+	switch strings.ToLower(href) {
+	case "/sitmap.xml", "sitmap.xml":
+		return "/sitemap.xml"
+	default:
+		return href
+	}
 }
 
 func validateLinks(owner string, links []Link) error {
