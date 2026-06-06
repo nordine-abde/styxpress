@@ -3,416 +3,59 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Styxpress Architecture: Local Admin and Static Public Runtime</title>
-    <meta name="description" content="A technical overview of Styxpress: local Go admin runtime, embedded Vue UI, file-based content, static rendering, SFTP publishing, and remote verification.">
-    <meta name="robots" content="index,follow">
-    <meta property="og:title" content="Styxpress Architecture">
-    <meta property="og:description" content="How Styxpress starts, stores files, renders static output, publishes over SFTP, and verifies remote files.">
-    <meta property="og:type" content="article">
-    <meta property="og:image" content="../assets/img/styxpress-social.webp">
-    <meta name="twitter:card" content="summary_large_image">
-    <link rel="icon" href="../assets/img/styxpress-mark.png" type="image/png">
-    <link rel="stylesheet" href="../assets/css/site.css?v=20260529b">
+    <title>Styxpress Technical Overview</title>
+    <meta name="description" content="Technical overview of the simplified Styxpress local static blog workflow.">
+    <link rel="stylesheet" href="/assets/css/site.css">
 </head>
 <body>
-    <a class="skip-link" href="#main">Skip to content</a>
-    <header class="site-header">
-        <nav class="site-nav" aria-label="Primary navigation">
-            <a class="brand" href="../" aria-label="Styxpress home">
-                <img src="../assets/img/styxpress-mark.png" alt="" width="96" height="96" aria-hidden="true">
-                <span>Styxpress</span>
-            </a>
-            <button class="nav-toggle" type="button" aria-expanded="false" data-nav-toggle>
-                Menu
-            </button>
-            <div class="nav-links" data-nav-links>
-                <a href="../#features">Features</a>
-                <a href="../#download">Download</a>
-                <a href="../guide/">Guide</a>
-                <a href="./" aria-current="page">Technical</a>
-                <a href="https://github.com/nordine-abde/styxpress">GitHub</a>
-            </div>
-        </nav>
-    </header>
+    <main class="site-main">
+        <p class="eyebrow">Technical</p>
+        <h1>Local files, static output</h1>
 
-    <main id="main" class="main">
-        <section class="doc-hero">
-            <div class="container">
-                <p class="eyebrow">Technical architecture</p>
-                <h1>Local admin, static public runtime.</h1>
-                <p class="lead">
-                    Styxpress is built around a strict split: a local Go admin app for editing and publishing, and a static public website made of HTML, CSS, feeds, sitemaps, and assets.
-                </p>
-            </div>
-        </section>
-
-        <section class="section section-cream">
-            <div class="container doc-layout">
-                <aside class="toc" aria-label="Technical page table of contents">
-                    <span class="toc-title">On this page</span>
-                    <a href="#overview">Overview</a>
-                    <a href="#startup-session-flow">Startup flow</a>
-                    <a href="#rendering-pipeline">Rendering pipeline</a>
-                    <a href="#publish-modes">Publishing modes</a>
-                    <a href="#remote-verification">Remote verification</a>
-                    <a href="#filesystem-contracts">Filesystem contracts</a>
-                    <a href="#api-runtime-behavior">Admin runtime</a>
-                    <a href="#security-model">Security model</a>
-                    <a href="#current-limits">Current limits</a>
-                    <a href="#links">Related docs</a>
-                </aside>
-
-                <article class="article">
-                    <section class="article-section" id="overview">
-                        <h2>Overview</h2>
-                        <p>
-                            The public site has no database, no hosted CMS process, and no dynamic request path. Styxpress renders content locally into static files, then deploys those files to a conventional web server such as Caddy or Nginx.
-                        </p>
-                        <p>
-                            The admin runtime is a local Go binary. It starts an HTTP server bound to loopback by default, serves the embedded Vue admin UI, creates a temporary API session token, and prints the local URL needed to open the admin interface.
-                        </p>
-                        <p>
-                            The public runtime is only static files. After rendering, the public directory contains pages, feeds, sitemaps, CSS, post assets, and cover images. The public server does not run Styxpress code and does not need access to the admin session, local API, source Markdown, or configuration files.
-                        </p>
-                    </section>
-
-                    <section class="article-section" id="startup-session-flow">
-                        <h2>Startup And Admin Session Flow</h2>
-                        <p>
-                            The admin app is started manually from the command line. By default, it binds to a loopback address using an available local port, generates an API session token, and prints the local admin URL. The embedded UI uses that token to call the local admin API.
-                        </p>
-                        <div class="diagram" role="img" aria-label="Startup flow from terminal to local browser and loopback admin API.">
-                            <div class="diagram-row">
-                                <div class="diagram-node">
-                                    <strong>Terminal</strong>
-                                    <span><code>./styxpress-admin</code></span>
-                                    <span><code>[-addr 127.0.0.1:8080]</code></span>
-                                    <span><code>[-config path]</code></span>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Go admin binary</strong>
-                                    <ul>
-                                        <li>default bind <code>127.0.0.1:0</code></li>
-                                        <li>serves embedded UI</li>
-                                        <li>creates API session token</li>
-                                    </ul>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Local browser</strong>
-                                    <span>opens printed admin URL</span>
-                                    <span>loads embedded UI</span>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Loopback admin API</strong>
-                                    <ul>
-                                        <li>editing</li>
-                                        <li>rendering</li>
-                                        <li>publishing</li>
-                                        <li>verification</li>
-                                    </ul>
-                                </div>
-                            </div>
-                            <p class="diagram-caption">The admin server is local-first. The generated public site does not include this API or session token.</p>
-                        </div>
-                    </section>
-
-                    <section class="article-section" id="rendering-pipeline">
-                        <h2>Content-To-Public Rendering Pipeline</h2>
-                        <p>
-                            Content files are the source of truth. Styxpress reads the content directory, renders published posts with Goldmark, escapes raw HTML in Markdown, and writes a static public directory. Drafts are excluded from the public output, and local draft output is removed during a full site render.
-                        </p>
-                        <div class="diagram" role="img" aria-label="Rendering pipeline from content directory to renderer to public directory and static host.">
-                            <div class="diagram-row">
-                                <div class="diagram-node">
-                                    <strong>content/</strong>
-                                    <ul>
-                                        <li><code>site.toml</code></li>
-                                        <li><code>featured.txt</code></li>
-                                        <li><code>posts/{slug}/source.md</code></li>
-                                        <li>metadata and assets</li>
-                                    </ul>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Renderer</strong>
-                                    <ul>
-                                        <li>Goldmark Markdown</li>
-                                        <li>raw HTML escaped</li>
-                                        <li>published posts only</li>
-                                        <li><code>siteBaseUrl</code> applied</li>
-                                    </ul>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>public/</strong>
-                                    <ul>
-                                        <li><code>index.html</code></li>
-                                        <li><code>posts/{slug}/index.html</code></li>
-                                        <li><code>feed.xml</code></li>
-                                        <li><code>sitemap.xml</code></li>
-                                        <li><code>assets/styxpress.css</code></li>
-                                    </ul>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Static host</strong>
-                                    <ul>
-                                        <li>Caddy or Nginx</li>
-                                        <li>no database</li>
-                                        <li>no dynamic public server</li>
-                                    </ul>
-                                </div>
-                            </div>
-                            <p class="diagram-caption">Rendering is eager and local: the public server only serves the generated files.</p>
-                        </div>
-                    </section>
-
-                    <section class="article-section" id="publish-modes">
-                        <h2>Publishing Modes</h2>
-                        <p>
-                            Publishing always uploads the rendered public files over SFTP. In local content mode, only the public output is deployed. In server-backed content mode, Styxpress can also upload the content directory so the remote server has a copy of the source content.
-                        </p>
-                        <div class="diagram" role="img" aria-label="Local content mode and server-backed content mode.">
-                            <div class="diagram-row three">
-                                <div class="diagram-node">
-                                    <strong>Mode A: Local content</strong>
-                                    <span>Local <code>contentDir</code> remains the source of truth.</span>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Local publicDir</strong>
-                                    <span>Generated static output.</span>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Remote public directory</strong>
-                                    <span>SFTP upload target served by the web server.</span>
-                                </div>
-                            </div>
-                            <div class="diagram-row three">
-                                <div class="diagram-node">
-                                    <strong>Mode B: Server-backed content</strong>
-                                    <span>Local <code>contentDir</code> is still rendered locally.</span>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Remote content directory</strong>
-                                    <span>Optional source-content copy uploaded by SFTP.</span>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Remote public directory</strong>
-                                    <span>Always receives rendered public files.</span>
-                                </div>
-                            </div>
-                            <p class="diagram-caption">SFTP publishing is file-based. SCP is not part of the current publishing model.</p>
-                        </div>
-                    </section>
-
-                    <section class="article-section" id="remote-verification">
-                        <h2>Remote Verification</h2>
-                        <p>
-                            After publishing, Styxpress can compare local public files with remote public files. Verification uses file size and SHA-256 content hashes. The result is a file-by-file status model that shows whether the remote public directory matches the local render output.
-                        </p>
-                        <div class="diagram" role="img" aria-label="Remote verification compares local public files to remote public files and classifies the result.">
-                            <div class="diagram-row three">
-                                <div class="diagram-node">
-                                    <strong>Local public file</strong>
-                                    <ul>
-                                        <li>relative path</li>
-                                        <li>size</li>
-                                        <li>SHA-256</li>
-                                    </ul>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Remote public file</strong>
-                                    <ul>
-                                        <li>same relative path</li>
-                                        <li>size</li>
-                                        <li>SHA-256</li>
-                                    </ul>
-                                </div>
-                                <div class="diagram-node">
-                                    <strong>Verification status</strong>
-                                    <ul>
-                                        <li>published</li>
-                                        <li>changes pending</li>
-                                        <li>not on remote</li>
-                                        <li>still on remote</li>
-                                        <li>unknown</li>
-                                    </ul>
-                                </div>
-                            </div>
-                            <p class="diagram-caption">Verification checks the deployed static files. It does not execute the public site and does not verify behavior on a dynamic server.</p>
-                        </div>
-                        <div class="status-grid">
-                            <article class="status-card">
-                                <span class="status-label">Published</span>
-                                <p>The local file and remote file match.</p>
-                            </article>
-                            <article class="status-card">
-                                <span class="status-label pending">Changes pending</span>
-                                <p>Remote exists but size or SHA-256 differs.</p>
-                            </article>
-                            <article class="status-card">
-                                <span class="status-label missing">Not on remote</span>
-                                <p>The generated local file is missing remotely.</p>
-                            </article>
-                            <article class="status-card">
-                                <span class="status-label extra">Still on remote</span>
-                                <p>Draft output exists remotely after the post is no longer public locally.</p>
-                            </article>
-                            <article class="status-card">
-                                <span class="status-label unknown">Unknown</span>
-                                <p>Verification did not run or a file could not be checked.</p>
-                            </article>
-                        </div>
-                    </section>
-
-                    <section class="article-section" id="filesystem-contracts">
-                        <h2>Filesystem Contracts</h2>
-                        <p>
-                            Styxpress uses plain files as its durable contract. The content directory is the authoring source. The public directory is generated output.
-                        </p>
-                        <div class="file-tree-grid">
-                            <div>
-                                <h3>Default admin config</h3>
-                                <pre><code>~/.config/styxpress/
-  active-site.txt
-  sites/
-    field-notes.toml</code></pre>
-                                <p class="note-small">The default multi-site store can be empty. When <code>-config</code> is used, Styxpress runs from that explicit file instead.</p>
-                            </div>
-                            <div>
-                                <h3>Explicit config mode</h3>
-                                <pre><code>./styxpress-admin -config path/to/site.toml</code></pre>
-                                <p class="note-small">Use this when a specific config file should define the site for this admin session.</p>
-                            </div>
-                        </div>
-                        <div class="file-tree-grid">
-                            <div>
-                                <h3>Content source</h3>
-                                <pre><code>content/
+        <section class="article-section">
+            <h2>Content</h2>
+            <pre><code>content/
   site.toml
-  featured.txt
   posts/
-    {slug}/
+    hello-world/
       source.md
       title.txt
       description.txt
       published_at.txt
       updated_at.txt
-      remote_synced_at.txt
-      cover.*
+      cover.jpg
       assets/</code></pre>
-                            </div>
-                            <div>
-                                <h3>Public output</h3>
-                                <pre><code>public/
+        </section>
+
+        <section class="article-section">
+            <h2>Output</h2>
+            <pre><code>public/
   index.html
   feed.xml
   sitemap.xml
-  assets/
-    styxpress.css
-  posts/
-    {slug}/
-      index.html
-      cover.*
-      assets/</code></pre>
-                            </div>
-                        </div>
-                        <ul class="check-list">
-                            <li>Only published posts are rendered into public output.</li>
-                            <li>Draft posts are excluded.</li>
-                            <li>Draft output already present locally is removed during a full site render.</li>
-                            <li>Markdown is rendered with Goldmark.</li>
-                            <li>Raw HTML inside Markdown is escaped.</li>
-                            <li><code>siteBaseUrl</code> generates absolute feed, sitemap, canonical, and Open Graph URLs.</li>
-                        </ul>
-                    </section>
-
-                    <section class="article-section" id="api-runtime-behavior">
-                        <h2>Admin API And Runtime Behavior</h2>
-                        <p>
-                            The Styxpress API belongs to the local admin runtime, not the public website. It is used by the embedded admin UI for local editing, rendering, publishing, and verification workflows.
-                        </p>
-                        <pre><code>./styxpress-admin [-addr 127.0.0.1:8080] [-config path]</code></pre>
-                        <p>
-                            By default, the admin server binds to <code>127.0.0.1:0</code>, which asks the operating system for an available local port. On startup, Styxpress prints the local URL and an API session token. The embedded UI receives the token and uses it for admin API requests.
-                        </p>
-                        <div class="callout">
-                            <strong>No public Styxpress API.</strong>
-                            <p>The generated public site has no Styxpress API. Once deployed, production traffic is served as static files by the configured web server.</p>
-                        </div>
-                    </section>
-
-                    <section class="article-section" id="security-model">
-                        <h2>Security Model</h2>
-                        <p>
-                            Styxpress reduces the public attack surface by keeping the admin app local and publishing only static files. The production server does not need a database, a CMS process, or a writable application backend to serve readers.
-                        </p>
-                        <p>
-                            The admin session token is created for the local admin runtime. It is not part of the rendered website and should not be deployed with public files. Markdown rendering escapes raw HTML, which keeps authored Markdown from becoming arbitrary raw HTML in generated public pages.
-                        </p>
-                        <div class="callout warning">
-                            <strong>Host-key verification limit.</strong>
-                            <p>Strict host-key verification is not currently implemented. Do not treat SFTP publishing as hardened against all man-in-the-middle risks.</p>
-                        </div>
-                    </section>
-
-                    <section class="article-section" id="current-limits">
-                        <h2>Current Limits</h2>
-                        <p>
-                            Styxpress is intentionally small in its current form. It does not currently provide:
-                        </p>
-                        <ul class="check-list">
-                            <li>Hosted CMS hosting.</li>
-                            <li>A dynamic public server.</li>
-                            <li>A database-backed public runtime.</li>
-                            <li>Comments.</li>
-                            <li>Analytics.</li>
-                            <li>Public search.</li>
-                            <li>Multi-user editing.</li>
-                            <li>Scheduled publishing.</li>
-                            <li>Rollback.</li>
-                            <li>SCP publishing.</li>
-                            <li>Arbitrary raw HTML in Markdown.</li>
-                            <li>Strict host-key verification.</li>
-                        </ul>
-                    </section>
-
-                    <section class="article-section" id="links">
-                        <h2>Related Docs</h2>
-                        <div class="link-card-list">
-                            <a class="link-card" href="../guide/">
-                                <strong>User guide</strong>
-                                <span>Configure a site, publish posts, edit themes, and verify remote files.</span>
-                            </a>
-                            <a class="link-card" href="../guide/#files-on-disk">
-                                <strong>Filesystem layout</strong>
-                                <span>See the user-facing explanation of <code>content/</code> and <code>public/</code>.</span>
-                            </a>
-                            <a class="link-card" href="../guide/#serve-the-public-site">
-                                <strong>Public serving</strong>
-                                <span>Serve only the generated public directory with your reverse proxy.</span>
-                            </a>
-                        </div>
-                    </section>
-                </article>
-            </div>
+  assets/styxpress.css
+  posts/hello-world/index.html</code></pre>
         </section>
-    </main>
 
-    <footer class="footer">
-        <div class="footer-inner">
-            <div>
-                <a class="brand" href="../">
-                    <img src="../assets/img/styxpress-mark.png" alt="" width="96" height="96" aria-hidden="true">
-                    <span>Styxpress</span>
-                </a>
-                <p class="note-small">Local Markdown authoring, static rendering, SFTP publishing.</p>
-            </div>
-            <nav class="footer-links" aria-label="Footer navigation">
-                <a href="../">Overview</a>
-                <a href="../guide/">Guide</a>
-                <a href="https://github.com/nordine-abde/styxpress">GitHub</a>
-                <a href="https://github.com/nordine-abde/styxpress/releases/latest">Releases</a>
-            </nav>
-        </div>
-    </footer>
-    <script src="../assets/js/site.js?v=20260529b" defer></script>
+        <section class="article-section">
+            <h2>Renderer</h2>
+            <p>
+                The renderer escapes raw HTML in Markdown, writes published
+                posts only, removes stale draft output during full renders, and
+                emits one built-in stylesheet.
+            </p>
+        </section>
+
+        <section class="article-section">
+            <h2>Admin</h2>
+            <p>
+                The Go admin server binds locally, serves the embedded Vue UI,
+                and exposes endpoints for config, site config, posts, previews,
+                uploads, and local rendering.
+            </p>
+        </section>
+
+        <p><a href="/">Back to home</a></p>
+    </main>
 </body>
 </html>

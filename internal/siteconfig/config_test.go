@@ -12,11 +12,11 @@ func TestLoadOrDefaultMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOrDefault returned error: %v", err)
 	}
-	if cfg.Title != "Styxpress" {
-		t.Fatalf("Title = %q, want default title", cfg.Title)
+	if cfg.Title != "Styxpress" || !cfg.Footer.ShowWatermark {
+		t.Fatalf("LoadOrDefault() = %#v, want default title and watermark", cfg)
 	}
-	if cfg.Theme.Palette != PaletteWarm || cfg.Header.Variant != HeaderNav || cfg.Footer.Variant != FooterSimple {
-		t.Fatalf("LoadOrDefault() = %#v, want default presets", cfg)
+	if len(cfg.Header.Links) == 0 || cfg.Header.Links[0].Href != "/" {
+		t.Fatalf("Header links = %#v, want default home link", cfg.Header.Links)
 	}
 }
 
@@ -25,45 +25,15 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	cfg := Config{
 		Title:       "Anordine",
 		Description: "Software notes",
-		Theme: ThemeConfig{
-			Palette:   PaletteSage,
-			Font:      FontSerif,
-			Layout:    LayoutWide,
-			Radius:    RadiusNone,
-			CustomCSS: ".post-card { border-width: 2px; }\n",
-		},
-		SavedThemes: []SavedThemeConfig{
-			{
-				ID:        "sage-wide",
-				Name:      "Sage Wide",
-				Palette:   PaletteSage,
-				Font:      FontSerif,
-				Layout:    LayoutWide,
-				Radius:    RadiusSoft,
-				CustomCSS: ".site-title { letter-spacing: 0.02em; }",
-			},
-			{
-				ID:        "warm_mono",
-				Name:      "Warm Mono",
-				Palette:   PaletteWarm,
-				Font:      FontMono,
-				Layout:    LayoutClassic,
-				Radius:    RadiusNone,
-				CustomCSS: "",
-			},
-		},
 		Header: HeaderConfig{
-			Variant: HeaderCentered,
-			Title:   "Anordine Lab",
-			Tagline: "Quiet notes",
 			Links: []Link{
 				{Label: "Home", Href: "/"},
 				{Label: "GitHub", Href: "https://github.com/nordine-abde"},
 			},
 		},
 		Footer: FooterConfig{
-			Variant: FooterLinks,
-			Text:    "All notes are local files.",
+			Text:          "All notes are local files.",
+			ShowWatermark: false,
 			Links: []Link{
 				{Label: "RSS", Href: "/feed.xml"},
 				{Label: "Email", Href: "mailto:hello@example.com"},
@@ -78,11 +48,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if got.Title != cfg.Title || got.Theme != cfg.Theme || got.Header.Variant != cfg.Header.Variant || got.Footer.Text != cfg.Footer.Text {
+	if got.Title != cfg.Title || got.Description != cfg.Description || got.Footer.Text != cfg.Footer.Text || got.Footer.ShowWatermark != cfg.Footer.ShowWatermark {
 		t.Fatalf("Load() = %#v, want %#v", got, cfg)
-	}
-	if len(got.SavedThemes) != 2 || got.SavedThemes[0] != cfg.SavedThemes[0] || got.SavedThemes[1] != cfg.SavedThemes[1] {
-		t.Fatalf("SavedThemes = %#v, want %#v", got.SavedThemes, cfg.SavedThemes)
 	}
 	if len(got.Header.Links) != 2 || got.Header.Links[1].Href != "https://github.com/nordine-abde" {
 		t.Fatalf("Header links = %#v, want round trip links", got.Header.Links)
@@ -92,38 +59,18 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLoadLegacyConfigWithoutSavedThemeFields(t *testing.T) {
+func TestLoadRejectsRemovedThemeSection(t *testing.T) {
 	root := t.TempDir()
 	data := []byte(`title = "Legacy"
-description = "Existing site"
 
 [theme]
 palette = "ink"
-font = "system"
-layout = "classic"
-radius = "soft"
-
-[header]
-variant = "nav"
-title = ""
-tagline = ""
-
-[footer]
-variant = "simple"
-text = "Published with Styxpress"
 `)
 	if err := os.WriteFile(filepath.Join(root, FileName), data, 0o644); err != nil {
 		t.Fatalf("write legacy config: %v", err)
 	}
-	cfg, err := Load(root)
-	if err != nil {
-		t.Fatalf("Load returned error: %v", err)
-	}
-	if cfg.Theme.CustomCSS != "" {
-		t.Fatalf("CustomCSS = %q, want empty", cfg.Theme.CustomCSS)
-	}
-	if len(cfg.SavedThemes) != 0 {
-		t.Fatalf("SavedThemes = %#v, want none", cfg.SavedThemes)
+	if _, err := Load(root); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Load error = %v, want ErrInvalidConfig", err)
 	}
 }
 
@@ -141,86 +88,31 @@ func TestSaveUsesPublicContentPermissions(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsUnknownPresetsAndUnsafeLinks(t *testing.T) {
+func TestValidateRejectsUnsafeLinksAndNULText(t *testing.T) {
 	cfg := Default()
-	cfg.Theme.Palette = "custom"
-	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("Validate unknown palette = %v, want ErrInvalidConfig", err)
-	}
-
-	cfg = Default()
 	cfg.Header.Links = []Link{{Label: "Unsafe", Href: "javascript:alert(1)"}}
 	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("Validate unsafe link = %v, want ErrInvalidConfig", err)
 	}
-}
 
-func TestValidateRejectsInvalidCustomCSSAndSavedThemes(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*Config)
-	}{
-		{
-			name: "active custom CSS NUL",
-			mutate: func(cfg *Config) {
-				cfg.Theme.CustomCSS = "body {}\x00"
-			},
-		},
-		{
-			name: "saved custom CSS NUL",
-			mutate: func(cfg *Config) {
-				cfg.SavedThemes = []SavedThemeConfig{validSavedTheme()}
-				cfg.SavedThemes[0].CustomCSS = "body {}\x00"
-			},
-		},
-		{
-			name: "unknown saved palette",
-			mutate: func(cfg *Config) {
-				cfg.SavedThemes = []SavedThemeConfig{validSavedTheme()}
-				cfg.SavedThemes[0].Palette = "custom"
-			},
-		},
-		{
-			name: "missing saved id",
-			mutate: func(cfg *Config) {
-				cfg.SavedThemes = []SavedThemeConfig{validSavedTheme()}
-				cfg.SavedThemes[0].ID = ""
-			},
-		},
-		{
-			name: "missing saved name",
-			mutate: func(cfg *Config) {
-				cfg.SavedThemes = []SavedThemeConfig{validSavedTheme()}
-				cfg.SavedThemes[0].Name = ""
-			},
-		},
-		{
-			name: "unsafe saved id",
-			mutate: func(cfg *Config) {
-				cfg.SavedThemes = []SavedThemeConfig{validSavedTheme()}
-				cfg.SavedThemes[0].ID = "../theme"
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := Default()
-			tt.mutate(&cfg)
-			if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
-				t.Fatalf("Validate error = %v, want ErrInvalidConfig", err)
-			}
-		})
+	cfg = Default()
+	cfg.Footer.Text = "bad\x00"
+	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Validate NUL text = %v, want ErrInvalidConfig", err)
 	}
 }
 
-func validSavedTheme() SavedThemeConfig {
-	return SavedThemeConfig{
-		ID:      "sage-wide",
-		Name:    "Sage Wide",
-		Palette: PaletteSage,
-		Font:    FontSerif,
-		Layout:  LayoutWide,
-		Radius:  RadiusSoft,
+func TestLoadRejectsInvalidWatermarkValue(t *testing.T) {
+	root := t.TempDir()
+	data := []byte(`title = "Bad"
+
+[footer]
+showWatermark = "nope"
+`)
+	if err := os.WriteFile(filepath.Join(root, FileName), data, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := Load(root); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Load error = %v, want ErrInvalidConfig", err)
 	}
 }

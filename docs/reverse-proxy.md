@@ -1,6 +1,8 @@
 # Reverse Proxy Examples
 
-Styxpress v1 serves public pages as pre-rendered static files. The public web server should use the generated `public/` directory as its document root and should not have read access to `content/`, admin configuration, SSH keys, or temporary upload directories.
+Styxpress serves public pages as pre-rendered static files. The public web
+server should use the generated `public/` directory as its document root and
+should not have read access to `content/` or admin configuration.
 
 Copy one of these examples and replace `example.com` and `/var/lib/styxpress/site/public` with your domain and generated public directory:
 
@@ -38,28 +40,30 @@ The reverse proxy root must be the `public/` directory, not `/var/lib/styxpress/
 
 ## Permissions
 
-Use separate users for serving public files and publishing new files.
+Use separate users for serving public files and updating generated files.
 
 Example:
 
 ```bash
 sudo groupadd --system styxpress
-sudo useradd --system --home /var/lib/styxpress --shell /usr/sbin/nologin styxpress-publish
+sudo useradd --system --home /var/lib/styxpress --shell /usr/sbin/nologin styxpress-sync
 sudo usermod -a -G styxpress www-data
-sudo install -d -o styxpress-publish -g styxpress -m 0750 /var/lib/styxpress/site
-sudo install -d -o styxpress-publish -g styxpress -m 0750 /var/lib/styxpress/site/content
-sudo install -d -o styxpress-publish -g styxpress -m 0750 /var/lib/styxpress/site/public
+sudo install -d -o styxpress-sync -g styxpress -m 0750 /var/lib/styxpress/site
+sudo install -d -o styxpress-sync -g styxpress -m 0750 /var/lib/styxpress/site/public
 sudo find /var/lib/styxpress/site/public -type d -exec chmod 0750 {} +
 sudo find /var/lib/styxpress/site/public -type f -exec chmod 0640 {} +
 ```
 
 For Nginx on Debian and Ubuntu, the web server user is usually `www-data`. For Caddy packages, it is often `caddy`; replace `www-data` with that user if needed.
 
-The publishing SSH user needs write access to `content/` and `public/`. The reverse proxy user needs read and execute access only to `public/`.
+The reverse proxy user needs read and execute access only to `public/`.
+Styxpress itself does not upload to this server; copy or sync `public/` with a
+separate tool if the output folder is not already on the host.
 
 ## Hidden Files And Symlinks
 
-The examples return `404` for hidden files and dot-directories. Do not publish secrets, local admin configuration, SSH material, or upload scratch files into `public/`.
+The examples return `404` for hidden files and dot-directories. Do not publish
+secrets, local admin configuration, or scratch files into `public/`.
 
 Do not place symlinks in `public/`. Nginx can reject symlinks with `disable_symlinks`; the Caddy example relies on the document root, route allowlist, and filesystem hygiene. Before enabling the site, you can check for symlinks with:
 
@@ -71,7 +75,7 @@ That command should print nothing.
 
 ## Manual Verification
 
-After publishing, verify the intended routes:
+After copying generated output into place, verify the intended routes:
 
 ```bash
 curl -I https://example.com/

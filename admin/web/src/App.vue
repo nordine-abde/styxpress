@@ -1,28 +1,26 @@
 <script setup>
 import { computed, onMounted } from 'vue'
 import AuthBar from './components/AuthBar.vue'
+import BuildPanel from './components/BuildPanel.vue'
 import ConfigScreen from './components/ConfigScreen.vue'
-import FeaturedManager from './components/FeaturedManager.vue'
 import PostEditor from './components/PostEditor.vue'
 import PostList from './components/PostList.vue'
-import PublishPanel from './components/PublishPanel.vue'
-import SSHConnectionGate from './components/SSHConnectionGate.vue'
 import SiteConfigScreen from './components/SiteConfigScreen.vue'
 import SiteListScreen from './components/SiteListScreen.vue'
 import UiButton from './components/ui/UiButton.vue'
 import UiBadge from './components/ui/UiBadge.vue'
 import styxpressMarkUrl from './assets/styxpress-mark.png'
 import { useAuthStore } from './stores/auth'
+import { useBuildStore } from './stores/build'
 import { useConfigStore } from './stores/config'
 import { usePostsStore } from './stores/posts'
-import { usePublishingStore } from './stores/publishing'
 import { useSiteWorkspaceStore } from './stores/siteWorkspace'
 import { useUiStore } from './stores/ui'
 
 const authStore = useAuthStore()
+const buildStore = useBuildStore()
 const configStore = useConfigStore()
 const postsStore = usePostsStore()
-const publishingStore = usePublishingStore()
 const siteWorkspaceStore = useSiteWorkspaceStore()
 const uiStore = useUiStore()
 
@@ -33,14 +31,8 @@ const activeLabel = computed(() => {
     if (uiStore.activeView === 'config') {
         return 'Configuration'
     }
-    if (uiStore.activeView === 'access') {
-        return 'Site access'
-    }
-    if (uiStore.activeView === 'featured') {
-        return 'Featured'
-    }
     if (uiStore.activeView === 'site') {
-        return 'Styles'
+        return 'Site'
     }
     return 'Posts'
 })
@@ -58,16 +50,12 @@ onMounted(async () => {
 })
 
 function leaveSite() {
-    publishingStore.resetSSH()
+    buildStore.reset()
     siteWorkspaceStore.reset()
     uiStore.setActiveView('sites')
 }
 
 function setSiteView(view) {
-    if (publishingStore.sshBlocksEditing && view !== 'config') {
-        uiStore.setActiveView('access')
-        return
-    }
     uiStore.setActiveView(view)
 }
 </script>
@@ -140,29 +128,18 @@ function setSiteView(view) {
                 <button
                     type="button"
                     :class="{ active: uiStore.activeView === 'site' }"
-                    :disabled="publishingStore.sshBlocksEditing"
                     @click="setSiteView('site')"
                 >
                     <span aria-hidden="true">S</span>
-                    Styles
+                    Site
                 </button>
                 <button
                     type="button"
                     :class="{ active: uiStore.activeView === 'posts' }"
-                    :disabled="publishingStore.sshBlocksEditing"
                     @click="setSiteView('posts')"
                 >
                     <span aria-hidden="true">#</span>
                     Posts
-                </button>
-                <button
-                    type="button"
-                    :class="{ active: uiStore.activeView === 'featured' }"
-                    :disabled="publishingStore.sshBlocksEditing"
-                    @click="setSiteView('featured')"
-                >
-                    <span aria-hidden="true">*</span>
-                    Featured
                 </button>
             </nav>
 
@@ -176,9 +153,6 @@ function setSiteView(view) {
                     <h2>{{ activeLabel === 'Posts' ? 'Content workspace' : activeLabel }}</h2>
                 </div>
                 <div class="status-row">
-                    <UiBadge v-if="publishingStore.sshEnabled" :tone="publishingStore.sshStatusTone">
-                        {{ publishingStore.sshStatusLabel }}
-                    </UiBadge>
                     <UiBadge :tone="authStore.hasToken ? 'success' : 'warning'">
                         {{ authStore.hasToken ? 'session ready' : 'session missing' }}
                     </UiBadge>
@@ -186,24 +160,18 @@ function setSiteView(view) {
                 </div>
             </header>
 
-            <SSHConnectionGate v-if="uiStore.activeView === 'access'" />
-
-            <section v-else-if="uiStore.activeView === 'posts'" class="posts-layout">
+            <section v-if="uiStore.activeView === 'posts'" class="posts-layout">
                 <div class="posts-side-column">
                     <div class="posts-list-column">
                         <PostList />
                     </div>
                     <div class="posts-action-column">
-                        <PublishPanel />
+                        <BuildPanel />
                     </div>
                 </div>
                 <div class="posts-editor-column">
                     <PostEditor />
                 </div>
-            </section>
-
-            <section v-else-if="uiStore.activeView === 'featured'" class="single-layout">
-                <FeaturedManager />
             </section>
 
             <section v-else-if="uiStore.activeView === 'site'" class="wide-layout">

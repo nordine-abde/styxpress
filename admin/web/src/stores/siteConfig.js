@@ -6,26 +6,15 @@ import { useUiStore } from './ui'
 export const defaultSiteConfig = {
     title: 'Styxpress',
     description: 'Latest posts',
-    theme: {
-        palette: 'warm',
-        font: 'system',
-        layout: 'classic',
-        radius: 'soft',
-        customCss: ''
-    },
-    savedThemes: [],
     header: {
-        variant: 'nav',
-        title: '',
-        tagline: '',
         links: [
             { label: 'Home', href: '/' },
             { label: 'RSS', href: '/feed.xml' }
         ]
     },
     footer: {
-        variant: 'simple',
-        text: 'Published with Styxpress',
+        text: '',
+        showWatermark: true,
         links: [
             { label: 'RSS', href: '/feed.xml' }
         ]
@@ -40,11 +29,7 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
     const previewHtml = ref('')
     const previewUrl = ref('')
     const previewError = ref('')
-    const styleCssLoading = ref(false)
-    const styleCss = ref(defaultStyleCss())
-    const styleCssError = ref('')
     const error = ref('')
-    let styleCssRequestId = 0
 
     async function loadSiteConfig() {
         const uiStore = useUiStore()
@@ -100,35 +85,6 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         }
     }
 
-    async function loadStyleCss(nextConfig) {
-        const uiStore = useUiStore()
-        const requestId = styleCssRequestId + 1
-        styleCssRequestId = requestId
-        styleCssLoading.value = true
-        styleCssError.value = ''
-        try {
-            const payload = await apiRequest('/api/site-config/style-css', {
-                method: 'POST',
-                body: mergeConfig(nextConfig)
-            })
-            const nextStyleCss = mergeStyleCss(payload)
-            if (requestId === styleCssRequestId) {
-                styleCss.value = nextStyleCss
-            }
-            return nextStyleCss
-        } catch (err) {
-            if (requestId === styleCssRequestId) {
-                styleCssError.value = err.message
-            }
-            uiStore.captureError(err)
-            throw err
-        } finally {
-            if (requestId === styleCssRequestId) {
-                styleCssLoading.value = false
-            }
-        }
-    }
-
     function setPreviewUrl(html) {
         if (previewUrl.value) {
             URL.revokeObjectURL(previewUrl.value)
@@ -143,8 +99,6 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         previewHtml.value = ''
         setPreviewUrl('')
         previewError.value = ''
-        styleCss.value = defaultStyleCss()
-        styleCssError.value = ''
         error.value = ''
     }
 
@@ -156,14 +110,10 @@ export const useSiteConfigStore = defineStore('siteConfig', () => {
         previewHtml,
         previewUrl,
         previewError,
-        styleCssLoading,
-        styleCss,
-        styleCssError,
         error,
         loadSiteConfig,
         saveSiteConfig,
         previewSiteConfig,
-        loadStyleCss,
         reset
     }
 })
@@ -177,12 +127,6 @@ export function mergeConfig(value = {}) {
     return {
         ...defaults,
         ...value,
-        theme: {
-            ...defaults.theme,
-            ...(value.theme || {}),
-            customCss: value.theme?.customCss || defaults.theme.customCss
-        },
-        savedThemes: Array.isArray(value.savedThemes) ? value.savedThemes.map(mergeTheme) : defaults.savedThemes,
         header: {
             ...defaults.header,
             ...(value.header || {}),
@@ -191,73 +135,10 @@ export function mergeConfig(value = {}) {
         footer: {
             ...defaults.footer,
             ...(value.footer || {}),
+            showWatermark: value.footer?.showWatermark === undefined
+                ? defaults.footer.showWatermark
+                : Boolean(value.footer.showWatermark),
             links: Array.isArray(value.footer?.links) ? value.footer.links : defaults.footer.links
         }
-    }
-}
-
-function mergeTheme(theme = {}) {
-    return {
-        id: theme.id || '',
-        name: theme.name || '',
-        palette: theme.palette || defaultSiteConfig.theme.palette,
-        font: theme.font || defaultSiteConfig.theme.font,
-        layout: theme.layout || defaultSiteConfig.theme.layout,
-        radius: theme.radius || defaultSiteConfig.theme.radius,
-        customCss: theme.customCss || ''
-    }
-}
-
-function defaultStyleCss() {
-    return {
-        currentCss: '',
-        themeCss: '',
-        blankThemeCss: '',
-        customCssIncluded: false,
-        bodyClasses: [],
-        theme: {
-            palette: '',
-            font: '',
-            layout: '',
-            radius: ''
-        },
-        header: defaultStyleVariantState(),
-        footer: defaultStyleVariantState()
-    }
-}
-
-function mergeStyleCss(value = {}) {
-    return {
-        ...defaultStyleCss(),
-        ...value,
-        currentCss: value.currentCss || '',
-        themeCss: value.themeCss || '',
-        blankThemeCss: value.blankThemeCss || '',
-        customCssIncluded: Boolean(value.customCssIncluded),
-        bodyClasses: Array.isArray(value.bodyClasses) ? value.bodyClasses : [],
-        theme: {
-            ...defaultStyleCss().theme,
-            ...(value.theme || {})
-        },
-        header: mergeStyleVariantState(value.header),
-        footer: mergeStyleVariantState(value.footer)
-    }
-}
-
-function defaultStyleVariantState() {
-    return {
-        variant: '',
-        className: '',
-        rendered: false
-    }
-}
-
-function mergeStyleVariantState(variant = {}) {
-    return {
-        ...defaultStyleVariantState(),
-        ...variant,
-        variant: variant.variant || '',
-        className: variant.className || '',
-        rendered: Boolean(variant.rendered)
     }
 }

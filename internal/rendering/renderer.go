@@ -8,7 +8,6 @@ import (
 	stdhtml "html"
 	"html/template"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -42,13 +41,8 @@ var (
 type Renderer struct {
 	contentRoot string
 	publicRoot  string
-	siteBaseURL string
 	siteConfig  siteconfig.Config
 	markdown    goldmark.Markdown
-}
-
-type Options struct {
-	SiteBaseURL string
 }
 
 type Result struct {
@@ -84,16 +78,14 @@ type pageData struct {
 }
 
 type sitePageData struct {
-	Site     siteTemplateData
-	Title    string
-	Featured []postSummary
-	Latest   []postSummary
+	Site   siteTemplateData
+	Title  string
+	Latest []postSummary
 }
 
 type siteTemplateData struct {
 	Title       string
 	Description string
-	BodyClass   string
 	Style       styleTemplateData
 	Header      headerTemplateData
 	Footer      footerTemplateData
@@ -105,18 +97,14 @@ type styleTemplateData struct {
 }
 
 type headerTemplateData struct {
-	Hidden       bool
-	VariantClass string
-	Title        string
-	Tagline      string
-	Links        []siteconfig.Link
+	Title string
+	Links []siteconfig.Link
 }
 
 type footerTemplateData struct {
-	Hidden       bool
-	VariantClass string
-	Text         string
-	Links        []siteconfig.Link
+	Text          string
+	ShowWatermark bool
+	Links         []siteconfig.Link
 }
 
 type postSummary struct {
@@ -166,19 +154,12 @@ type sitemapURL struct {
 	LastModified string `xml:"lastmod,omitempty"`
 }
 
-func New(contentRoot string, publicRoot string, opts Options) (*Renderer, error) {
+func New(contentRoot string, publicRoot string) (*Renderer, error) {
 	if strings.TrimSpace(contentRoot) == "" {
 		return nil, fmt.Errorf("%w: content root is required", ErrInvalidRenderConfig)
 	}
 	if strings.TrimSpace(publicRoot) == "" {
 		return nil, fmt.Errorf("%w: public root is required", ErrInvalidRenderConfig)
-	}
-	siteBaseURL := strings.TrimRight(strings.TrimSpace(opts.SiteBaseURL), "/")
-	if siteBaseURL != "" {
-		parsed, err := url.Parse(siteBaseURL)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			return nil, fmt.Errorf("%w: site base URL must be absolute", ErrInvalidRenderConfig)
-		}
 	}
 	siteCfg, err := siteconfig.LoadOrDefault(contentRoot)
 	if err != nil {
@@ -188,7 +169,6 @@ func New(contentRoot string, publicRoot string, opts Options) (*Renderer, error)
 	return &Renderer{
 		contentRoot: contentRoot,
 		publicRoot:  publicRoot,
-		siteBaseURL: siteBaseURL,
 		siteConfig:  siteCfg,
 		markdown: goldmark.New(
 			goldmark.WithRendererOptions(
@@ -200,16 +180,12 @@ func New(contentRoot string, publicRoot string, opts Options) (*Renderer, error)
 }
 
 func (r *Renderer) RenderSite() (SiteResult, error) {
-	if r.siteBaseURL == "" {
-		return SiteResult{}, fmt.Errorf("%w: site base URL is required for site rendering", ErrInvalidRenderConfig)
-	}
-
-	posts, featured, err := r.homepagePosts(true)
+	posts, err := r.homepagePosts(true)
 	if err != nil {
 		return SiteResult{}, err
 	}
 
-	indexHTML, err := r.renderHomepage(posts, featured, r.siteConfig, linkedStyle())
+	indexHTML, err := r.renderHomepage(posts, r.siteConfig, linkedStyle())
 	if err != nil {
 		return SiteResult{}, err
 	}
@@ -248,10 +224,6 @@ func (r *Renderer) RenderSite() (SiteResult, error) {
 }
 
 func (r *Renderer) RenderAll() (AllResult, error) {
-	if r.siteBaseURL == "" {
-		return AllResult{}, fmt.Errorf("%w: site base URL is required for site rendering", ErrInvalidRenderConfig)
-	}
-
 	repo := content.NewRepository(r.contentRoot)
 	allPosts, err := repo.ListPosts()
 	if err != nil {
@@ -335,7 +307,7 @@ func (r *Renderer) renderLoadedPost(post content.Post) (Result, error) {
 }
 
 func (r *Renderer) RenderPreview(post content.Post) (string, error) {
-	return r.renderPostDocument(post, r.siteConfig, inlineStyle(r.siteConfig))
+	return r.renderPostDocument(post, r.siteConfig, inlineStyle())
 }
 
 func (r *Renderer) RenderSitePreview(cfg siteconfig.Config) (string, error) {
@@ -343,11 +315,11 @@ func (r *Renderer) RenderSitePreview(cfg siteconfig.Config) (string, error) {
 	if err := cfg.Validate(); err != nil {
 		return "", err
 	}
-	posts, featured, err := r.homepagePosts(false)
+	posts, err := r.homepagePosts(false)
 	if err != nil {
 		return "", err
 	}
-	return r.renderHomepage(posts, featured, cfg, inlineStyle(cfg))
+	return r.renderHomepage(posts, cfg, inlineStyle())
 }
 
 func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, style styleTemplateData) (string, error) {
@@ -385,54 +357,29 @@ func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, 
 	return document.String(), nil
 }
 
-func (r *Renderer) homepagePosts(cleanupOutput bool) ([]content.Post, []content.Post, error) {
+func (r *Renderer) homepagePosts(cleanupOutput bool) ([]content.Post, error) {
 	repo := content.NewRepository(r.contentRoot)
 	allPosts, err := repo.ListPosts()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if cleanupOutput {
 		if err := r.removeUnpublishedPostOutput(allPosts); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 	posts, err := repo.ListPublishedPosts()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	featuredSlugs, err := repo.ReadFeatured()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	allPostBySlug := make(map[string]content.Post, len(allPosts))
-	for _, post := range allPosts {
-		allPostBySlug[post.Slug] = post
-	}
-	postBySlug := make(map[string]content.Post, len(posts))
-	for _, post := range posts {
-		postBySlug[post.Slug] = post
-	}
-	featured := make([]content.Post, 0, len(featuredSlugs))
-	for _, slug := range featuredSlugs {
-		if _, ok := allPostBySlug[slug]; !ok {
-			return nil, nil, fmt.Errorf("%w: featured post %q does not exist", content.ErrPostNotFound, slug)
-		}
-		post, ok := postBySlug[slug]
-		if !ok {
-			continue
-		}
-		featured = append(featured, post)
-	}
-	return posts, featured, nil
+	return posts, nil
 }
 
-func (r *Renderer) renderHomepage(latestPosts []content.Post, featuredPosts []content.Post, cfg siteconfig.Config, style styleTemplateData) (string, error) {
+func (r *Renderer) renderHomepage(latestPosts []content.Post, cfg siteconfig.Config, style styleTemplateData) (string, error) {
 	data := sitePageData{
-		Site:     r.siteData(cfg, style),
-		Title:    cfg.Title,
-		Featured: r.summarizePosts(featuredPosts, false),
-		Latest:   r.summarizePosts(latestPosts, false),
+		Site:   r.siteData(cfg, style),
+		Title:  cfg.Title,
+		Latest: r.summarizePosts(latestPosts, false),
 	}
 
 	var document bytes.Buffer
@@ -589,13 +536,7 @@ func (r *Renderer) reconcileAssets(post content.Post, publicDir string) ([]strin
 }
 
 func (r *Renderer) absoluteURL(path string) string {
-	if path == "" {
-		return ""
-	}
-	if r.siteBaseURL == "" {
-		return path
-	}
-	return r.siteBaseURL + path
+	return path
 }
 
 func (r *Renderer) postURL(slug string) string {
@@ -604,27 +545,18 @@ func (r *Renderer) postURL(slug string) string {
 
 func (r *Renderer) siteData(cfg siteconfig.Config, style styleTemplateData) siteTemplateData {
 	cfg = siteconfig.WithDefaults(cfg)
-	headerTitle := cfg.Header.Title
-	if headerTitle == "" {
-		headerTitle = cfg.Title
-	}
 	return siteTemplateData{
 		Title:       cfg.Title,
 		Description: cfg.Description,
-		BodyClass:   strings.Join(siteBodyClasses(cfg), " "),
 		Style:       style,
 		Header: headerTemplateData{
-			Hidden:       cfg.Header.Variant == siteconfig.HeaderHidden,
-			VariantClass: siteHeaderVariantClass(cfg.Header.Variant),
-			Title:        headerTitle,
-			Tagline:      cfg.Header.Tagline,
-			Links:        cfg.Header.Links,
+			Title: cfg.Title,
+			Links: cfg.Header.Links,
 		},
 		Footer: footerTemplateData{
-			Hidden:       cfg.Footer.Variant == siteconfig.FooterHidden,
-			VariantClass: siteFooterVariantClass(cfg.Footer.Variant),
-			Text:         cfg.Footer.Text,
-			Links:        cfg.Footer.Links,
+			Text:          cfg.Footer.Text,
+			ShowWatermark: cfg.Footer.ShowWatermark,
+			Links:         cfg.Footer.Links,
 		},
 	}
 }
@@ -638,24 +570,12 @@ func linkedStyle() styleTemplateData {
 	return styleTemplateData{Href: "/assets/styxpress.css"}
 }
 
-func inlineStyle(cfg siteconfig.Config) styleTemplateData {
-	return styleTemplateData{InlineCSS: template.CSS(styleElementCSS(styleSheet(cfg)))}
+func inlineStyle() styleTemplateData {
+	return styleTemplateData{InlineCSS: template.CSS(styleElementCSS(siteStyleSheet))}
 }
 
 func styleSheet(cfg siteconfig.Config) string {
-	cfg = siteconfig.WithDefaults(cfg)
-	if cfg.Theme.CustomCSS == "" {
-		return siteStyleSheet
-	}
-	css := siteStyleSheet
-	if !strings.HasSuffix(css, "\n") {
-		css += "\n"
-	}
-	css += "\n" + cfg.Theme.CustomCSS
-	if !strings.HasSuffix(css, "\n") {
-		css += "\n"
-	}
-	return css
+	return siteStyleSheet
 }
 
 func styleElementCSS(css string) string {
@@ -830,16 +750,12 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 <meta property="article:modified_time" content="{{ .UpdatedAt }}">
 {{- end }}
 </head>
-<body class="{{ .Site.BodyClass }}">
+<body>
 <a class="skip-link" href="#content">Skip to content</a>
-{{- if not .Site.Header.Hidden }}
-<header class="site-header {{ .Site.Header.VariantClass }}">
+<header class="site-header">
 <div class="site-header-inner">
 <div class="site-branding">
 <a class="site-title" href="/">{{ .Site.Header.Title }}</a>
-{{- if .Site.Header.Tagline }}
-<p>{{ .Site.Header.Tagline }}</p>
-{{- end }}
 </div>
 {{- if .Site.Header.Links }}
 <nav class="site-nav" aria-label="Primary">
@@ -850,7 +766,6 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 {{- end }}
 </div>
 </header>
-{{- end }}
 <main id="content" class="site-main post-main">
 <article class="post-article">
 <header class="post-header">
@@ -867,11 +782,13 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 </div>
 </article>
 </main>
-{{- if not .Site.Footer.Hidden }}
-<footer class="site-footer {{ .Site.Footer.VariantClass }}">
+<footer class="site-footer">
 <div class="site-footer-inner">
 {{- if .Site.Footer.Text }}
 <p>{{ .Site.Footer.Text }}</p>
+{{- end }}
+{{- if .Site.Footer.ShowWatermark }}
+<p>Published with Styx Press</p>
 {{- end }}
 {{- if .Site.Footer.Links }}
 <nav class="site-nav" aria-label="Footer">
@@ -882,7 +799,6 @@ var postTemplate = template.Must(template.New("post").Parse(`<!doctype html>
 {{- end }}
 </div>
 </footer>
-{{- end }}
 </body>
 </html>
 `))
@@ -903,16 +819,12 @@ var homepageTemplate = template.Must(template.New("homepage").Parse(`<!doctype h
 <meta name="description" content="{{ .Site.Description }}">
 {{- end }}
 </head>
-<body class="{{ .Site.BodyClass }}">
+<body>
 <a class="skip-link" href="#content">Skip to content</a>
-{{- if not .Site.Header.Hidden }}
-<header class="site-header {{ .Site.Header.VariantClass }}">
+<header class="site-header">
 <div class="site-header-inner">
 <div class="site-branding">
 <a class="site-title" href="/">{{ .Site.Header.Title }}</a>
-{{- if .Site.Header.Tagline }}
-<p>{{ .Site.Header.Tagline }}</p>
-{{- end }}
 </div>
 {{- if .Site.Header.Links }}
 <nav class="site-nav" aria-label="Primary">
@@ -923,29 +835,7 @@ var homepageTemplate = template.Must(template.New("homepage").Parse(`<!doctype h
 {{- end }}
 </div>
 </header>
-{{- end }}
 <main id="content" class="site-main home-main">
-{{- if .Featured }}
-<section class="post-section" aria-labelledby="featured-posts">
-<h1 id="featured-posts">Featured Posts</h1>
-<div class="post-list">
-{{- range .Featured }}
-<article class="post-card">
-{{- if .CoverURL }}
-<img src="{{ .CoverURL }}" alt="">
-{{- end }}
-<div>
-<h2><a href="{{ .URL }}">{{ .Title }}</a></h2>
-{{- if .Description }}
-<p>{{ .Description }}</p>
-{{- end }}
-<time datetime="{{ .PublishedAt }}">{{ .PublishedAt }}</time>
-</div>
-</article>
-{{- end }}
-</div>
-</section>
-{{- end }}
 <section class="post-section" aria-labelledby="latest-posts">
 <h1 id="latest-posts">Latest Posts</h1>
 {{- if .Latest }}
@@ -970,11 +860,13 @@ var homepageTemplate = template.Must(template.New("homepage").Parse(`<!doctype h
 {{- end }}
 </section>
 </main>
-{{- if not .Site.Footer.Hidden }}
-<footer class="site-footer {{ .Site.Footer.VariantClass }}">
+<footer class="site-footer">
 <div class="site-footer-inner">
 {{- if .Site.Footer.Text }}
 <p>{{ .Site.Footer.Text }}</p>
+{{- end }}
+{{- if .Site.Footer.ShowWatermark }}
+<p>Published with Styx Press</p>
 {{- end }}
 {{- if .Site.Footer.Links }}
 <nav class="site-nav" aria-label="Footer">
@@ -985,21 +877,20 @@ var homepageTemplate = template.Must(template.New("homepage").Parse(`<!doctype h
 {{- end }}
 </div>
 </footer>
-{{- end }}
 </body>
 </html>
 `))
 
 const siteStyleSheet = `:root {
     color-scheme: light;
-    --site-bg: #fbefe3;
-    --site-surface: #fff9f2;
-    --site-text: #4d352c;
-    --site-muted: #816358;
-    --site-heading: #2f1914;
-    --site-accent: #bd4a60;
-    --site-border: #e8d0c2;
-    --site-radius: 8px;
+    --site-bg: #ffffff;
+    --site-surface: #ffffff;
+    --site-text: #262626;
+    --site-muted: #6f6f6f;
+    --site-heading: #111111;
+    --site-accent: #0f766e;
+    --site-border: #e5e5e5;
+    --site-radius: 6px;
     --site-width: 760px;
 }
 
@@ -1014,84 +905,17 @@ body {
     margin: 0;
     background: var(--site-bg);
     color: var(--site-text);
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    line-height: 1.65;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.68;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
-.theme-warm {
-    --site-bg: #fbefe3;
-    --site-surface: #fff9f2;
-    --site-text: #4d352c;
-    --site-muted: #816358;
-    --site-heading: #2f1914;
-    --site-accent: #bd4a60;
-    --site-border: #e8d0c2;
-}
-
-.theme-ink {
-    --site-bg: #f7f5ef;
-    --site-surface: #ffffff;
-    --site-text: #252a2e;
-    --site-muted: #657079;
-    --site-heading: #121619;
-    --site-accent: #2a6f73;
-    --site-border: #d9ddd8;
-}
-
-.theme-sage {
-    --site-bg: #f3f6f1;
-    --site-surface: #ffffff;
-    --site-text: #26342d;
-    --site-muted: #617068;
-    --site-heading: #142119;
-    --site-accent: #2f7158;
-    --site-border: #d7e0d5;
-}
-
-.theme-clay {
-    --site-bg: #f7f2ed;
-    --site-surface: #fffdf9;
-    --site-text: #342b27;
-    --site-muted: #74665f;
-    --site-heading: #1f1714;
-    --site-accent: #9a4f3d;
-    --site-border: #e5d8cf;
-}
-
-.theme-midnight {
-    color-scheme: dark;
-    --site-bg: #101416;
-    --site-surface: #171d20;
-    --site-text: #dce3df;
-    --site-muted: #97a39d;
-    --site-heading: #f5f7f4;
-    --site-accent: #7fc7b1;
-    --site-border: #2d3837;
-}
-
-.font-serif {
-    font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
-}
-
-.font-mono {
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-}
-
-.layout-wide {
-    --site-width: 1040px;
-}
-
-.radius-none {
-    --site-radius: 0;
-}
-
 a {
     color: var(--site-accent);
     text-decoration-thickness: 0.08em;
-    text-underline-offset: 0.16em;
+    text-underline-offset: 0.18em;
 }
 
 img {
@@ -1112,11 +936,6 @@ img {
 
 .skip-link:focus {
     transform: translateY(1rem);
-}
-
-.site-header,
-.site-footer {
-    border-color: var(--site-border);
 }
 
 .site-header {
@@ -1141,18 +960,7 @@ img {
     gap: 1rem;
     align-items: center;
     justify-content: space-between;
-    padding: 1.1rem 0;
-}
-
-.site-header-centered .site-header-inner,
-.site-footer-links .site-footer-inner {
-    justify-content: center;
-    text-align: center;
-}
-
-.site-header-minimal .site-nav,
-.site-footer-simple .site-nav {
-    display: none;
+    padding: 1rem 0;
 }
 
 .site-branding {
@@ -1163,11 +971,10 @@ img {
 .site-title {
     color: var(--site-heading);
     font-size: 1.05rem;
-    font-weight: 800;
+    font-weight: 750;
     text-decoration: none;
 }
 
-.site-branding p,
 .site-footer p,
 .post-card p,
 .post-header p {
@@ -1185,7 +992,7 @@ img {
 .site-nav a {
     color: var(--site-text);
     font-size: 0.95rem;
-    font-weight: 700;
+    font-weight: 650;
     text-decoration: none;
 }
 
@@ -1200,14 +1007,13 @@ img {
 .post-section {
     display: grid;
     gap: 1rem;
-    margin-bottom: 3rem;
 }
 
 .post-section h1,
 .post-header h1 {
     margin: 0;
     color: var(--site-heading);
-    line-height: 1.1;
+    line-height: 1.12;
 }
 
 .post-header {
@@ -1236,7 +1042,7 @@ img {
 .post-content pre,
 .post-content code {
     border-radius: var(--site-radius);
-    background: color-mix(in srgb, var(--site-surface) 72%, var(--site-border));
+    background: #f6f6f6;
 }
 
 .post-content code {
@@ -1277,7 +1083,7 @@ img {
     font-size: 0.9rem;
 }
 
-@media (min-width: 760px) {
+ (min-width: 760px) {
     .post-card {
         grid-template-columns: minmax(0, 10rem) minmax(0, 1fr);
         align-items: start;

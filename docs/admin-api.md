@@ -2,7 +2,8 @@
 
 All endpoints require the session token in either `X-Styxpress-Session` or
 `Authorization: Bearer <token>`. The embedded admin UI receives this token
-automatically; direct API clients can use the token printed by `styxpress-admin`.
+automatically; direct API clients can use the token printed by
+`styxpress-admin`.
 
 Errors use this shape:
 
@@ -18,19 +19,26 @@ Errors use this shape:
 ## Config
 
 - `GET /api/config`
-  Returns the active site config. In default multi-site mode, this requires an
-  active site.
+  Returns the active local site config.
 - `POST /api/config`
-  Saves the active site config. SSH passphrases are not part of the config and
-  are not stored.
-- `POST /api/test-ssh`
-  Body: `{"passphrase":"optional"}`. Tests the configured SSH key and host.
+  Saves the active local site config.
+
+Config object:
+
+```json
+{
+  "name": "My Blog",
+  "contentDir": "content",
+  "publicDir": "public"
+}
+```
+
+`contentDir` is always local source content. `publicDir` is always local output.
 
 ## Sites
 
 - `GET /api/sites`
-  Returns saved site configs, `activeSiteId`, and `multiSite`. In default
-  multi-site mode the list can be empty.
+  Returns saved site configs, `activeSiteId`, and `multiSite`.
 - `POST /api/sites`
   Creates a site from `{"name":"My site","config":{...}}` and selects it.
 - `POST /api/sites/{id}/select`
@@ -38,68 +46,16 @@ Errors use this shape:
 - `DELETE /api/sites/{id}`
   Deletes a site. Deleting the last site leaves no active site.
 
-Config object:
-
-```json
-{
-  "siteBaseUrl": "https://blog.example.com",
-  "contentDir": "content",
-  "publicDir": "public",
-  "contentStorageMode": "local",
-  "remoteHost": "example.com:22",
-  "remoteUser": "deploy",
-  "sshKeyPath": "/home/user/.ssh/id_ed25519",
-  "remotePublicDir": "/srv/site/public",
-  "remoteContentDir": "/srv/site/content"
-}
-```
-
 ## Site Config
 
 - `GET /api/site-config`
   Returns `site.toml` from the configured `contentDir`, or defaults when the
   file does not exist.
 - `POST /api/site-config`
-  Saves the site presentation config as `site.toml` under the configured
-  `contentDir` and returns the normalized config.
+  Saves `site.toml` under the configured `contentDir`.
 - `POST /api/site-config/preview`
   Body is a site config object. Returns `{"html":"..."}` for a draft homepage
   preview without writing public files.
-- `POST /api/site-config/style-css`
-  Body is a site config object. Returns renderer-derived CSS for the draft
-  theme without writing public files. `currentCss` is the full renderer
-  stylesheet that would be used for the draft site and includes the current
-  `theme.customCss` when present. `themeCss` is the current renderer theme/base
-  CSS without custom CSS, and `blankThemeCss` contains empty selector blocks for
-  starting a new custom theme. Saved theme custom CSS is never included.
-
-Style CSS response:
-
-```json
-{
-  "currentCss": "/* Styxpress theme CSS. */\n:root { ... }\n\n/* Custom CSS from theme.customCss. */\n.site-main { ... }\n",
-  "themeCss": "/* Styxpress theme CSS. */\n:root { ... }\n",
-  "blankThemeCss": "/* Styxpress blank theme CSS. */\nbody.theme-midnight.font-mono.layout-wide.radius-none {\n}\n\n.theme-midnight {\n}\n",
-  "customCssIncluded": true,
-  "bodyClasses": ["theme-midnight", "font-mono", "layout-wide", "radius-none"],
-  "theme": {
-    "palette": "midnight",
-    "font": "mono",
-    "layout": "wide",
-    "radius": "none"
-  },
-  "header": {
-    "variant": "minimal",
-    "className": "site-header-minimal",
-    "rendered": true
-  },
-  "footer": {
-    "variant": "links",
-    "className": "site-footer-links",
-    "rendered": true
-  }
-}
-```
 
 Site config object:
 
@@ -107,36 +63,15 @@ Site config object:
 {
   "title": "Styxpress",
   "description": "Latest posts",
-  "theme": {
-    "palette": "warm",
-    "font": "system",
-    "layout": "classic",
-    "radius": "soft",
-    "customCss": ".site-main { max-width: 68rem; }"
-  },
-  "savedThemes": [
-    {
-      "id": "quiet-serif",
-      "name": "Quiet Serif",
-      "palette": "sage",
-      "font": "serif",
-      "layout": "classic",
-      "radius": "soft",
-      "customCss": ""
-    }
-  ],
   "header": {
-    "variant": "nav",
-    "title": "",
-    "tagline": "",
     "links": [
       { "label": "Home", "href": "/" },
       { "label": "RSS", "href": "/feed.xml" }
     ]
   },
   "footer": {
-    "variant": "simple",
-    "text": "Published with Styxpress",
+    "text": "Local notes.",
+    "showWatermark": true,
     "links": [
       { "label": "RSS", "href": "/feed.xml" }
     ]
@@ -144,10 +79,8 @@ Site config object:
 }
 ```
 
-Allowed theme values are `palette` `warm`, `ink`, `sage`, `clay`, or
-`midnight`; `font` `system`, `serif`, or `mono`; `layout` `classic` or `wide`;
-and `radius` `none` or `soft`. Saved themes are root-level entries and include
-their own `customCss`.
+Allowed link hrefs are root-relative paths, anchors, `http`, `https`, and
+`mailto`.
 
 ## Posts
 
@@ -171,12 +104,14 @@ Post object:
   "cover": "cover.jpg",
   "assets": ["diagram.png"],
   "publishedAt": "2026-04-26T12:00:00Z",
-  "updatedAt": "2026-04-26T12:00:00Z"
+  "updatedAt": "2026-04-26T12:00:00Z",
+  "publishStatus": "published"
 }
 ```
 
 `publishedAt` and `updatedAt` are optional on save. Existing posts preserve
-`publishedAt` and update `updatedAt`.
+`publishedAt` and update `updatedAt`. `publishStatus` is returned as `draft` or
+`published`.
 
 ## Uploads
 
@@ -186,37 +121,23 @@ Post object:
 - `DELETE /api/posts/{slug}/cover`
   Removes the current cover.
 - `POST /api/posts/{slug}/assets`
-  Multipart form with `file` and optional `path`. Asset paths are always cleaned
-  and must remain inside `content/posts/{slug}/assets`.
+  Multipart form with `file` and optional `path`.
 - `DELETE /api/posts/{slug}/assets/{assetPath...}`
   Removes one managed asset.
 
-The API does not accept arbitrary read paths. Local file access is limited to
-configured `contentDir` and `publicDir`, plus files explicitly uploaded through
-multipart requests.
+Asset paths are cleaned and must remain inside
+`content/posts/{slug}/assets`.
 
-## Preview, Render, Publish, Featured
+## Preview And Render
 
 - `POST /api/render-preview`
   Body is a post object. Returns `{"html":"..."}` without writing public files.
 - `POST /api/posts/{slug}/render`
-  Renders the post, homepage, feed, sitemap, and stylesheet locally. Returns
-  `{"post":{...},"site":{...}}`.
+  Renders an already published post, homepage, feed, sitemap, and stylesheet
+  locally. Returns `{"post":{...},"site":{...}}`.
 - `POST /api/posts/{slug}/publish`
-  Body: `{"passphrase":"optional"}`. Renders locally, then publishes configured
-  `publicDir`, and `contentDir` when `contentStorageMode` is `server`. Returns
-  `{"post":{...},"site":{...},"publish":{...}}`.
-- `POST /api/publish`
-  Body: `{"slug":"hello-world","passphrase":"optional"}`. Equivalent to
-  `POST /api/posts/{slug}/publish` with the slug in the body.
+  Marks a draft as published, then renders the post and site locally. Returns
+  `{"post":{...},"site":{...}}`.
 - `POST /api/site/render`
-  Renders all public posts, the homepage, feed, sitemap, and stylesheet locally.
+  Renders all public posts, homepage, feed, sitemap, and stylesheet locally.
   Returns `{"posts":[...],"site":{...}}`.
-- `POST /api/site/publish`
-  Body: `{"passphrase":"optional"}`. Renders all public pages locally, then
-  publishes configured `publicDir`, and `contentDir` when `contentStorageMode`
-  is `server`. Returns `{"posts":[...],"site":{...},"publish":{...}}`.
-- `GET /api/featured`
-  Returns `{"slugs":["hello-world"]}`.
-- `POST /api/featured`
-  Saves `{"slugs":["hello-world"]}` to `content/featured.txt`.

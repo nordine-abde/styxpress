@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import ConfirmPrompt from './ui/ConfirmPrompt.vue'
 import EmptyState from './ui/EmptyState.vue'
 import UiBadge from './ui/UiBadge.vue'
@@ -8,13 +8,11 @@ import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
 import { useAuthStore } from '../stores/auth'
 import { useConfigStore } from '../stores/config'
-import { usePublishingStore } from '../stores/publishing'
 import { useSiteWorkspaceStore } from '../stores/siteWorkspace'
 import { useUiStore } from '../stores/ui'
 
 const authStore = useAuthStore()
 const configStore = useConfigStore()
-const publishingStore = usePublishingStore()
 const siteWorkspaceStore = useSiteWorkspaceStore()
 const uiStore = useUiStore()
 const newSiteName = ref('')
@@ -47,30 +45,8 @@ async function openSite(site) {
 
 async function openActiveSite() {
     siteWorkspaceStore.reset()
-    publishingStore.prepareSSHForSite(configStore.activeSiteId, configStore.config)
-    if (!publishingStore.sshEnabled) {
-        uiStore.setActiveView('config')
-        await siteWorkspaceStore.loadCurrentSite({ force: true })
-        return
-    }
-
-    uiStore.setActiveView('access')
-    if (publishingStore.sshNeedsPassphrase) {
-        return
-    }
-
-    await nextTick()
-    try {
-        const ok = await publishingStore.testSSH()
-        if (!ok) {
-            return
-        }
-        await siteWorkspaceStore.loadCurrentSite({ force: true })
-        uiStore.setActiveView('config')
-        void publishingStore.verifyRemoteAfterOpen()
-    } catch {
-        uiStore.setActiveView('access')
-    }
+    uiStore.setActiveView('config')
+    await siteWorkspaceStore.loadCurrentSite({ force: true })
 }
 
 async function deleteSite(site) {
@@ -79,7 +55,7 @@ async function deleteSite(site) {
 </script>
 
 <template>
-    <UiPanel title="My sites" subtitle="Choose one site before editing content, styles, or publishing settings.">
+    <UiPanel title="My sites" subtitle="Choose one site before editing local content and output settings.">
         <form v-if="canCreateSites" class="site-create-row" @submit.prevent="createSite">
             <UiField v-model="newSiteName" label="New site" placeholder="Client blog" />
             <UiButton
@@ -115,16 +91,16 @@ async function deleteSite(site) {
                             selected
                         </UiBadge>
                     </div>
-                    <p>{{ site.config.siteBaseUrl || site.config.contentDir }}</p>
+                    <p>{{ site.config.contentDir }}</p>
                 </div>
                 <div class="site-card-meta">
-                    <span>{{ site.config.contentStorageMode === 'server' ? 'server content' : 'local content' }}</span>
-                    <span v-if="site.config.remoteHost">SSH configured</span>
+                    <span>local content</span>
+                    <span>{{ site.config.publicDir || 'public' }}</span>
                 </div>
                 <div class="site-card-actions">
                     <UiButton
                         tone="primary"
-                        :busy="(configStore.switching && site.id !== configStore.activeSiteId) || publishingStore.testing"
+                        :busy="(configStore.switching && site.id !== configStore.activeSiteId) || siteWorkspaceStore.loading"
                         @click="openSite(site)"
                     >
                         Open site

@@ -17,32 +17,20 @@ const (
 	configFileName      = "config.toml"
 	filePermission      = 0o600
 	directoryPermission = 0o700
-
-	ContentStorageLocal  = "local"
-	ContentStorageServer = "server"
 )
 
 var ErrInvalidConfig = errors.New("invalid config")
 
 type Config struct {
-	Name               string `json:"name"`
-	SiteBaseURL        string `json:"siteBaseUrl"`
-	ContentDir         string `json:"contentDir"`
-	PublicDir          string `json:"publicDir"`
-	ContentStorageMode string `json:"contentStorageMode"`
-	RemoteHost         string `json:"remoteHost"`
-	RemoteUser         string `json:"remoteUser"`
-	SSHKeyPath         string `json:"sshKeyPath"`
-	SSHUsePassphrase   bool   `json:"sshUsePassphrase"`
-	RemotePublicDir    string `json:"remotePublicDir"`
-	RemoteContentDir   string `json:"remoteContentDir"`
+	Name       string `json:"name"`
+	ContentDir string `json:"contentDir"`
+	PublicDir  string `json:"publicDir"`
 }
 
 func Default() Config {
 	return Config{
-		ContentDir:         "content",
-		PublicDir:          "public",
-		ContentStorageMode: ContentStorageLocal,
+		ContentDir: "content",
+		PublicDir:  "public",
 	}
 }
 
@@ -113,13 +101,10 @@ func Save(path string, cfg Config) error {
 }
 
 func (c Config) Validate() error {
-	if strings.Contains(c.Name, "\x00") {
-		return fmt.Errorf("%w: name must not contain NUL bytes", ErrInvalidConfig)
-	}
-	switch c.ContentStorageMode {
-	case "", ContentStorageLocal, ContentStorageServer:
-	default:
-		return fmt.Errorf("%w: content_storage_mode must be %q or %q", ErrInvalidConfig, ContentStorageLocal, ContentStorageServer)
+	if strings.Contains(c.Name, "\x00") ||
+		strings.Contains(c.ContentDir, "\x00") ||
+		strings.Contains(c.PublicDir, "\x00") {
+		return fmt.Errorf("%w: fields must not contain NUL bytes", ErrInvalidConfig)
 	}
 	return nil
 }
@@ -133,25 +118,14 @@ func WithDefaults(cfg Config) Config {
 	if cfg.PublicDir == "" {
 		cfg.PublicDir = defaults.PublicDir
 	}
-	if cfg.ContentStorageMode == "" {
-		cfg.ContentStorageMode = defaults.ContentStorageMode
-	}
 	return cfg
 }
 
 func encode(w io.Writer, cfg Config) error {
 	values := map[string]configValue{
-		"name":                 stringConfigValue(cfg.Name),
-		"site_base_url":        stringConfigValue(cfg.SiteBaseURL),
-		"content_dir":          stringConfigValue(cfg.ContentDir),
-		"public_dir":           stringConfigValue(cfg.PublicDir),
-		"content_storage_mode": stringConfigValue(cfg.ContentStorageMode),
-		"remote_host":          stringConfigValue(cfg.RemoteHost),
-		"remote_user":          stringConfigValue(cfg.RemoteUser),
-		"ssh_key_path":         stringConfigValue(cfg.SSHKeyPath),
-		"ssh_use_passphrase":   boolConfigValue(cfg.SSHUsePassphrase),
-		"remote_public_dir":    stringConfigValue(cfg.RemotePublicDir),
-		"remote_content_dir":   stringConfigValue(cfg.RemoteContentDir),
+		"name":        stringConfigValue(cfg.Name),
+		"content_dir": stringConfigValue(cfg.ContentDir),
+		"public_dir":  stringConfigValue(cfg.PublicDir),
 	}
 
 	keys := make([]string, 0, len(values))
@@ -182,10 +156,6 @@ func stringConfigValue(value string) configValue {
 	return configValue{Value: value, Quoted: true}
 }
 
-func boolConfigValue(value bool) configValue {
-	return configValue{Value: strconv.FormatBool(value)}
-}
-
 func decode(r io.Reader, cfg *Config) error {
 	scanner := bufio.NewScanner(r)
 	lineNumber := 0
@@ -203,16 +173,6 @@ func decode(r io.Reader, cfg *Config) error {
 		key = strings.TrimSpace(key)
 		rawValue = strings.TrimSpace(rawValue)
 
-		switch key {
-		case "ssh_use_passphrase":
-			value, err := strconv.ParseBool(rawValue)
-			if err != nil {
-				return fmt.Errorf("%w: line %d ssh_use_passphrase must be true or false", ErrInvalidConfig, lineNumber)
-			}
-			cfg.SSHUsePassphrase = value
-			continue
-		}
-
 		value, err := strconv.Unquote(rawValue)
 		if err != nil {
 			return fmt.Errorf("%w: line %d value must be a quoted string", ErrInvalidConfig, lineNumber)
@@ -221,24 +181,10 @@ func decode(r io.Reader, cfg *Config) error {
 		switch key {
 		case "name":
 			cfg.Name = value
-		case "site_base_url":
-			cfg.SiteBaseURL = value
 		case "content_dir":
 			cfg.ContentDir = value
 		case "public_dir":
 			cfg.PublicDir = value
-		case "content_storage_mode":
-			cfg.ContentStorageMode = value
-		case "remote_host":
-			cfg.RemoteHost = value
-		case "remote_user":
-			cfg.RemoteUser = value
-		case "ssh_key_path":
-			cfg.SSHKeyPath = value
-		case "remote_content_dir":
-			cfg.RemoteContentDir = value
-		case "remote_public_dir":
-			cfg.RemotePublicDir = value
 		default:
 			return fmt.Errorf("%w: unknown key %q", ErrInvalidConfig, key)
 		}

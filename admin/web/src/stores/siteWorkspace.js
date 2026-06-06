@@ -33,8 +33,7 @@ export const useSiteWorkspaceStore = defineStore('siteWorkspace', () => {
         try {
             await Promise.all([
                 siteConfigStore.loadSiteConfig(),
-                postsStore.loadPosts(),
-                postsStore.loadFeatured()
+                postsStore.loadPosts()
             ])
             loadedSiteId.value = siteId
         } catch (err) {

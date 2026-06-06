@@ -37,7 +37,7 @@ func TestRenderPostWritesDocumentAndAssets(t *testing.T) {
 		t.Fatalf("write post: %v", err)
 	}
 
-	renderer, err := New(contentRoot, publicRoot, Options{SiteBaseURL: "https://blog.example.com/"})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestRenderPostWritesDocumentAndAssets(t *testing.T) {
 		`<!doctype html>`,
 		`<title>Hello &#34;World&#34;</title>`,
 		`<meta name="description" content="A &lt;safe&gt; description &amp; summary.">`,
-		`<meta property="og:image" content="https://blog.example.com/posts/hello-world/cover.jpg">`,
+		`<meta property="og:image" content="/posts/hello-world/cover.jpg">`,
 		`<h1>Heading</h1>`,
 		`<strong>Markdown</strong>`,
 		`<img src="assets/images/diagram.png" alt="Diagram" />`,
@@ -76,7 +76,7 @@ func TestRenderPostEscapesRawHTML(t *testing.T) {
 		t.Fatalf("write post: %v", err)
 	}
 
-	renderer, err := New(contentRoot, publicRoot, Options{})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestRenderPostRejectsDraft(t *testing.T) {
 		t.Fatalf("write draft: %v", err)
 	}
 
-	renderer, err := New(contentRoot, publicRoot, Options{})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestRenderPostReconcilesRemovedAssetsAndReplacedCover(t *testing.T) {
 	}, content.WritePostOptions{}); err != nil {
 		t.Fatalf("write first post: %v", err)
 	}
-	renderer, err := New(contentRoot, publicRoot, Options{})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestRenderPostDoesNotOverwriteIndexWhenLoadFails(t *testing.T) {
 		t.Fatalf("make broken content dir: %v", err)
 	}
 
-	renderer, err := New(contentRoot, publicRoot, Options{})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -208,12 +208,7 @@ func TestRenderPostDoesNotOverwriteIndexWhenLoadFails(t *testing.T) {
 func TestRenderPreviewDoesNotWritePublicFiles(t *testing.T) {
 	contentRoot := filepath.Join(t.TempDir(), "content")
 	publicRoot := filepath.Join(t.TempDir(), "public")
-	cfg := siteconfig.Default()
-	cfg.Theme.CustomCSS = ".preview-only { color: rebeccapurple; }"
-	if err := siteconfig.Save(contentRoot, cfg); err != nil {
-		t.Fatalf("save site config: %v", err)
-	}
-	renderer, err := New(contentRoot, publicRoot, Options{})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -231,8 +226,8 @@ func TestRenderPreviewDoesNotWritePublicFiles(t *testing.T) {
 	if !strings.Contains(html, "<h1>Preview</h1>") {
 		t.Fatalf("preview did not render markdown:\n%s", html)
 	}
-	if !strings.Contains(html, "<style>") || !strings.Contains(html, ".preview-only { color: rebeccapurple; }") {
-		t.Fatalf("preview did not inline the full stylesheet:\n%s", html)
+	if !strings.Contains(html, "<style>") || !strings.Contains(html, "font-family:") {
+		t.Fatalf("preview did not inline the stylesheet:\n%s", html)
 	}
 	if strings.Contains(html, `<link rel="stylesheet" href="/assets/styxpress.css">`) {
 		t.Fatalf("preview should not link the public stylesheet:\n%s", html)
@@ -242,37 +237,14 @@ func TestRenderPreviewDoesNotWritePublicFiles(t *testing.T) {
 	}
 }
 
-func TestRenderPreviewNeutralizesStyleEndTagInCustomCSS(t *testing.T) {
-	contentRoot := filepath.Join(t.TempDir(), "content")
-	publicRoot := filepath.Join(t.TempDir(), "public")
-	cfg := siteconfig.Default()
-	cfg.Theme.CustomCSS = `.x::before { content: "</style><script>alert(1)</script>"; }`
-	if err := siteconfig.Save(contentRoot, cfg); err != nil {
-		t.Fatalf("save site config: %v", err)
+func TestStyleElementCSSNeutralizesStyleEndTag(t *testing.T) {
+	css := `.x::before { content: "</style><script>alert(1)</script>"; }`
+	safe := styleElementCSS(css)
+	if strings.Contains(safe, `</style><script>`) {
+		t.Fatalf("inline CSS can close the style element:\n%s", safe)
 	}
-	renderer, err := New(contentRoot, publicRoot, Options{})
-	if err != nil {
-		t.Fatalf("new renderer: %v", err)
-	}
-
-	html, err := renderer.RenderPreview(content.Post{
-		Slug:        "preview",
-		Title:       "Preview",
-		Source:      "# Preview\n",
-		PublishedAt: time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC),
-		UpdatedAt:   time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC),
-	})
-	if err != nil {
-		t.Fatalf("render preview: %v", err)
-	}
-	if strings.Contains(html, `</style><script>`) {
-		t.Fatalf("inline CSS can close the style element:\n%s", html)
-	}
-	if !strings.Contains(html, `<\/style><script>`) {
-		t.Fatalf("inline CSS did not neutralize style end tag:\n%s", html)
-	}
-	if got := strings.Count(strings.ToLower(html), "</style>"); got != 1 {
-		t.Fatalf("style end tag count = %d, want only the template closing tag:\n%s", got, html)
+	if !strings.Contains(safe, `<\/style><script>`) {
+		t.Fatalf("inline CSS did not neutralize style end tag:\n%s", safe)
 	}
 }
 
@@ -291,7 +263,7 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 	}
 	posts := []content.Post{
 		{Slug: "zulu", Title: "Zulu", Description: "Last alphabetically", Source: "Zulu", PublishedAt: second, UpdatedAt: second},
-		{Slug: "alpha", Title: "Alpha & Friends", Description: "Featured <post>", Source: "Alpha", PublishedAt: second, UpdatedAt: second, Cover: "cover.jpg"},
+		{Slug: "alpha", Title: "Alpha & Friends", Description: "Public <post>", Source: "Alpha", PublishedAt: second, UpdatedAt: second, Cover: "cover.jpg"},
 		{Slug: "older", Title: "Older", Source: "Older", PublishedAt: first, UpdatedAt: first},
 		{Slug: "draft-post", Title: "Draft Post", Source: "Draft", UpdatedAt: second.Add(time.Hour)},
 	}
@@ -299,9 +271,6 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 		if _, err := repo.WritePost(post, content.WritePostOptions{}); err != nil {
 			t.Fatalf("write post %s: %v", post.Slug, err)
 		}
-	}
-	if err := repo.WriteFeatured([]string{"older", "alpha", "draft-post"}); err != nil {
-		t.Fatalf("write featured: %v", err)
 	}
 	staleDraftPath := filepath.Join(publicRoot, "posts", "draft-post", "index.html")
 	if err := os.MkdirAll(filepath.Dir(staleDraftPath), 0o755); err != nil {
@@ -311,7 +280,7 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 		t.Fatalf("write stale draft output: %v", err)
 	}
 
-	renderer, err := New(contentRoot, publicRoot, Options{SiteBaseURL: "https://blog.example.com"})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -321,44 +290,34 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 	}
 
 	assertFileContent(t, result.IndexPath, []string{
-		`<h1 id="featured-posts">Featured Posts</h1>`,
-		`<a href="/posts/older/">Older</a>`,
+		`<h1 id="latest-posts">Latest Posts</h1>`,
 		`<a href="/posts/alpha/">Alpha &amp; Friends</a>`,
-		`<p>Featured &lt;post&gt;</p>`,
+		`<p>Public &lt;post&gt;</p>`,
 		`<img src="/posts/alpha/cover.jpg" alt="">`,
+		`Published with Styx Press`,
 	})
-	assertFileOmits(t, result.IndexPath, []string{`Draft Post`, `/posts/draft-post/`})
+	assertFileOmits(t, result.IndexPath, []string{`Featured Posts`, `Draft Post`, `/posts/draft-post/`})
 	assertOrderAfter(t, result.IndexPath, `<h1 id="latest-posts">Latest Posts</h1>`, []string{
 		`<a href="/posts/alpha/">Alpha &amp; Friends</a>`,
 		`<a href="/posts/zulu/">Zulu</a>`,
 		`<a href="/posts/older/">Older</a>`,
 	})
 	assertFileContent(t, result.FeedPath, []string{
-		`<link>https://blog.example.com/posts/alpha/</link>`,
-		`<guid isPermaLink="true">https://blog.example.com/posts/zulu/</guid>`,
-		`<description>Featured &lt;post&gt;</description>`,
+		`<link>/posts/alpha/</link>`,
+		`<guid isPermaLink="true">/posts/zulu/</guid>`,
+		`<description>Public &lt;post&gt;</description>`,
 	})
 	assertFileOmits(t, result.FeedPath, []string{`draft-post`, `Draft Post`})
 	assertFileContent(t, result.SitemapPath, []string{
-		`<loc>https://blog.example.com/</loc>`,
-		`<loc>https://blog.example.com/posts/alpha/</loc>`,
+		`<loc>/</loc>`,
+		`<loc>/posts/alpha/</loc>`,
 		`<lastmod>2026-04-02</lastmod>`,
 	})
 	assertFileOmits(t, result.SitemapPath, []string{`draft-post`})
 	assertMissing(t, staleDraftPath)
-
-	sitemap, err := os.ReadFile(result.SitemapPath)
-	if err != nil {
-		t.Fatalf("read sitemap: %v", err)
-	}
-	for _, excluded := range []string{"feed.xml", "cover.jpg", "diagram.png", "source.md"} {
-		if strings.Contains(string(sitemap), excluded) {
-			t.Fatalf("sitemap contains excluded path %q:\n%s", excluded, sitemap)
-		}
-	}
 }
 
-func TestRenderUsesSiteConfigThemeHeaderFooterAndStylesheet(t *testing.T) {
+func TestRenderUsesSiteConfigHeaderFooterAndStylesheet(t *testing.T) {
 	contentRoot := filepath.Join(t.TempDir(), "content")
 	publicRoot := filepath.Join(t.TempDir(), "public")
 	repo := content.NewRepository(contentRoot)
@@ -366,7 +325,7 @@ func TestRenderUsesSiteConfigThemeHeaderFooterAndStylesheet(t *testing.T) {
 	if _, err := repo.WritePost(content.Post{
 		Slug:        "configured",
 		Title:       "Configured",
-		Description: "Theme-aware post",
+		Description: "Configured post",
 		Source:      "# Configured\n\nBody.",
 		PublishedAt: publishedAt,
 		UpdatedAt:   publishedAt,
@@ -376,25 +335,15 @@ func TestRenderUsesSiteConfigThemeHeaderFooterAndStylesheet(t *testing.T) {
 	if err := siteconfig.Save(contentRoot, siteconfig.Config{
 		Title:       "Anordine",
 		Description: "Software notes",
-		Theme: siteconfig.ThemeConfig{
-			Palette:   siteconfig.PaletteClay,
-			Font:      siteconfig.FontSerif,
-			Layout:    siteconfig.LayoutWide,
-			Radius:    siteconfig.RadiusNone,
-			CustomCSS: ".post-content { max-width: 64ch; }",
-		},
 		Header: siteconfig.HeaderConfig{
-			Variant: siteconfig.HeaderCentered,
-			Title:   "Anordine Lab",
-			Tagline: "Local-first publishing",
 			Links: []siteconfig.Link{
 				{Label: "Home", Href: "/"},
 				{Label: "RSS", Href: "/feed.xml"},
 			},
 		},
 		Footer: siteconfig.FooterConfig{
-			Variant: siteconfig.FooterLinks,
-			Text:    "Built from Markdown files.",
+			Text:          "Built from Markdown files.",
+			ShowWatermark: false,
 			Links: []siteconfig.Link{
 				{Label: "Email", Href: "mailto:hello@example.com"},
 			},
@@ -403,7 +352,7 @@ func TestRenderUsesSiteConfigThemeHeaderFooterAndStylesheet(t *testing.T) {
 		t.Fatalf("save site config: %v", err)
 	}
 
-	renderer, err := New(contentRoot, publicRoot, Options{SiteBaseURL: "https://blog.example.com"})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -417,24 +366,19 @@ func TestRenderUsesSiteConfigThemeHeaderFooterAndStylesheet(t *testing.T) {
 	}
 
 	assertFileContent(t, siteResult.IndexPath, []string{
-		`<body class="theme-clay font-serif layout-wide radius-none">`,
-		`<header class="site-header site-header-centered">`,
-		`<a class="site-title" href="/">Anordine Lab</a>`,
-		`<p>Local-first publishing</p>`,
+		`<a class="site-title" href="/">Anordine</a>`,
 		`<a href="/feed.xml">RSS</a>`,
-		`<footer class="site-footer site-footer-links">`,
 		`Built from Markdown files.`,
 		`<a href="mailto:hello@example.com">Email</a>`,
 	})
+	assertFileOmits(t, siteResult.IndexPath, []string{`Published with Styx Press`})
 	assertFileContent(t, postResult.IndexPath, []string{
 		`<link rel="stylesheet" href="/assets/styxpress.css">`,
-		`<body class="theme-clay font-serif layout-wide radius-none">`,
 		`<h1>Configured</h1>`,
 	})
 	assertFileContent(t, filepath.Join(publicRoot, "assets", "styxpress.css"), []string{
-		`.theme-clay`,
-		`.site-header-centered .site-header-inner`,
-		`.post-content { max-width: 64ch; }`,
+		`:root`,
+		`font-family:`,
 	})
 }
 
@@ -454,19 +398,13 @@ func TestRenderSitePreviewUsesProvidedConfigAndDoesNotWritePublicFiles(t *testin
 		t.Fatalf("write post: %v", err)
 	}
 
-	renderer, err := New(contentRoot, publicRoot, Options{})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
 	cfg := siteconfig.Default()
 	cfg.Title = "Preview Site"
-	cfg.Theme = siteconfig.ThemeConfig{
-		Palette:   siteconfig.PaletteMidnight,
-		Font:      siteconfig.FontMono,
-		Layout:    siteconfig.LayoutWide,
-		Radius:    siteconfig.RadiusNone,
-		CustomCSS: ".site-main { outline: 3px solid lime; }",
-	}
+	cfg.Footer.ShowWatermark = false
 	html, err := renderer.RenderSitePreview(cfg)
 	if err != nil {
 		t.Fatalf("render site preview: %v", err)
@@ -474,14 +412,15 @@ func TestRenderSitePreviewUsesProvidedConfigAndDoesNotWritePublicFiles(t *testin
 
 	for _, expected := range []string{
 		`<title>Preview Site</title>`,
-		`<body class="theme-midnight font-mono layout-wide radius-none">`,
 		`<style>`,
-		`.site-main { outline: 3px solid lime; }`,
 		`<a href="/posts/previewed/">Previewed</a>`,
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("expected %q in site preview:\n%s", expected, html)
 		}
+	}
+	if strings.Contains(html, `Published with Styx Press`) {
+		t.Fatalf("site preview should honor disabled watermark:\n%s", html)
 	}
 	if strings.Contains(html, `<link rel="stylesheet" href="/assets/styxpress.css">`) {
 		t.Fatalf("site preview should not link the public stylesheet:\n%s", html)
@@ -510,7 +449,7 @@ func TestRenderSitePreviewDoesNotRemoveDraftOutput(t *testing.T) {
 		t.Fatalf("write stale draft output: %v", err)
 	}
 
-	renderer, err := New(contentRoot, publicRoot, Options{})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -541,13 +480,8 @@ func TestRenderAllWritesPostsSiteAndStylesheet(t *testing.T) {
 	if err := os.WriteFile(staleDraftPath, []byte("stale draft"), 0o644); err != nil {
 		t.Fatalf("write stale draft output: %v", err)
 	}
-	cfg := siteconfig.Default()
-	cfg.Theme.CustomCSS = ".render-all { display: block; }"
-	if err := siteconfig.Save(contentRoot, cfg); err != nil {
-		t.Fatalf("save site config: %v", err)
-	}
 
-	renderer, err := New(contentRoot, publicRoot, Options{SiteBaseURL: "https://blog.example.com"})
+	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
 		t.Fatalf("new renderer: %v", err)
 	}
@@ -568,32 +502,15 @@ func TestRenderAllWritesPostsSiteAndStylesheet(t *testing.T) {
 		`<h1>Bravo</h1>`,
 	})
 	assertFileContent(t, result.Site.IndexPath, []string{
-		`<body class="theme-warm font-system layout-classic radius-soft">`,
+		`<body>`,
 		`<a href="/posts/bravo/">Bravo</a>`,
 		`<a href="/posts/alpha/">Alpha</a>`,
 	})
-	assertFileContent(t, result.Site.FeedPath, []string{`<link>https://blog.example.com/posts/alpha/</link>`})
+	assertFileContent(t, result.Site.FeedPath, []string{`<link>/posts/alpha/</link>`})
 	assertFileOmits(t, result.Site.FeedPath, []string{`draft`})
-	assertFileContent(t, result.Site.SitemapPath, []string{`<loc>https://blog.example.com/posts/bravo/</loc>`})
+	assertFileContent(t, result.Site.SitemapPath, []string{`<loc>/posts/bravo/</loc>`})
 	assertFileOmits(t, result.Site.SitemapPath, []string{`draft`})
-	assertFileContent(t, result.Site.StylesheetPath, []string{
-		`.theme-warm`,
-		`.theme-ink`,
-		`.render-all { display: block; }`,
-	})
-}
-
-func TestRenderSiteRequiresAbsoluteBaseURL(t *testing.T) {
-	renderer, err := New(filepath.Join(t.TempDir(), "content"), filepath.Join(t.TempDir(), "public"), Options{})
-	if err != nil {
-		t.Fatalf("new renderer: %v", err)
-	}
-	if _, err := renderer.RenderSite(); !errors.Is(err, ErrInvalidRenderConfig) {
-		t.Fatalf("RenderSite error = %v, want ErrInvalidRenderConfig", err)
-	}
-	if _, err := New(filepath.Join(t.TempDir(), "content"), filepath.Join(t.TempDir(), "public"), Options{SiteBaseURL: "/relative"}); !errors.Is(err, ErrInvalidRenderConfig) {
-		t.Fatalf("New relative base URL error = %v, want ErrInvalidRenderConfig", err)
-	}
+	assertFileContent(t, result.Site.StylesheetPath, []string{`:root`, `.post-card`})
 }
 
 func assertFileContent(t *testing.T, path string, values []string) {

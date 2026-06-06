@@ -15,7 +15,6 @@ func TestRepositoryCreateLoadUpdatePost(t *testing.T) {
 	firstSaved := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
 	updated := time.Date(2026, 4, 2, 10, 45, 0, 0, time.UTC)
 	published := time.Date(2026, 4, 3, 11, 0, 0, 0, time.UTC)
-	synced := time.Date(2026, 4, 3, 11, 5, 0, 0, time.UTC)
 
 	created, err := repo.WritePost(Post{
 		Slug:        "hello-world",
@@ -76,33 +75,8 @@ func TestRepositoryCreateLoadUpdatePost(t *testing.T) {
 	if !marked.PublishedAt.Equal(published) || !marked.UpdatedAt.Equal(updated) {
 		t.Fatalf("marked post times = published %v updated %v, want %v and %v", marked.PublishedAt, marked.UpdatedAt, published, updated)
 	}
-	if marked.PublishStatus() != PublishStatusPendingPublish {
-		t.Fatalf("PublishStatus after marking published = %q, want pending_publish", marked.PublishStatus())
-	}
-
-	syncedPost, err := repo.MarkPostSynced("hello-world", TimestampOptions{Now: synced})
-	if err != nil {
-		t.Fatalf("MarkPostSynced returned error: %v", err)
-	}
-	if !syncedPost.SyncedAt.Equal(synced) {
-		t.Fatalf("SyncedAt = %v, want %v", syncedPost.SyncedAt, synced)
-	}
-	if syncedPost.PublishStatus() != PublishStatusPublished {
-		t.Fatalf("PublishStatus after sync = %q, want published", syncedPost.PublishStatus())
-	}
-
-	clearedPost, err := repo.ClearPostSynced("hello-world")
-	if err != nil {
-		t.Fatalf("ClearPostSynced returned error: %v", err)
-	}
-	if !clearedPost.SyncedAt.IsZero() {
-		t.Fatalf("SyncedAt after clear = %v, want zero", clearedPost.SyncedAt)
-	}
-	if clearedPost.PublishStatus() != PublishStatusPendingPublish {
-		t.Fatalf("PublishStatus after clearing sync = %q, want pending_publish", clearedPost.PublishStatus())
-	}
-	if _, err := os.Stat(filepath.Join(root, "posts", "hello-world", "remote_synced_at.txt")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("remote_synced_at.txt stat error = %v, want not exist", err)
+	if marked.PublishStatus() != PublishStatusPublished {
+		t.Fatalf("PublishStatus after marking published = %q, want published", marked.PublishStatus())
 	}
 }
 
@@ -202,7 +176,6 @@ func TestRepositoryMediaChangesTouchUpdatedAt(t *testing.T) {
 	root := t.TempDir()
 	repo := NewRepository(root)
 	published := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
-	synced := time.Date(2026, 4, 1, 9, 35, 0, 0, time.UTC)
 	touched := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
 	if _, err := repo.WritePost(Post{
 		Slug:        "hello-world",
@@ -210,7 +183,6 @@ func TestRepositoryMediaChangesTouchUpdatedAt(t *testing.T) {
 		Source:      "Body",
 		PublishedAt: published,
 		UpdatedAt:   published,
-		SyncedAt:    synced,
 	}, WritePostOptions{}); err != nil {
 		t.Fatalf("WritePost returned error: %v", err)
 	}
@@ -226,8 +198,8 @@ func TestRepositoryMediaChangesTouchUpdatedAt(t *testing.T) {
 	if !loaded.UpdatedAt.Equal(touched) {
 		t.Fatalf("UpdatedAt = %v, want touched time %v", loaded.UpdatedAt, touched)
 	}
-	if loaded.PublishStatus() != PublishStatusPendingPublish {
-		t.Fatalf("PublishStatus = %q, want pending_publish after media change", loaded.PublishStatus())
+	if loaded.PublishStatus() != PublishStatusPublished {
+		t.Fatalf("PublishStatus = %q, want published after media change", loaded.PublishStatus())
 	}
 
 	nextTouch := touched.Add(time.Hour)
@@ -330,42 +302,5 @@ func TestRepositoryRejectsAssetSymlink(t *testing.T) {
 	}
 	if err := repo.WriteAsset("hello-world", "link.txt", strings.NewReader("replace")); !errors.Is(err, ErrInvalidAsset) {
 		t.Fatalf("WriteAsset symlink error = %v, want ErrInvalidAsset", err)
-	}
-}
-
-func TestRepositoryFeaturedRoundTrip(t *testing.T) {
-	repo := NewRepository(t.TempDir())
-	now := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
-	for _, post := range []Post{
-		{Slug: "hello-world", Title: "Hello World", Source: "Body"},
-		{Slug: "go-http-2", Title: "Go HTTP 2", Source: "Body"},
-	} {
-		if _, err := repo.WritePost(post, WritePostOptions{Now: now}); err != nil {
-			t.Fatalf("WritePost %q returned error: %v", post.Slug, err)
-		}
-	}
-
-	if err := repo.WriteFeatured([]string{"hello-world", "go-http-2"}); err != nil {
-		t.Fatalf("WriteFeatured returned error: %v", err)
-	}
-	got, err := repo.ReadFeatured()
-	if err != nil {
-		t.Fatalf("ReadFeatured returned error: %v", err)
-	}
-	want := []string{"hello-world", "go-http-2"}
-	if len(got) != len(want) {
-		t.Fatalf("ReadFeatured length = %d, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("ReadFeatured[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-
-	if err := repo.WriteFeatured([]string{"Hello"}); !errors.Is(err, ErrInvalidSlug) {
-		t.Fatalf("WriteFeatured invalid slug error = %v, want ErrInvalidSlug", err)
-	}
-	if err := repo.WriteFeatured([]string{"missing-post"}); !errors.Is(err, ErrPostNotFound) {
-		t.Fatalf("WriteFeatured missing post error = %v, want ErrPostNotFound", err)
 	}
 }

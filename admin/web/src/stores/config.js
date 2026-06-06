@@ -5,16 +5,8 @@ import { useUiStore } from './ui'
 
 const defaultConfig = {
     name: '',
-    siteBaseUrl: '',
     contentDir: 'content',
-    publicDir: 'public',
-    contentStorageMode: 'local',
-    remoteHost: '',
-    remoteUser: '',
-    sshKeyPath: '',
-    sshUsePassphrase: false,
-    remotePublicDir: '',
-    remoteContentDir: ''
+    publicDir: 'public'
 }
 
 export const useConfigStore = defineStore('config', () => {

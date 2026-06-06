@@ -12,7 +12,6 @@ const emptyPost = {
     assets: [],
     publishedAt: '',
     updatedAt: '',
-    syncedAt: '',
     publishStatus: 'draft'
 }
 
@@ -29,21 +28,17 @@ function normalizePost(post = {}) {
 }
 
 function normalizePublishStatus(post) {
-    if (['draft', 'pending_publish', 'published'].includes(post.publishStatus)) {
+    if (['draft', 'published'].includes(post.publishStatus)) {
         return post.publishStatus
     }
     if (!post.publishedAt) {
         return 'draft'
-    }
-    if (!post.syncedAt || (post.updatedAt && new Date(post.updatedAt) > new Date(post.syncedAt))) {
-        return 'pending_publish'
     }
     return 'published'
 }
 
 export const usePostsStore = defineStore('posts', () => {
     const posts = ref([])
-    const featuredSlugs = ref([])
     const selectedSlug = ref('')
     const draft = ref({ ...emptyPost })
     const loading = ref(false)
@@ -77,16 +72,6 @@ export const usePostsStore = defineStore('posts', () => {
         }
     }
 
-    async function loadFeatured() {
-        const uiStore = useUiStore()
-        try {
-            const payload = await apiRequest('/api/featured')
-            featuredSlugs.value = payload.slugs || []
-        } catch (err) {
-            uiStore.captureError(err)
-        }
-    }
-
     async function selectPost(slug) {
         const uiStore = useUiStore()
         loading.value = true
@@ -109,7 +94,6 @@ export const usePostsStore = defineStore('posts', () => {
 
     function reset() {
         posts.value = []
-        featuredSlugs.value = []
         selectedSlug.value = ''
         draft.value = normalizePost()
         error.value = ''
@@ -238,24 +222,8 @@ export const usePostsStore = defineStore('posts', () => {
         }
     }
 
-    async function saveFeatured(slugs) {
-        const uiStore = useUiStore()
-        try {
-            const payload = await apiRequest('/api/featured', {
-                method: 'POST',
-                body: { slugs }
-            })
-            featuredSlugs.value = payload.slugs || []
-            uiStore.setNotice('Featured posts updated.')
-        } catch (err) {
-            uiStore.captureError(err)
-            throw err
-        }
-    }
-
     return {
         posts,
-        featuredSlugs,
         selectedSlug,
         draft,
         loading,
@@ -265,7 +233,6 @@ export const usePostsStore = defineStore('posts', () => {
         selectedPost,
         hasDraft,
         loadPosts,
-        loadFeatured,
         selectPost,
         newPost,
         reset,
@@ -273,7 +240,6 @@ export const usePostsStore = defineStore('posts', () => {
         uploadCover,
         deleteCover,
         uploadAsset,
-        deleteAsset,
-        saveFeatured
+        deleteAsset
     }
 })

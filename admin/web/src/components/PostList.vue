@@ -5,10 +5,8 @@ import UiBadge from './ui/UiBadge.vue'
 import UiButton from './ui/UiButton.vue'
 import UiPanel from './ui/UiPanel.vue'
 import { usePostsStore } from '../stores/posts'
-import { usePublishingStore } from '../stores/publishing'
 
 const postsStore = usePostsStore()
-const publishingStore = usePublishingStore()
 
 function formatDate(value) {
     if (!value) {
@@ -20,24 +18,15 @@ function formatDate(value) {
     }).format(new Date(value))
 }
 
-function postStatus(post) {
-    return publishingStore.postRemoteStatus(post)
+function statusTone(post) {
+    return post.publishStatus === 'published' ? 'success' : 'neutral'
+}
+
+function statusLabel(post) {
+    return post.publishStatus === 'published' ? 'Published' : 'Draft'
 }
 
 function dateLabel(post) {
-    const status = postStatus(post)
-    if (status === 'unknown' && post.publishStatus === 'published') {
-        return 'Run remote verification'
-    }
-    if (status === 'not_on_remote') {
-        return 'Remote output missing'
-    }
-    if (status === 'still_on_remote') {
-        return 'Draft output exists on remote'
-    }
-    if (post.publishStatus === 'pending_publish' && post.updatedAt) {
-        return `Updated ${formatDate(post.updatedAt)}`
-    }
     if (post.publishedAt) {
         return `Published ${formatDate(post.publishedAt)}`
     }
@@ -78,11 +67,8 @@ function dateLabel(post) {
                     <strong>{{ post.title }}</strong>
                     <span>{{ post.slug }}</span>
                     <div class="post-meta">
-                        <UiBadge :tone="publishingStore.verificationStatusTone(postStatus(post))">
-                            {{ publishingStore.verificationStatusLabel(postStatus(post)) }}
-                        </UiBadge>
-                        <UiBadge v-if="postsStore.featuredSlugs.includes(post.slug)" tone="success">
-                            featured
+                        <UiBadge :tone="statusTone(post)">
+                            {{ statusLabel(post) }}
                         </UiBadge>
                     </div>
                     <small>{{ dateLabel(post) }}</small>

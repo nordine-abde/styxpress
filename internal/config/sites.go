@@ -374,9 +374,6 @@ func siteName(id string, cfg Config) string {
 	if strings.TrimSpace(cfg.Name) != "" {
 		return strings.TrimSpace(cfg.Name)
 	}
-	if strings.TrimSpace(cfg.SiteBaseURL) != "" {
-		return strings.TrimSpace(cfg.SiteBaseURL)
-	}
 	if strings.TrimSpace(cfg.ContentDir) != "" {
 		return filepath.Base(filepath.Clean(cfg.ContentDir))
 	}

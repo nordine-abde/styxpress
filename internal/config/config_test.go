@@ -15,27 +15,17 @@ func TestLoadOrDefaultMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOrDefault returned error: %v", err)
 	}
-	if cfg.ContentStorageMode != ContentStorageLocal {
-		t.Fatalf("ContentStorageMode = %q, want %q", cfg.ContentStorageMode, ContentStorageLocal)
-	}
-	if cfg.ContentDir != "content" {
-		t.Fatalf("ContentDir = %q, want content", cfg.ContentDir)
+	if cfg.ContentDir != "content" || cfg.PublicDir != "public" {
+		t.Fatalf("LoadOrDefault() = %#v, want default local paths", cfg)
 	}
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "styxpress", "config.toml")
 	cfg := Config{
-		SiteBaseURL:        "https://example.com",
-		ContentDir:         "/tmp/content",
-		PublicDir:          "/tmp/public",
-		ContentStorageMode: ContentStorageServer,
-		RemoteHost:         "example.com",
-		RemoteUser:         "deploy",
-		SSHKeyPath:         "/home/me/.ssh/id_ed25519",
-		SSHUsePassphrase:   true,
-		RemotePublicDir:    "/srv/site/public",
-		RemoteContentDir:   "/srv/site/content",
+		Name:       "My Blog",
+		ContentDir: "/tmp/content",
+		PublicDir:  "/tmp/public",
 	}
 
 	if err := Save(path, cfg); err != nil {
@@ -62,8 +52,8 @@ func TestSaveAppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if got.ContentDir != "content" || got.PublicDir != "public" || got.ContentStorageMode != ContentStorageLocal {
-		t.Fatalf("Load() = %#v, want default paths and storage mode", got)
+	if got.ContentDir != "content" || got.PublicDir != "public" {
+		t.Fatalf("Load() = %#v, want default paths", got)
 	}
 }
 
@@ -86,23 +76,35 @@ func TestSaveUsesRestrictiveFilePermissions(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsUnknownStorageMode(t *testing.T) {
+func TestValidateRejectsNULBytes(t *testing.T) {
 	cfg := Default()
-	cfg.ContentStorageMode = "shared"
+	cfg.PublicDir = "public\x00"
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate returned nil, want error")
 	}
 }
 
+func TestLoadRejectsRemovedRemoteKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "styxpress", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), directoryPermission); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("remote_host = \"example.com\"\n"), filePermission); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if _, err := Load(path); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Load error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestSiteStoreMigratesLegacyConfig(t *testing.T) {
 	root := t.TempDir()
 	legacy := Config{
-		Name:               "Legacy site",
-		ContentDir:         "/tmp/legacy-content",
-		PublicDir:          "/tmp/legacy-public",
-		ContentStorageMode: ContentStorageServer,
-		RemoteHost:         "example.com",
+		Name:       "Legacy site",
+		ContentDir: "/tmp/legacy-content",
+		PublicDir:  "/tmp/legacy-public",
 	}
 	if err := Save(filepath.Join(root, configFileName), legacy); err != nil {
 		t.Fatalf("Save legacy config: %v", err)
@@ -122,8 +124,8 @@ func TestSiteStoreMigratesLegacyConfig(t *testing.T) {
 	if sites[0].ID != defaultSiteID || sites[0].Name != legacy.Name {
 		t.Fatalf("site = %#v, want migrated default legacy site", sites[0])
 	}
-	if sites[0].Config.ContentDir != legacy.ContentDir || sites[0].Config.RemoteHost != legacy.RemoteHost {
-		t.Fatalf("site config = %#v, want legacy values", sites[0].Config)
+	if sites[0].Config.ContentDir != legacy.ContentDir || sites[0].Config.PublicDir != legacy.PublicDir {
+		t.Fatalf("site config = %#v, want legacy local paths", sites[0].Config)
 	}
 }
 
