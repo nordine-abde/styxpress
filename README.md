@@ -160,21 +160,7 @@ label = "RSS"
 href = "/feed.xml"
 ```
 
-## Local Fixture
-
-A small fixture site is available in `fixtures/local-site/content`.
-
-```bash
-mkdir -p site
-cp -R fixtures/local-site/content site/content
-```
-
-Configure the admin UI with:
-
-```text
-contentDir = site/content
-publicDir = site/public
-```
+## Local Output
 
 After rendering, inspect:
 
