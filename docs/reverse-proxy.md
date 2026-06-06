@@ -15,16 +15,22 @@ The examples intentionally allow only these routes:
 
 ```text
 GET /
+GET /favicon.ico
 GET /feed.xml
 GET /sitemap.xml
+GET /assets/styxpress.css
+GET /assets/{favicon}.ico
 GET /posts/{slug}
+GET /posts/{slug}/
 GET /posts/{slug}/cover.{jpg,jpeg,png,webp,avif}
 GET /posts/{slug}/assets/{path}
 ```
 
 Everything else returns `404`.
 
-The examples assume slugs contain lowercase ASCII letters, numbers, and hyphens. That matches the renderer and keeps URL-to-file mapping predictable.
+The examples assume slugs contain lowercase ASCII letters, numbers, and
+hyphens. That matches the renderer and keeps URL-to-file mapping predictable.
+The renderer emits trailing-slash post links, so `/posts/{slug}/` is allowed.
 
 ## Filesystem Layout
 
@@ -57,8 +63,9 @@ sudo find /var/lib/styxpress/site/public -type f -exec chmod 0640 {} +
 For Nginx on Debian and Ubuntu, the web server user is usually `www-data`. For Caddy packages, it is often `caddy`; replace `www-data` with that user if needed.
 
 The reverse proxy user needs read and execute access only to `public/`.
-Styxpress itself does not upload to this server; copy or sync `public/` with a
-separate tool if the output folder is not already on the host.
+If Styxpress SFTP deploy is enabled, use a separate deploy user for writes to
+the generated public tree. Otherwise copy or sync `public/` with another tool
+if the output folder is not already on the host.
 
 ## Hidden Files And Symlinks
 
@@ -79,9 +86,12 @@ After copying generated output into place, verify the intended routes:
 
 ```bash
 curl -I https://example.com/
+curl -I https://example.com/favicon.ico
 curl -I https://example.com/feed.xml
 curl -I https://example.com/sitemap.xml
+curl -I https://example.com/assets/styxpress.css
 curl -I https://example.com/posts/hello-world
+curl -I https://example.com/posts/hello-world/
 ```
 
 Then verify blocked paths:
@@ -89,8 +99,8 @@ Then verify blocked paths:
 ```bash
 curl -I https://example.com/content/
 curl -I https://example.com/.env
+curl -I https://example.com/assets/not-allowed.txt
 curl -I https://example.com/posts/hello-world/source.md
-curl -I https://example.com/posts/hello-world/
 curl -I https://example.com/posts/../config.toml
 ```
 

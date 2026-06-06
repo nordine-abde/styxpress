@@ -1,14 +1,17 @@
-# Initial Design
+# Current Design
 
 Styxpress is a local admin application for generating a static Markdown blog.
+The admin server runs on the user's machine, edits local source files, renders
+static output ahead of time, and can optionally sync that generated output over
+SFTP.
 
-The first release keeps the product intentionally small:
+The current release keeps the product intentionally small:
 
 - Source content is local.
 - Generated output is local.
 - Rendering happens ahead of time.
 - The public site is served as static files.
-- Styxpress does not upload to a server.
+- Optional SFTP deploy syncs only the generated public output.
 - Styxpress does not manage themes or custom CSS.
 
 ## File Model
@@ -51,13 +54,31 @@ public/
 
 `content/` is the source of truth. `public/` is disposable generated output.
 
+## Admin Config
+
+The admin config tracks:
+
+- site name
+- local `contentDir`
+- local `publicDir`
+- optional SFTP deploy settings
+
+When `styxpress-admin` runs without `-config`, site configs are stored in the
+multi-site registry under the user's config directory and new site workspaces
+default to `~/Styxpress/<site-id>/`. When it runs with `-config`, that explicit
+file is the only admin config for the session.
+
+SFTP deploy config contains connection details only. Passwords and encrypted
+key passphrases are session-only values kept in the running admin server
+process.
+
 ## Site Config
 
 `content/site.toml` controls only basic presentation:
 
 - site title
 - site description
-- favicon
+- favicon path
 - header links
 - footer text
 - footer links
@@ -75,10 +96,13 @@ Each post is a folder under `content/posts/{slug}`.
 - `description.txt` is optional.
 - `published_at.txt` exists only for published posts.
 - `updated_at.txt` is maintained by the admin.
-- `cover.*` is optional.
-- `assets/` contains post-local files.
+- `cover.*` is optional and supports `.jpg`, `.jpeg`, `.png`, `.webp`, and
+  `.avif`.
+- `assets/` contains post-local image files.
 
-Post status is either `draft` or `published`.
+Post status is either `draft` or `published`. Saving a new post creates a
+draft. Publishing writes `published_at.txt` and renders the post into public
+output.
 
 ## Rendering
 
@@ -96,6 +120,22 @@ Rendering writes:
 Draft posts are omitted from public output. When rendering the whole site,
 stale output for drafts is removed.
 
+Markdown is rendered with Goldmark. Raw HTML in Markdown is escaped by the
+renderer.
+
+## Deploy
+
+SFTP deploy is optional and syncs the configured `publicDir` to a remote
+absolute path. Deploy status is based on local public files and the previous
+deploy state file stored under the admin config area. Manual mode marks local
+output as changed after renders; automatic mode syncs after publishing a post
+or rendering the whole site.
+
+Authentication can use `ssh-agent`, a configured SSH key, default SSH key
+paths, a session password, or a session passphrase for encrypted keys. Host
+keys are verified through a configured `known_hosts` path or the user's default
+SSH known hosts files.
+
 ## Admin Scope
 
 The admin server:
@@ -105,23 +145,24 @@ The admin server:
 - reads and writes configured local content folders
 - writes generated files to configured local public folders
 - serves the embedded Vue admin UI
+- exposes authenticated local API endpoints
+- optionally syncs generated public output over SFTP
 
 The admin server should not expose broad filesystem access to the browser.
-Uploads are accepted only through explicit cover and asset endpoints.
+Uploads are accepted only through explicit favicon, cover, and asset endpoints.
 
 ## Deferred
 
-These are not part of the first release:
+These are not part of the current release:
 
-- remote publishing
 - server-backed content
-- SSH/SFTP
 - remote verification
 - featured posts
 - custom CSS
 - theme presets
 - saved themes
 - dynamic public serving
+- multi-user admin
 - comments
 - search
 - analytics

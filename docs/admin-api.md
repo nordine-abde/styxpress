@@ -16,12 +16,19 @@ Errors use this shape:
 }
 ```
 
+JSON request bodies reject unknown fields.
+
+## Health
+
+- `GET /api/health`
+  Returns `{"status":"ok"}` when the token is valid.
+
 ## Config
 
 - `GET /api/config`
-  Returns the active local site config.
+  Returns the active admin config.
 - `POST /api/config`
-  Saves the active local site config.
+  Saves the active admin config.
 
 Config object:
 
@@ -29,11 +36,27 @@ Config object:
 {
   "name": "My Blog",
   "contentDir": "content",
-  "publicDir": "public"
+  "publicDir": "public",
+  "deploy": {
+    "enabled": false,
+    "mode": "manual",
+    "sftp": {
+      "host": "",
+      "port": 22,
+      "user": "",
+      "remotePath": "",
+      "keyPath": "",
+      "knownHostsPath": "",
+      "deleteExtra": false
+    }
+  }
 }
 ```
 
 `contentDir` is always local source content. `publicDir` is always local output.
+`deploy.mode` is `manual` or `auto`. When deploy is enabled, `sftp.host`,
+`sftp.user`, and `sftp.remotePath` are required. SFTP passwords and encrypted
+key passphrases are never part of this object.
 
 ## Sites
 
@@ -42,15 +65,19 @@ Config object:
 - `GET /api/sites/suggestion?name=My%20site`
   Returns the normalized unique id and default local folders for a new site.
 - `POST /api/sites`
-  Creates a site from `{"name":"My site","config":{...}}` and selects it.
+  Creates a site from `{"name":"My site","config":{...}}`, initializes its
+  local folders, and selects it.
 - `POST /api/sites/{id}/select`
   Selects an existing site.
 - `DELETE /api/sites/{id}`
-  Deletes a site. Deleting the last site leaves no active site.
+  Deletes a site config entry. Deleting the last site leaves no active site.
 
 When a multi-site admin session creates a site without explicit folders,
 Styxpress defaults to `~/Styxpress/<site-id>/content` and
 `~/Styxpress/<site-id>/public`.
+
+When `styxpress-admin` runs with `-config`, the sites endpoint returns one
+single-site entry and create/select/delete/suggestion endpoints are unavailable.
 
 ## Site Config
 
@@ -92,7 +119,7 @@ Site config object:
 ```
 
 Allowed link hrefs are root-relative paths, anchors, `http`, `https`, and
-`mailto`.
+`mailto`. Favicon paths must be relative `.ico` paths.
 
 ## Posts
 
@@ -103,7 +130,8 @@ Allowed link hrefs are root-relative paths, anchors, `http`, `https`, and
 - `POST /api/posts`
   Creates or updates a post using the slug from the body.
 - `POST /api/posts/{slug}`
-  Creates or updates a post using the slug from the URL.
+  Creates or updates a post using the slug from the URL. If the body also
+  contains `slug`, it must match the URL slug.
 
 Post object:
 
@@ -121,9 +149,14 @@ Post object:
 }
 ```
 
-`publishedAt` and `updatedAt` are optional on save. Existing posts preserve
-`publishedAt` and update `updatedAt`. `publishStatus` is returned as `draft` or
-`published`.
+`slug`, `title`, and `source` are required for a valid saved post. Slugs contain
+lowercase ASCII letters, numbers, and hyphens.
+
+Saving a new post creates a draft. Saving an existing post preserves its
+current draft/published state and updates `updatedAt`. Clients should use
+`POST /api/posts/{slug}/publish` to publish; `publishedAt`, `updatedAt`, and
+`publishStatus` are returned as state and are not used to force publishing in
+the save endpoint.
 
 ## Uploads
 
@@ -135,12 +168,15 @@ Post object:
   `cover.<extension>`.
 - `DELETE /api/posts/{slug}/cover`
   Removes the current cover.
+- `GET /api/posts/{slug}/assets/{assetPath...}`
+  Returns one managed post asset for admin previews.
 - `POST /api/posts/{slug}/assets`
-  Multipart form with `file` and optional `path`.
+  Multipart form with `file` and optional `path`. Supported uploaded asset
+  extensions are `.jpg`, `.jpeg`, `.png`, `.webp`, `.avif`, and `.gif`.
 - `DELETE /api/posts/{slug}/assets/{assetPath...}`
   Removes one managed asset.
 
-Asset paths are cleaned and must remain inside
+Uploads are limited to 64 MiB. Asset paths are cleaned and must remain inside
 `content/posts/{slug}/assets`.
 
 ## Preview And Render
@@ -148,13 +184,92 @@ Asset paths are cleaned and must remain inside
 - `POST /api/render-preview`
   Body is a post object. Returns `{"html":"..."}` without writing public files.
 - `POST /api/posts/{slug}/render`
-  Renders an already published post, homepage, feed, sitemap, and stylesheet
-  locally. Returns `{"post":{...},"site":{...}}`.
+  Renders an already published post, homepage, feed, sitemap, stylesheet, and
+  favicon locally. Draft posts return an error. Returns
+  `{"post":{...},"site":{...}}`.
 - `POST /api/posts/{slug}/publish`
   Marks a draft as published, then renders the post and site locally. The admin
   UI calls this as part of the single post **Save** action. Returns
-  `{"post":{...},"site":{...}}`.
+  `{"post":{...},"site":{...}}` and may include `"deploy":{...}` when automatic
+  deploy is enabled.
 - `POST /api/site/render`
-  Renders all public posts, homepage, feed, sitemap, and stylesheet locally.
-  The admin UI calls this as part of the single site **Save** action.
-  Returns `{"posts":[...],"site":{...}}`.
+  Renders all public posts, homepage, feed, sitemap, stylesheet, and favicon
+  locally. The admin UI calls this as part of the single site **Save** action.
+  Returns `{"posts":[...],"site":{...}}` and may include `"deploy":{...}` when
+  automatic deploy is enabled.
+
+Render post result:
+
+```json
+{
+  "slug": "hello-world",
+  "publicDir": "/abs/site/public/posts/hello-world",
+  "indexPath": "/abs/site/public/posts/hello-world/index.html",
+  "coverPath": "/abs/site/public/posts/hello-world/cover.jpg",
+  "assets": ["diagram.png"]
+}
+```
+
+Render site result:
+
+```json
+{
+  "indexPath": "/abs/site/public/index.html",
+  "feedPath": "/abs/site/public/feed.xml",
+  "sitemapPath": "/abs/site/public/sitemap.xml",
+  "stylesheetPath": "/abs/site/public/assets/styxpress.css",
+  "faviconPath": "/abs/site/public/favicon.ico"
+}
+```
+
+## Deploy
+
+- `GET /api/deploy/status`
+  Returns whether deploy is enabled and configured, whether a session secret is
+  set, and a local out-of-sync summary when possible.
+- `POST /api/deploy/secret`
+  Body is `{"secret":"..."}`. Saves a password or encrypted-key passphrase in
+  the running server session only. Returns `{"secretSet":true}`.
+- `DELETE /api/deploy/secret`
+  Clears the session deploy secret. Returns `{"secretSet":false}`.
+- `POST /api/deploy`
+  Runs a manual SFTP sync of `publicDir` to the configured remote path. Deploy
+  must be enabled and configured. Returns a deploy summary.
+
+Deploy status response:
+
+```json
+{
+  "enabled": true,
+  "configured": true,
+  "mode": "manual",
+  "outOfSync": true,
+  "secretSet": false,
+  "summary": {
+    "outOfSync": true,
+    "uploaded": 1,
+    "updated": 0,
+    "deleted": 0,
+    "unchanged": 0,
+    "localFiles": 1,
+    "remoteOnly": 0
+  }
+}
+```
+
+Deploy summaries use this shape:
+
+```json
+{
+  "outOfSync": false,
+  "uploaded": 1,
+  "updated": 2,
+  "deleted": 0,
+  "unchanged": 10,
+  "localFiles": 13,
+  "remoteOnly": 0
+}
+```
+
+Automatic deploy runs after `POST /api/posts/{slug}/publish` and
+`POST /api/site/render` when deploy is enabled and `deploy.mode` is `auto`.

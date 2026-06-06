@@ -1,26 +1,30 @@
 # Styxpress
 
 <p align="center">
-  <img src="styxpress.png" alt="Styxpress logo" width="500" height="500">
+  <img src="admin/web/src/assets/styxpress-mark.png" alt="Styxpress mark" width="160" height="160">
 </p>
 
 Styxpress is a local static blog generator with a small Go admin server and a
 Vue admin UI. Source content stays on the user's computer. Styxpress renders
-HTML, feeds, sitemap, media, and a single built-in stylesheet into a local
-`public/` output folder.
+HTML, feeds, sitemap, media, favicon files, and a single built-in stylesheet
+into a local `publicDir`.
 
-The public blog is static. Serve the generated `public/` directory with Caddy,
-Nginx, another static file server, or any separate deployment/sync tool.
-Styxpress does not upload files to a remote server.
+The public blog is static. Serve the generated `publicDir` with Caddy, Nginx,
+or another static file server. The admin can optionally sync the generated
+public folder over SFTP, but the public site never needs a dynamic application
+server.
 
 ## Current Scope
 
 Included:
 
+- Multi-site local registry when running without `-config`.
 - Local content folders.
 - Local public output folders.
 - Markdown posts stored as files.
 - Draft and published post states.
+- Visual and raw Markdown post editing.
+- Post covers and post-local image assets.
 - Local preview and render.
 - One clean public stylesheet.
 - Site title and description.
@@ -29,16 +33,17 @@ Included:
 - Footer text and footer links.
 - Footer watermark toggle for `Published with Styxpress`.
 - RSS feed and sitemap output.
+- Optional manual or automatic SFTP deploy for generated public output.
 
-Removed from the first release:
+Not included in the first release:
 
-- SSH/SFTP publishing.
 - Server-backed content storage.
 - Featured posts.
 - Theme presets.
 - Custom CSS editing.
 - Saved themes.
 - Remote verification.
+- Multi-user admin, comments, search, or analytics.
 
 ## Content Layout
 
@@ -83,6 +88,9 @@ normal public page views.
 
 ## Build And Run
 
+The frontend requires Node `^20.19.0 || >=22.12.0`, as declared in
+`admin/web/package.json`.
+
 From the repository root:
 
 ```bash
@@ -95,13 +103,15 @@ go build -o styxpress-admin ./cmd/styxpress-admin
 ./styxpress-admin
 ```
 
-The command prints a local admin URL:
+The command prints a local admin URL and the API session token:
 
 ```text
 styxpress-admin listening on http://127.0.0.1:42317
+styxpress-admin API session token: <token>
 ```
 
-Open that URL in your browser.
+Open the printed URL in your browser. The embedded admin UI receives the
+session token automatically.
 
 To use a fixed local port:
 
@@ -109,7 +119,18 @@ To use a fixed local port:
 ./styxpress-admin -addr 127.0.0.1:8080
 ```
 
-The admin server binds to `127.0.0.1` by default.
+The admin server binds to `127.0.0.1` by default. Running without `-config`
+uses the multi-site registry under the user's config directory and suggests
+new site workspaces under `~/Styxpress/<site-id>/`.
+
+To run one explicit admin config file instead of the multi-site registry:
+
+```bash
+./styxpress-admin -config /path/to/config.toml
+```
+
+In `-config` mode, the admin UI exposes a single configured site and disables
+creating or deleting sites.
 
 ## Workflow
 
@@ -118,7 +139,11 @@ The admin server binds to `127.0.0.1` by default.
 2. In **Configuration**, set:
    - `contentDir`: local source content directory.
    - `publicDir`: local generated output directory.
-3. In **Site**, edit:
+   - optional SFTP deployment settings.
+3. If SFTP deploy is enabled, choose manual or automatic mode. The deploy
+   password or encrypted-key passphrase is entered in the deploy panel and is
+   kept only in the running admin server session.
+4. In **Site**, edit:
    - title
    - description
    - favicon
@@ -128,10 +153,36 @@ The admin server binds to `127.0.0.1` by default.
    - watermark visibility
    The preview updates while editing. **Save** writes `site.toml` and renders
    the public site.
-4. In **Posts**, choose an existing post from the list or create a new one.
-5. Use **Preview** for draft HTML previews without writing public files.
-6. Use **Save** to write the post, mark it as published, and render the public
-   output locally.
+5. In **Posts**, choose an existing post from the list or create a new one.
+6. Edit content in visual compose mode or raw Markdown mode.
+7. Use **Save** to write the post, mark it as published, render the public
+   output locally, and run automatic deploy when enabled. Manual deploy stays
+   available from the deploy panel after local output changes.
+
+## Admin Config
+
+The admin config is stored in the selected site registry entry, or in the file
+passed with `-config`.
+
+```toml
+name = "My Blog"
+content_dir = "content"
+public_dir = "public"
+deploy_enabled = false
+deploy_mode = "manual"
+sftp_delete_extra = false
+sftp_host = ""
+sftp_known_hosts_path = ""
+sftp_key_path = ""
+sftp_port = 22
+sftp_remote_path = ""
+sftp_user = ""
+```
+
+When SFTP deploy is enabled, `sftp_host`, `sftp_user`, and
+`sftp_remote_path` are required. `deploy_mode` is `manual` or `auto`.
+`sftp_delete_extra` removes remote files that are not present in the local
+public folder. Secrets are not written to this config.
 
 ## Site Config
 
@@ -140,6 +191,7 @@ The admin server binds to `127.0.0.1` by default.
 ```toml
 title = "My Blog"
 description = "Latest posts"
+favicon = "favicon.ico"
 
 [header]
 
@@ -160,6 +212,20 @@ label = "RSS"
 href = "/feed.xml"
 ```
 
+Allowed link hrefs are root-relative paths, anchors, `http`, `https`, and
+`mailto`.
+
+## SFTP Deploy
+
+SFTP deploy syncs the generated `publicDir` to a configured remote folder.
+Authentication can use `ssh-agent`, an SSH private key, a session password, or
+a session passphrase for encrypted keys. Host keys are checked through the
+configured `known_hosts` path or the user's default SSH known hosts files.
+
+Manual deploy mode marks output as changed after local renders and lets the
+user press **Deploy**. Automatic mode runs a deploy after publishing a post or
+rendering the whole site.
+
 ## Local Output
 
 After rendering, inspect:
@@ -168,6 +234,7 @@ After rendering, inspect:
 site/public/index.html
 site/public/feed.xml
 site/public/sitemap.xml
+site/public/assets/styxpress.css
 site/public/posts/hello-world/index.html
 ```
 
@@ -181,6 +248,15 @@ cd admin/web
 npm install
 npm run dev
 npm run build
+npm run preview
+```
+
+Useful scripts:
+
+```bash
+./scripts/run_admin.sh
+./scripts/build-release.sh linux/amd64
+./scripts/build-release.sh all
 ```
 
 The frontend production build is expected at

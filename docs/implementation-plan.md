@@ -1,61 +1,101 @@
-# Implementation Plan
+# Implementation Status
 
-This plan tracks the simplified first release.
+This document tracks the current simplified first release.
 
 ## Release Goal
 
 Ship a local static blog generator:
 
 1. Read Markdown content from a local `contentDir`.
-2. Store site settings in `content/site.toml`.
+2. Store site presentation settings in `content/site.toml`.
 3. Render public output into a local `publicDir`.
-4. Let the user create, edit, preview, publish, and render posts from the admin UI.
+4. Let the user create, edit, preview, publish, render, and optionally deploy
+   posts from the admin UI.
 
-## MVP Milestones
+## Implemented MVP Areas
 
-### 1. Local Config
+### 1. Local And Multi-Site Config
 
-- Keep app config to `name`, `contentDir`, and `publicDir`.
-- Keep content local only.
-- Remove remote config, SSH config, and content storage modes.
+- App config includes `name`, `contentDir`, `publicDir`, and optional deploy
+  settings.
+- Running without `-config` uses the multi-site registry and stores site config
+  files under the user's config directory.
+- New sites get normalized unique ids and default local folders under
+  `~/Styxpress/<site-id>/`.
+- Running with `-config /path/to/config.toml` uses one explicit config file and
+  disables create/delete site actions in the UI.
 
 ### 2. Site Config
 
-- Keep `title`, `description`, header links, footer text, footer links, and
-  `showWatermark`.
-- Remove theme presets, custom CSS, saved themes, header variants, and footer
-  variants.
+- Site config includes `title`, `description`, `favicon`, header links, footer
+  text, footer links, and `showWatermark`.
+- The admin supports `.ico` favicon upload and reset to the built-in default.
+- Theme presets, custom CSS, saved themes, header variants, and footer variants
+  remain out of scope.
 
 ### 3. Content
 
-- Keep post CRUD.
-- Keep covers and post assets.
-- Keep draft/published status.
-- Remove featured posts and remote sync timestamps.
+- Post CRUD is file-backed under `content/posts/{slug}`.
+- New post saves create drafts; publishing writes `published_at.txt`.
+- Existing published posts preserve published state when saved.
+- Covers and post-local image assets are supported.
+- Featured posts and remote sync timestamps remain out of scope.
 
 ### 4. Rendering
 
-- Render homepage from latest published posts only.
-- Render post pages, feed, sitemap, and one fixed stylesheet.
-- Remove stale draft output during full renders.
+- The renderer writes homepage, post pages, feed, sitemap, favicon, post media,
+  and one fixed stylesheet.
+- Homepage, feed, and sitemap use published posts only.
+- Full renders remove stale public output for drafts.
+- Raw HTML in Markdown is escaped.
 
-### 5. Admin UI
+### 5. SFTP Deploy
 
-- Keep My sites, Configuration, Site, and Posts.
-- Replace remote Publish controls with local Build controls.
-- Remove SSH gate, remote verification, featured manager, and CSS editor.
+- Deploy settings live in admin config and support manual or automatic mode.
+- SFTP sync uploads generated public files and can optionally delete remote
+  files that are no longer present locally.
+- Deploy state is tracked locally under the admin config area.
+- Passwords and encrypted-key passphrases are session-only and are not written
+  to config.
+- Remote verification beyond SSH host-key checking remains out of scope.
 
-### 6. Verification
+### 6. Admin UI
 
-- Run `go test ./...`.
-- Run `npm run build` from `admin/web`.
-- Build the admin binary with `go build -o styxpress-admin ./cmd/styxpress-admin`.
+- The UI has **My sites**, **Configuration**, **Site**, and **Posts** areas.
+- Navigation is store-driven through `stores/ui.js`; there is no committed
+  `vue-router` dependency.
+- Configuration includes local paths and SFTP settings.
+- Site editing previews the homepage and saves `site.toml`.
+- Post editing supports a visual editor, raw Markdown mode, cover upload, image
+  assets, publish, render, and deploy status.
+
+## Verification Commands
+
+Use these commands before release-oriented changes:
+
+```bash
+go test ./...
+
+cd admin/web
+npm install
+npm run build
+
+cd ../..
+go build -o styxpress-admin ./cmd/styxpress-admin
+```
+
+For release builds:
+
+```bash
+./scripts/build-release.sh linux/amd64
+./scripts/build-release.sh all
+```
 
 ## Deferred Work
 
-- Remote publishing.
-- Deployment adapters.
+- Server-backed content storage.
 - Multiple public themes.
 - Custom CSS.
 - Featured posts.
+- Remote verification.
 - Search, comments, analytics, and multi-user admin.
