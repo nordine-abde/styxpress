@@ -357,6 +357,52 @@ func TestInvalidConfiguredPathReturnsBadRequest(t *testing.T) {
 	}
 }
 
+func TestUploadCoverNormalizesUploadedFilename(t *testing.T) {
+	server, contentDir, _ := newTestServer(t)
+	repo, err := server.repository()
+	if err != nil {
+		t.Fatalf("repository: %v", err)
+	}
+	writePost(t, repo, content.Post{Slug: "hello-world", Title: "Hello", Source: "Body"})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "hero-photo.JPG")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := part.Write([]byte("jpg")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/posts/hello-world/cover", &body)
+	request.Header.Set(SessionHeader, server.Token())
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s; want %d", recorder.Code, recorder.Body.String(), http.StatusOK)
+	}
+	var response map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response["cover"] != "cover.jpg" {
+		t.Fatalf("cover response = %q, want cover.jpg", response["cover"])
+	}
+	data, err := os.ReadFile(filepath.Join(contentDir, "posts", "hello-world", "cover.jpg"))
+	if err != nil {
+		t.Fatalf("ReadFile cover.jpg returned error: %v", err)
+	}
+	if string(data) != "jpg" {
+		t.Fatalf("cover.jpg = %q, want jpg", data)
+	}
+}
+
 func TestUploadRejectsTraversalFilename(t *testing.T) {
 	server, _, _ := newTestServer(t)
 	repo, err := server.repository()

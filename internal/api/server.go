@@ -433,16 +433,21 @@ func (s *Server) uploadCover(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	coverName, err := coverUploadName(header.Filename)
+	if err != nil {
+		s.writeContentError(w, err)
+		return
+	}
 	repo, err := s.repository()
 	if err != nil {
 		s.writeConfigPathError(w, err)
 		return
 	}
-	if err := repo.WriteCover(slug, filepath.Base(header.Filename), file); err != nil {
+	if err := repo.WriteCover(slug, coverName, file); err != nil {
 		s.writeContentError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"cover": filepath.Base(header.Filename)})
+	writeJSON(w, http.StatusOK, map[string]string{"cover": coverName})
 }
 
 func (s *Server) deleteCover(w http.ResponseWriter, r *http.Request) {
@@ -791,6 +796,16 @@ func readUpload(w http.ResponseWriter, r *http.Request, allowPathOverride bool) 
 		return nil, nil, false
 	}
 	return file, header, true
+}
+
+func coverUploadName(filename string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(filepath.Base(filename)))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp", ".avif":
+		return "cover" + ext, nil
+	default:
+		return "", content.ErrUnsupportedCover
+	}
 }
 
 func decodeJSONBody(r *http.Request, target any, message string) error {
