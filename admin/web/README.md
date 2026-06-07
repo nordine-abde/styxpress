@@ -59,8 +59,9 @@ From the repository root, this integrated path builds and runs the admin:
 
 ## Session Token
 
-The Go server injects `window.__STYXPRESS_SESSION__` into the embedded
-`index.html`. The auth store uses that token automatically. If the UI is served
-without the Go server, the app can still accept a pasted token, but API calls
-must reach the same origin because the fetch client calls relative `/api/*`
-paths.
+The Go server prints a local session token when it starts. Paste that token into
+the admin UI to authenticate API requests. The token is kept in frontend memory
+only and is not injected into the embedded `index.html`.
+
+If the UI is served without the Go server, API calls must still reach the same
+origin because the fetch client calls relative `/api/*` paths.

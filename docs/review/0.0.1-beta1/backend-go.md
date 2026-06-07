@@ -4,15 +4,15 @@ Incremental document for `cmd/styxpress-admin`, `internal`, and Go packages.
 
 ## Analysis Notes
 
-- FND-001 confirmed: there is no barrier between the source directory and the
-  public output directory. The risk is data loss during `RenderAll`, especially
-  for drafts.
+- FND-001 fixed: config validation, API config saves, and renderer construction
+  reject equal, nested, or symlink-overlapping content/public roots.
 - FND-004 confirmed: feed, sitemap, canonical, and Open Graph call
   `absoluteURL`, but the function returns relative paths.
-- FND-006 confirmed: the cover preview uses `os.ReadFile` and can follow
-  symlinks, unlike `getCover` and `copyFile`.
-- FND-007 confirmed: several helpers check the final file but not parent
-  symlinks, so writes and deletions can escape the configured roots.
+- FND-006 fixed: cover preview and media serving reject symlinked files and
+  symlinked parent components under the content root.
+- FND-007 fixed for content and rendering paths: repository operations and
+  public output writes/deletes/copies now verify parent components before
+  filesystem mutation.
 - FND-008 confirmed: `RenderAll` only cleans output for drafts that are still
   present; orphaned output for deleted/renamed posts remains public.
 - FND-009 confirmed: config saves are not atomic and site id creation has no

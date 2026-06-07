@@ -304,3 +304,67 @@ func TestRepositoryRejectsAssetSymlink(t *testing.T) {
 		t.Fatalf("WriteAsset symlink error = %v, want ErrInvalidAsset", err)
 	}
 }
+
+func TestRepositoryRejectsSymlinkedPostsParentForPostWrites(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "posts")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	repo := NewRepository(root)
+	_, err := repo.WritePost(Post{
+		Slug:   "hello-world",
+		Title:  "Title",
+		Source: "Body",
+	}, WritePostOptions{Now: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)})
+	if !errors.Is(err, ErrInvalidPost) {
+		t.Fatalf("WritePost symlinked parent error = %v, want ErrInvalidPost", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "hello-world", "source.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside source stat error = %v, want not exist", err)
+	}
+}
+
+func TestRepositoryRejectsSymlinkedAssetParentForWriteAndDelete(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	repo := NewRepository(root)
+	if _, err := repo.WritePost(Post{
+		Slug:   "hello-world",
+		Title:  "Title",
+		Source: "Body",
+	}, WritePostOptions{Now: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatalf("WritePost returned error: %v", err)
+	}
+
+	assetsDir := filepath.Join(root, "posts", "hello-world", "assets")
+	if err := os.RemoveAll(assetsDir); err != nil {
+		t.Fatalf("RemoveAll assets returned error: %v", err)
+	}
+	if err := os.Symlink(outside, assetsDir); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	if err := repo.WriteAsset("hello-world", "escape.txt", strings.NewReader("escape")); !errors.Is(err, ErrInvalidAsset) {
+		t.Fatalf("WriteAsset symlinked parent error = %v, want ErrInvalidAsset", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "escape.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside written asset stat error = %v, want not exist", err)
+	}
+
+	outsideAsset := filepath.Join(outside, "delete-me.txt")
+	if err := os.WriteFile(outsideAsset, []byte("keep"), fileMode); err != nil {
+		t.Fatalf("WriteFile outside asset returned error: %v", err)
+	}
+	if err := repo.DeleteAsset("hello-world", "delete-me.txt"); !errors.Is(err, ErrInvalidAsset) {
+		t.Fatalf("DeleteAsset symlinked parent error = %v, want ErrInvalidAsset", err)
+	}
+	data, err := os.ReadFile(outsideAsset)
+	if err != nil {
+		t.Fatalf("ReadFile outside asset returned error: %v", err)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("outside asset = %q, want keep", data)
+	}
+}

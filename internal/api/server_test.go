@@ -385,6 +385,47 @@ func TestPostWorkflowPreviewAndMediaEndpoints(t *testing.T) {
 	}
 }
 
+func TestMediaEndpointsRejectSymlinkedPostDirectory(t *testing.T) {
+	server, contentDir, _ := newTestServer(t)
+	outsideRoot := t.TempDir()
+	outsideRepo := content.NewRepository(outsideRoot)
+	writePost(t, outsideRepo, content.Post{Slug: "hello-world", Title: "Hello", Source: "Body"})
+	if err := outsideRepo.WriteCover("hello-world", "cover.jpg", strings.NewReader("secret cover")); err != nil {
+		t.Fatalf("WriteCover returned error: %v", err)
+	}
+	if err := outsideRepo.WriteAsset("hello-world", "leak.png", strings.NewReader("secret asset")); err != nil {
+		t.Fatalf("WriteAsset returned error: %v", err)
+	}
+
+	postsDir := filepath.Join(contentDir, "posts")
+	if err := os.MkdirAll(postsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll posts returned error: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(outsideRoot, "posts", "hello-world"), filepath.Join(postsDir, "hello-world")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	assertMediaRequestBlocked(t, server, "/api/posts/hello-world/cover", "secret cover")
+	assertMediaRequestBlocked(t, server, "/api/posts/hello-world/assets/leak.png", "secret asset")
+}
+
+func TestCoverEndpointRejectsSymlinkCoverFile(t *testing.T) {
+	server, contentDir, _ := newTestServer(t)
+	repo := content.NewRepository(contentDir)
+	writePost(t, repo, content.Post{Slug: "hello-world", Title: "Hello", Source: "Body"})
+
+	secretPath := filepath.Join(t.TempDir(), "secret-cover.jpg")
+	if err := os.WriteFile(secretPath, []byte("secret cover"), 0o644); err != nil {
+		t.Fatalf("WriteFile secret cover returned error: %v", err)
+	}
+	coverPath := filepath.Join(contentDir, "posts", "hello-world", "cover.jpg")
+	if err := os.Symlink(secretPath, coverPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	assertMediaRequestBlocked(t, server, "/api/posts/hello-world/cover", "secret cover")
+}
+
 func TestSiteConfigEndpointSavesUnderConfiguredContentDir(t *testing.T) {
 	server, contentDir, _ := newTestServer(t)
 
@@ -750,6 +791,19 @@ func uploadCover(t *testing.T, server *Server, path string, filename string, val
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("upload status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func assertMediaRequestBlocked(t *testing.T, server *Server, path string, secret string) {
+	t.Helper()
+	request := authedRequest(t, server, http.MethodGet, path, "")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s; want %d", recorder.Code, recorder.Body.String(), http.StatusBadRequest)
+	}
+	if strings.Contains(recorder.Body.String(), secret) {
+		t.Fatalf("response body leaked symlink target content: %s", recorder.Body.String())
 	}
 }
 

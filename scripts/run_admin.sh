@@ -5,11 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ADDR="${STYXPRESS_ADMIN_ADDR:-127.0.0.1:8080}"
 
+source "$ROOT_DIR/scripts/go-toolchain.sh"
+styxpress_require_supported_go_toolchain
+
 cd "$ROOT_DIR/admin/web"
-if [ ! -d node_modules ]; then
-    echo "Installing admin UI dependencies..."
-    npm install
-fi
+echo "Installing admin UI dependencies from lockfile..."
+npm ci
+
+echo "Auditing admin UI production dependencies..."
+npm audit --omit=dev
 
 echo "Building admin UI..."
 npm run build

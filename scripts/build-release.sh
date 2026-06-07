@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="${1:-linux/amd64}"
 
+source "$ROOT_DIR/scripts/go-toolchain.sh"
+styxpress_require_supported_go_toolchain
+
 targets=()
 if [ "$TARGET" = "all" ]; then
     targets=(
@@ -18,6 +21,12 @@ else
 fi
 
 cd "$ROOT_DIR/admin/web"
+echo "Installing admin UI dependencies from lockfile..."
+npm ci
+
+echo "Auditing admin UI production dependencies..."
+npm audit --omit=dev
+
 echo "Building admin UI..."
 npm run build
 

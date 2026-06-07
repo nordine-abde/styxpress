@@ -91,6 +91,11 @@ normal public page views.
 The frontend requires Node `^20.19.0 || >=22.12.0`, as declared in
 `admin/web/package.json`.
 
+Go builds require a supported patched Go toolchain. For the beta release gate,
+use Go `1.25.11` or newer on the Go 1.25 line, Go `1.26.4` or newer on the Go
+1.26 line, or a newer supported Go release. The module encodes Go `1.25.11` as
+the minimum and prefers the Go `1.26.4` toolchain.
+
 From the repository root:
 
 ```bash
@@ -110,8 +115,8 @@ styxpress-admin listening on http://127.0.0.1:42317
 styxpress-admin API session token: <token>
 ```
 
-Open the printed URL in your browser. The embedded admin UI receives the
-session token automatically.
+Open the printed URL in your browser and paste the session token into the admin
+UI when prompted.
 
 To use a fixed local port:
 

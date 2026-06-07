@@ -8,7 +8,6 @@ import (
 	"fmt"
 	stdhtml "html"
 	"html/template"
-	"io"
 	"mime"
 	"net/url"
 	"os"
@@ -231,13 +230,13 @@ func (r *Renderer) RenderSite() (SiteResult, error) {
 	indexPath := filepath.Join(r.publicRoot, indexFileName)
 	feedPath := filepath.Join(r.publicRoot, "feed.xml")
 	sitemapPath := filepath.Join(r.publicRoot, "sitemap.xml")
-	if err := writeAtomic(indexPath, []byte(indexHTML)); err != nil {
+	if err := writeAtomicNoSymlink(r.publicRoot, indexPath, []byte(indexHTML)); err != nil {
 		return SiteResult{}, err
 	}
-	if err := writeAtomic(feedPath, feedXML); err != nil {
+	if err := writeAtomicNoSymlink(r.publicRoot, feedPath, feedXML); err != nil {
 		return SiteResult{}, err
 	}
-	if err := writeAtomic(sitemapPath, sitemapXML); err != nil {
+	if err := writeAtomicNoSymlink(r.publicRoot, sitemapPath, sitemapXML); err != nil {
 		return SiteResult{}, err
 	}
 
@@ -309,7 +308,7 @@ func (r *Renderer) renderLoadedPost(post content.Post) (Result, error) {
 		return Result{}, err
 	}
 	publicDir := filepath.Join(r.publicRoot, postsDirName, post.Slug)
-	if err := os.MkdirAll(publicDir, directoryMode); err != nil {
+	if err := mkdirAllNoSymlink(r.publicRoot, publicDir, directoryMode, ErrUnsafeAsset); err != nil {
 		return Result{}, err
 	}
 
@@ -323,7 +322,7 @@ func (r *Renderer) renderLoadedPost(post content.Post) (Result, error) {
 	}
 
 	indexPath := filepath.Join(publicDir, indexFileName)
-	if err := writeAtomic(indexPath, []byte(document)); err != nil {
+	if err := writeAtomicNoSymlink(r.publicRoot, indexPath, []byte(document)); err != nil {
 		return Result{}, err
 	}
 
@@ -402,7 +401,8 @@ func (r *Renderer) previewCoverURL(post content.Post) (string, error) {
 	if !isCoverFile(post.Cover) {
 		return "", content.ErrUnsupportedCover
 	}
-	data, err := os.ReadFile(filepath.Join(r.contentRoot, postsDirName, post.Slug, post.Cover))
+	coverPath := filepath.Join(r.contentRoot, postsDirName, post.Slug, post.Cover)
+	data, err := readFileNoSymlink(r.contentRoot, coverPath, content.ErrInvalidAsset)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", nil
@@ -499,7 +499,7 @@ func (r *Renderer) removeUnpublishedPostOutput(posts []content.Post) error {
 		if post.IsPublished() {
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(r.publicRoot, postsDirName, post.Slug)); err != nil {
+		if err := removeAllNoSymlink(r.publicRoot, filepath.Join(r.publicRoot, postsDirName, post.Slug), ErrUnsafeAsset); err != nil {
 			return err
 		}
 	}
@@ -579,7 +579,7 @@ func isStandaloneBreakTag(line string) bool {
 }
 
 func (r *Renderer) reconcileCover(post content.Post, publicDir string) (string, error) {
-	entries, err := os.ReadDir(publicDir)
+	entries, err := readDirectoryNoSymlink(r.publicRoot, publicDir, ErrUnsafeAsset)
 	if err != nil {
 		return "", err
 	}
@@ -587,7 +587,7 @@ func (r *Renderer) reconcileCover(post content.Post, publicDir string) (string, 
 		if entry.IsDir() || !isCoverFile(entry.Name()) {
 			continue
 		}
-		if err := os.Remove(filepath.Join(publicDir, entry.Name())); err != nil {
+		if err := removeFileNoSymlink(r.publicRoot, filepath.Join(publicDir, entry.Name()), ErrUnsafeAsset); err != nil {
 			return "", err
 		}
 	}
@@ -597,7 +597,7 @@ func (r *Renderer) reconcileCover(post content.Post, publicDir string) (string, 
 
 	source := filepath.Join(r.contentRoot, postsDirName, post.Slug, post.Cover)
 	destination := filepath.Join(publicDir, post.Cover)
-	if err := copyFile(destination, source); err != nil {
+	if err := copyFile(r.publicRoot, destination, r.contentRoot, source); err != nil {
 		return "", err
 	}
 	return destination, nil
@@ -605,13 +605,13 @@ func (r *Renderer) reconcileCover(post content.Post, publicDir string) (string, 
 
 func (r *Renderer) reconcileAssets(post content.Post, publicDir string) ([]string, error) {
 	publicAssetsDir := filepath.Join(publicDir, assetsDirName)
-	if err := os.RemoveAll(publicAssetsDir); err != nil {
+	if err := removeAllNoSymlink(r.publicRoot, publicAssetsDir, ErrUnsafeAsset); err != nil {
 		return nil, err
 	}
 	if len(post.Assets) == 0 {
 		return nil, nil
 	}
-	if err := os.MkdirAll(publicAssetsDir, directoryMode); err != nil {
+	if err := mkdirAllNoSymlink(r.publicRoot, publicAssetsDir, directoryMode, ErrUnsafeAsset); err != nil {
 		return nil, err
 	}
 
@@ -624,7 +624,7 @@ func (r *Renderer) reconcileAssets(post content.Post, publicDir string) ([]strin
 		}
 		source := filepath.Join(r.contentRoot, postsDirName, post.Slug, assetsDirName, filepath.FromSlash(cleaned))
 		destination := filepath.Join(publicAssetsDir, filepath.FromSlash(cleaned))
-		if err := copyFile(destination, source); err != nil {
+		if err := copyFile(r.publicRoot, destination, r.contentRoot, source); err != nil {
 			return nil, err
 		}
 	}
@@ -660,7 +660,7 @@ func (r *Renderer) siteData(cfg siteconfig.Config, style styleTemplateData) site
 
 func (r *Renderer) writeStyleSheet() (string, error) {
 	path := filepath.Join(r.publicRoot, "assets", "styxpress.css")
-	return path, writeAtomic(path, []byte(styleSheet(r.siteConfig)))
+	return path, writeAtomicNoSymlink(r.publicRoot, path, []byte(styleSheet(r.siteConfig)))
 }
 
 func (r *Renderer) writeFavicon() (string, error) {
@@ -672,9 +672,9 @@ func (r *Renderer) writeFavicon() (string, error) {
 
 	destination := filepath.Join(r.publicRoot, filepath.FromSlash(faviconPath))
 	source := filepath.Join(r.contentRoot, filepath.FromSlash(faviconPath))
-	if err := copyFile(destination, source); err != nil {
+	if err := copyFile(r.publicRoot, destination, r.contentRoot, source); err != nil {
 		if errors.Is(err, os.ErrNotExist) && faviconPath == siteconfig.DefaultFaviconPath {
-			return destination, writeAtomic(destination, defaultFavicon)
+			return destination, writeAtomicNoSymlink(r.publicRoot, destination, defaultFavicon)
 		}
 		return "", err
 	}
@@ -719,51 +719,38 @@ func styleElementCSS(css string) string {
 	}
 }
 
-func copyFile(destination string, source string) error {
-	info, err := os.Lstat(source)
+func copyFile(destinationRoot string, destination string, sourceRoot string, source string) error {
+	data, err := readFileNoSymlink(sourceRoot, source, ErrUnsafeAsset)
 	if err != nil {
 		return err
 	}
-	if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%w: %s", ErrUnsafeAsset, source)
-	}
-
-	input, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-
-	destinationDir := filepath.Dir(destination)
-	if err := os.MkdirAll(destinationDir, directoryMode); err != nil {
-		return err
-	}
-	output, err := os.CreateTemp(destinationDir, "."+filepath.Base(destination)+".*")
-	if err != nil {
-		return err
-	}
-	temp := output.Name()
-	_, copyErr := io.Copy(output, input)
-	chmodErr := output.Chmod(fileMode)
-	closeErr := output.Close()
-	if copyErr != nil {
-		_ = os.Remove(temp)
-		return copyErr
-	}
-	if chmodErr != nil {
-		_ = os.Remove(temp)
-		return chmodErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(temp)
-		return closeErr
-	}
-	return os.Rename(temp, destination)
+	return writeAtomicNoSymlink(destinationRoot, destination, data)
 }
 
-func writeAtomic(path string, data []byte) error {
+func readDirectoryNoSymlink(root string, dir string, errKind error) ([]os.DirEntry, error) {
+	if err := requireDirectoryNoSymlink(root, dir, errKind); err != nil {
+		return nil, err
+	}
+	return os.ReadDir(dir)
+}
+
+func readFileNoSymlink(root string, path string, errKind error) ([]byte, error) {
+	if err := requireFileNoSymlink(root, path, errKind); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
+}
+
+func writeAtomicNoSymlink(root string, path string, data []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, directoryMode); err != nil {
+	if err := mkdirAllNoSymlink(root, dir, directoryMode, ErrUnsafeAsset); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%w: symlink %s", ErrUnsafeAsset, path)
+	} else if err == nil && info.IsDir() {
+		return fmt.Errorf("%w: path is a directory %s", ErrUnsafeAsset, path)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	file, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
@@ -791,6 +778,152 @@ func writeAtomic(path string, data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func removeFileNoSymlink(root string, path string, errKind error) error {
+	if err := requireDirectoryNoSymlink(root, filepath.Dir(path), errKind); err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
+func removeAllNoSymlink(root string, path string, errKind error) error {
+	if err := requireDirectoryNoSymlink(root, filepath.Dir(path), errKind); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return os.Remove(path)
+	}
+	return os.RemoveAll(path)
+}
+
+func mkdirAllNoSymlink(root string, dir string, mode os.FileMode, errKind error) error {
+	cleanRoot, rel, err := cleanPathUnderRoot(root, dir, errKind)
+	if err != nil {
+		return err
+	}
+	if err := ensureRootDirectory(cleanRoot, mode, errKind); err != nil {
+		return err
+	}
+
+	current := cleanRoot
+	for _, part := range relativeParts(rel) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("%w: symlink %s", errKind, current)
+			}
+			if !info.IsDir() {
+				return fmt.Errorf("%w: path is not a directory %s", errKind, current)
+			}
+			continue
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := os.Mkdir(current, mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireFileNoSymlink(root string, path string, errKind error) error {
+	if err := requireDirectoryNoSymlink(root, filepath.Dir(path), errKind); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%w: symlink %s", errKind, path)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%w: path is a directory %s", errKind, path)
+	}
+	return nil
+}
+
+func requireDirectoryNoSymlink(root string, dir string, errKind error) error {
+	cleanRoot, rel, err := cleanPathUnderRoot(root, dir, errKind)
+	if err != nil {
+		return err
+	}
+	if err := requireRootDirectory(cleanRoot, errKind); err != nil {
+		return err
+	}
+
+	current := cleanRoot
+	for _, part := range relativeParts(rel) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: symlink %s", errKind, current)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%w: path is not a directory %s", errKind, current)
+		}
+	}
+	return nil
+}
+
+func ensureRootDirectory(root string, mode os.FileMode, errKind error) error {
+	if err := os.MkdirAll(root, mode); err != nil {
+		return err
+	}
+	return requireRootDirectory(root, errKind)
+}
+
+func requireRootDirectory(root string, errKind error) error {
+	info, err := os.Stat(root)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: root is not a directory %s", errKind, root)
+	}
+	return nil
+}
+
+func cleanPathUnderRoot(root string, path string, errKind error) (string, string, error) {
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", "", err
+	}
+	cleanPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", "", err
+	}
+	cleanRoot = filepath.Clean(cleanRoot)
+	cleanPath = filepath.Clean(cleanPath)
+
+	rel, err := filepath.Rel(cleanRoot, cleanPath)
+	if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("%w: path escapes root %s", errKind, cleanPath)
+	}
+	return cleanRoot, rel, nil
+}
+
+func relativeParts(rel string) []string {
+	if rel == "." || rel == "" {
+		return nil
+	}
+	return strings.Split(rel, string(filepath.Separator))
 }
 
 func isCoverFile(name string) bool {

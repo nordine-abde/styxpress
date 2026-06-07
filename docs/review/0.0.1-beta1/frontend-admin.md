@@ -4,10 +4,10 @@ Incremental document for `admin/web`.
 
 ## Analysis Notes
 
-- FND-003 confirmed: the image panel calls `buildStore.publishPost` after media
-  upload/delete, so a media change also automatically publishes drafts.
-- FND-010 confirmed as hardening: the HTML preview is loaded into a Blob iframe
-  without a sandbox.
+- FND-003 fixed: media upload/delete no longer calls the publish endpoint and
+  only renders already-published posts through the dedicated render endpoint.
+- FND-010 fixed: the HTML preview iframe is now sandboxed with no granted
+  capabilities.
 - FND-011 confirmed: invalid token/logout do not reliably clear API-backed
   stores.
 - FND-012 confirmed: `loadCurrentSite` can mark a site as loaded even when

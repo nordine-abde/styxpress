@@ -182,6 +182,113 @@ func TestRenderPostRejectsDraft(t *testing.T) {
 	assertMissing(t, filepath.Join(publicRoot, "posts", "draft", "index.html"))
 }
 
+func TestRenderPreviewRejectsSymlinkCover(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	repo := content.NewRepository(contentRoot)
+	if _, err := repo.WritePost(content.Post{
+		Slug:   "hello-world",
+		Title:  "Hello",
+		Source: "Body",
+	}, content.WritePostOptions{}); err != nil {
+		t.Fatalf("write post: %v", err)
+	}
+
+	secretPath := filepath.Join(t.TempDir(), "secret-cover.jpg")
+	if err := os.WriteFile(secretPath, []byte("secret cover"), 0o644); err != nil {
+		t.Fatalf("write secret cover: %v", err)
+	}
+	coverPath := filepath.Join(contentRoot, "posts", "hello-world", "cover.jpg")
+	if err := os.Symlink(secretPath, coverPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot)
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	html, err := renderer.RenderPreview(content.Post{
+		Slug:   "hello-world",
+		Title:  "Hello",
+		Source: "Body",
+		Cover:  "cover.jpg",
+	})
+	if !errors.Is(err, content.ErrInvalidAsset) {
+		t.Fatalf("RenderPreview error = %v, want ErrInvalidAsset", err)
+	}
+	if strings.Contains(html, "secret cover") {
+		t.Fatalf("preview leaked symlink target content: %s", html)
+	}
+}
+
+func TestRenderPostRejectsSymlinkedPublicParent(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	outsideRoot := t.TempDir()
+	publishedAt := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
+	repo := content.NewRepository(contentRoot)
+	if _, err := repo.WritePost(content.Post{
+		Slug:        "hello-world",
+		Title:       "Hello",
+		Source:      "Body",
+		PublishedAt: publishedAt,
+		UpdatedAt:   publishedAt,
+	}, content.WritePostOptions{}); err != nil {
+		t.Fatalf("write post: %v", err)
+	}
+	if err := os.MkdirAll(publicRoot, 0o755); err != nil {
+		t.Fatalf("mkdir public root: %v", err)
+	}
+	if err := os.Symlink(outsideRoot, filepath.Join(publicRoot, "posts")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot)
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	if _, err := renderer.RenderPost("hello-world"); !errors.Is(err, ErrUnsafeAsset) {
+		t.Fatalf("RenderPost error = %v, want ErrUnsafeAsset", err)
+	}
+	assertMissing(t, filepath.Join(outsideRoot, "hello-world", "index.html"))
+}
+
+func TestRenderAllRejectsSymlinkedPublicParentBeforeDeletingDraftOutput(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	outsideRoot := t.TempDir()
+	repo := content.NewRepository(contentRoot)
+	if _, err := repo.WritePost(content.Post{
+		Slug:   "draft",
+		Title:  "Draft",
+		Source: "Body",
+	}, content.WritePostOptions{}); err != nil {
+		t.Fatalf("write post: %v", err)
+	}
+	outsideDraftOutput := filepath.Join(outsideRoot, "draft", "index.html")
+	if err := os.MkdirAll(filepath.Dir(outsideDraftOutput), 0o755); err != nil {
+		t.Fatalf("mkdir outside draft output: %v", err)
+	}
+	if err := os.WriteFile(outsideDraftOutput, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write outside draft output: %v", err)
+	}
+	if err := os.MkdirAll(publicRoot, 0o755); err != nil {
+		t.Fatalf("mkdir public root: %v", err)
+	}
+	if err := os.Symlink(outsideRoot, filepath.Join(publicRoot, "posts")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot)
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	if _, err := renderer.RenderAll(); !errors.Is(err, ErrUnsafeAsset) {
+		t.Fatalf("RenderAll error = %v, want ErrUnsafeAsset", err)
+	}
+	assertFileEquals(t, outsideDraftOutput, "keep")
+}
+
 func TestNewRejectsOverlappingContentAndPublicRoots(t *testing.T) {
 	root := t.TempDir()
 	contentRoot := filepath.Join(root, "content")

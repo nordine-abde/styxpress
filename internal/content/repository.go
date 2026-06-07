@@ -75,7 +75,7 @@ func (r *Repository) CreatePost(post Post) (Post, error) {
 	if err := ValidateSlug(post.Slug); err != nil {
 		return Post{}, err
 	}
-	if _, err := os.Stat(r.postDir(post.Slug)); err == nil {
+	if err := requireDirectoryNoSymlink(r.root, r.postDir(post.Slug), ErrInvalidPost); err == nil {
 		return Post{}, ErrPostExists
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Post{}, err
@@ -105,15 +105,11 @@ func (r *Repository) LoadPost(slug string) (Post, error) {
 	}
 
 	dir := r.postDir(slug)
-	info, err := os.Stat(dir)
-	if err != nil {
+	if err := requireDirectoryNoSymlink(r.root, dir, ErrInvalidPost); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return Post{}, ErrPostNotFound
 		}
 		return Post{}, err
-	}
-	if !info.IsDir() {
-		return Post{}, fmt.Errorf("%w: post path is not a directory", ErrInvalidPost)
 	}
 
 	cover, err := findCover(dir)
@@ -163,7 +159,7 @@ func (r *Repository) LoadPost(slug string) (Post, error) {
 
 func (r *Repository) ListPosts() ([]Post, error) {
 	root := filepath.Join(r.root, postsDirName)
-	entries, err := os.ReadDir(root)
+	entries, err := readDirectoryNoSymlink(r.root, root, ErrInvalidPost)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -217,7 +213,7 @@ func (r *Repository) MarkPostPublished(slug string, opts TimestampOptions) (Post
 	}
 
 	now := r.timestamp(opts.Now)
-	if err := os.WriteFile(filepath.Join(r.postDir(slug), publishedFileName), []byte(formatTime(now)), fileMode); err != nil {
+	if err := writeFileNoSymlink(r.root, filepath.Join(r.postDir(slug), publishedFileName), []byte(formatTime(now)), ErrInvalidPost); err != nil {
 		return Post{}, err
 	}
 	return r.LoadPost(slug)
@@ -232,10 +228,10 @@ func (r *Repository) WriteCover(slug string, name string, reader io.Reader) erro
 	}
 
 	dir := r.postDir(slug)
-	if err := os.MkdirAll(dir, directoryMode); err != nil {
+	if err := mkdirAllNoSymlink(r.root, dir, directoryMode, ErrInvalidPost); err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(dir)
+	entries, err := readDirectoryNoSymlink(r.root, dir, ErrInvalidPost)
 	if err != nil {
 		return err
 	}
@@ -243,11 +239,11 @@ func (r *Repository) WriteCover(slug string, name string, reader io.Reader) erro
 		if entry.IsDir() || !isCoverFile(entry.Name()) {
 			continue
 		}
-		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil {
+		if err := removeFileNoSymlink(r.root, filepath.Join(dir, entry.Name()), ErrInvalidPost); err != nil {
 			return err
 		}
 	}
-	if err := writeReader(filepath.Join(dir, name), reader); err != nil {
+	if err := writeReader(r.root, filepath.Join(dir, name), reader, ErrInvalidPost); err != nil {
 		return err
 	}
 	return r.touchPostUpdated(slug)
@@ -259,7 +255,7 @@ func (r *Repository) DeleteCover(slug string) error {
 	}
 
 	dir := r.postDir(slug)
-	entries, err := os.ReadDir(dir)
+	entries, err := readDirectoryNoSymlink(r.root, dir, ErrInvalidPost)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -270,7 +266,7 @@ func (r *Repository) DeleteCover(slug string) error {
 		if entry.IsDir() || !isCoverFile(entry.Name()) {
 			continue
 		}
-		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil {
+		if err := removeFileNoSymlink(r.root, filepath.Join(dir, entry.Name()), ErrInvalidPost); err != nil {
 			return err
 		}
 	}
@@ -285,7 +281,7 @@ func (r *Repository) WriteAsset(slug string, assetPath string, reader io.Reader)
 	if err != nil {
 		return err
 	}
-	if err := writeReader(filepath.Join(r.postDir(slug), assetsDirName, filepath.FromSlash(cleaned)), reader); err != nil {
+	if err := writeReader(r.root, filepath.Join(r.postDir(slug), assetsDirName, filepath.FromSlash(cleaned)), reader, ErrInvalidAsset); err != nil {
 		return err
 	}
 	return r.touchPostUpdated(slug)
@@ -299,7 +295,7 @@ func (r *Repository) DeleteAsset(slug string, assetPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(filepath.Join(r.postDir(slug), assetsDirName, filepath.FromSlash(cleaned))); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := removeFileNoSymlink(r.root, filepath.Join(r.postDir(slug), assetsDirName, filepath.FromSlash(cleaned)), ErrInvalidAsset); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return r.touchPostUpdated(slug)
@@ -330,7 +326,7 @@ func (r *Repository) writePost(post Post, update bool, opts WritePostOptions) (P
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Join(dir, assetsDirName), directoryMode); err != nil {
+	if err := mkdirAllNoSymlink(r.root, filepath.Join(dir, assetsDirName), directoryMode, ErrInvalidPost); err != nil {
 		return Post{}, err
 	}
 
@@ -341,19 +337,19 @@ func (r *Repository) writePost(post Post, update bool, opts WritePostOptions) (P
 	}
 	if post.IsPublished() {
 		files[publishedFileName] = formatTime(post.PublishedAt)
-	} else if err := os.Remove(filepath.Join(dir, publishedFileName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	} else if err := removeFileNoSymlink(r.root, filepath.Join(dir, publishedFileName), ErrInvalidPost); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Post{}, err
 	}
 	if strings.TrimSpace(post.Description) != "" {
 		files[descriptionFileName] = strings.TrimSpace(post.Description) + "\n"
 	} else {
-		if err := os.Remove(filepath.Join(dir, descriptionFileName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := removeFileNoSymlink(r.root, filepath.Join(dir, descriptionFileName), ErrInvalidPost); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return Post{}, err
 		}
 	}
 
 	for name, value := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), fileMode); err != nil {
+		if err := writeFileNoSymlink(r.root, filepath.Join(dir, name), []byte(value), ErrInvalidPost); err != nil {
 			return Post{}, err
 		}
 	}
@@ -362,15 +358,11 @@ func (r *Repository) writePost(post Post, update bool, opts WritePostOptions) (P
 
 func (r *Repository) hasPostMetadata(slug string) (bool, error) {
 	dir := r.postDir(slug)
-	info, err := os.Stat(dir)
-	if err != nil {
+	if err := requireDirectoryNoSymlink(r.root, dir, ErrInvalidPost); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
 		}
 		return false, err
-	}
-	if !info.IsDir() {
-		return false, fmt.Errorf("%w: post path is not a directory", ErrInvalidPost)
 	}
 
 	for _, name := range []string{sourceFileName, titleFileName, descriptionFileName, publishedFileName, updatedFileName} {
@@ -397,7 +389,7 @@ func (r *Repository) touchPostUpdated(slug string) error {
 	if err != nil || !hasMetadata {
 		return err
 	}
-	return os.WriteFile(filepath.Join(r.postDir(slug), updatedFileName), []byte(formatTime(r.timestamp(time.Time{}))), fileMode)
+	return writeFileNoSymlink(r.root, filepath.Join(r.postDir(slug), updatedFileName), []byte(formatTime(r.timestamp(time.Time{}))), ErrInvalidPost)
 }
 
 func (r *Repository) postDir(slug string) string {
@@ -486,12 +478,15 @@ func isCoverFile(name string) bool {
 }
 
 func listAssets(root string) ([]string, error) {
-	info, err := os.Stat(root)
+	info, err := os.Lstat(root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%w: symlink %s", ErrInvalidAsset, root)
 	}
 	if !info.IsDir() {
 		return nil, fmt.Errorf("%w: assets path is not a directory", ErrInvalidPost)
@@ -579,12 +574,14 @@ func formatTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339Nano) + "\n"
 }
 
-func writeReader(path string, reader io.Reader) error {
-	if err := os.MkdirAll(filepath.Dir(path), directoryMode); err != nil {
+func writeReader(root string, path string, reader io.Reader, errKind error) error {
+	if err := mkdirAllNoSymlink(root, filepath.Dir(path), directoryMode, errKind); err != nil {
 		return err
 	}
 	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%w: symlink %s", ErrInvalidAsset, path)
+		return fmt.Errorf("%w: symlink %s", errKind, path)
+	} else if err == nil && info.IsDir() {
+		return fmt.Errorf("%w: path is a directory %s", errKind, path)
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -597,4 +594,134 @@ func writeReader(path string, reader io.Reader) error {
 		return err
 	}
 	return file.Chmod(fileMode)
+}
+
+func readDirectoryNoSymlink(root string, dir string, errKind error) ([]os.DirEntry, error) {
+	if err := requireDirectoryNoSymlink(root, dir, errKind); err != nil {
+		return nil, err
+	}
+	return os.ReadDir(dir)
+}
+
+func writeFileNoSymlink(root string, path string, data []byte, errKind error) error {
+	if err := mkdirAllNoSymlink(root, filepath.Dir(path), directoryMode, errKind); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%w: symlink %s", errKind, path)
+	} else if err == nil && info.IsDir() {
+		return fmt.Errorf("%w: path is a directory %s", errKind, path)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.WriteFile(path, data, fileMode)
+}
+
+func removeFileNoSymlink(root string, path string, errKind error) error {
+	if err := requireDirectoryNoSymlink(root, filepath.Dir(path), errKind); err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
+func mkdirAllNoSymlink(root string, dir string, mode fs.FileMode, errKind error) error {
+	cleanRoot, rel, err := cleanPathUnderRoot(root, dir, errKind)
+	if err != nil {
+		return err
+	}
+	if err := ensureRootDirectory(cleanRoot, mode, errKind); err != nil {
+		return err
+	}
+
+	current := cleanRoot
+	for _, part := range relativeParts(rel) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("%w: symlink %s", errKind, current)
+			}
+			if !info.IsDir() {
+				return fmt.Errorf("%w: path is not a directory %s", errKind, current)
+			}
+			continue
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := os.Mkdir(current, mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireDirectoryNoSymlink(root string, dir string, errKind error) error {
+	cleanRoot, rel, err := cleanPathUnderRoot(root, dir, errKind)
+	if err != nil {
+		return err
+	}
+	if err := requireRootDirectory(cleanRoot, errKind); err != nil {
+		return err
+	}
+
+	current := cleanRoot
+	for _, part := range relativeParts(rel) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: symlink %s", errKind, current)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%w: path is not a directory %s", errKind, current)
+		}
+	}
+	return nil
+}
+
+func ensureRootDirectory(root string, mode fs.FileMode, errKind error) error {
+	if err := os.MkdirAll(root, mode); err != nil {
+		return err
+	}
+	return requireRootDirectory(root, errKind)
+}
+
+func requireRootDirectory(root string, errKind error) error {
+	info, err := os.Stat(root)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: root is not a directory %s", errKind, root)
+	}
+	return nil
+}
+
+func cleanPathUnderRoot(root string, path string, errKind error) (string, string, error) {
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", "", err
+	}
+	cleanPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", "", err
+	}
+	cleanRoot = filepath.Clean(cleanRoot)
+	cleanPath = filepath.Clean(cleanPath)
+
+	rel, err := filepath.Rel(cleanRoot, cleanPath)
+	if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("%w: path escapes root %s", errKind, cleanPath)
+	}
+	return cleanRoot, rel, nil
+}
+
+func relativeParts(rel string) []string {
+	if rel == "." || rel == "" {
+		return nil
+	}
+	return strings.Split(rel, string(filepath.Separator))
 }

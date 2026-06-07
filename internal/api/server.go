@@ -543,9 +543,8 @@ func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
 		s.writeConfigPathError(w, err)
 		return
 	}
-	coverPath := filepath.Join(contentDir, "posts", slug, post.Cover)
-	info, err := os.Lstat(coverPath)
-	if err != nil {
+	contentType := mime.TypeByExtension(filepath.Ext(post.Cover))
+	if err := serveContentMediaFile(w, r, contentType, contentDir, "posts", slug, post.Cover); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			WriteError(w, http.StatusNotFound, "cover_not_found", "cover not found")
 			return
@@ -553,16 +552,6 @@ func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
 		s.writeContentError(w, err)
 		return
 	}
-	if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		s.writeContentError(w, content.ErrInvalidAsset)
-		return
-	}
-	contentType := mime.TypeByExtension(filepath.Ext(post.Cover))
-	if contentType != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	http.ServeFile(w, r, coverPath)
 }
 
 func (s *Server) uploadCover(w http.ResponseWriter, r *http.Request) {
@@ -630,9 +619,9 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 		s.writeConfigPathError(w, err)
 		return
 	}
-	filePath := filepath.Join(contentDir, "posts", slug, "assets", filepath.FromSlash(assetPath))
-	info, err := os.Lstat(filePath)
-	if err != nil {
+	contentType := mime.TypeByExtension(filepath.Ext(assetPath))
+	components := append([]string{"posts", slug, "assets"}, strings.Split(assetPath, "/")...)
+	if err := serveContentMediaFile(w, r, contentType, contentDir, components...); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			WriteError(w, http.StatusNotFound, "asset_not_found", "asset not found")
 			return
@@ -640,16 +629,6 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 		s.writeContentError(w, err)
 		return
 	}
-	if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		s.writeContentError(w, content.ErrInvalidAsset)
-		return
-	}
-	contentType := mime.TypeByExtension(filepath.Ext(assetPath))
-	if contentType != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	http.ServeFile(w, r, filePath)
 }
 
 func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
@@ -1270,6 +1249,105 @@ func postHasAsset(post content.Post, assetPath string) bool {
 		}
 	}
 	return false
+}
+
+func serveContentMediaFile(w http.ResponseWriter, r *http.Request, contentType string, root string, components ...string) error {
+	file, info, err := openContentMediaFile(root, components...)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+	return nil
+}
+
+func openContentMediaFile(root string, components ...string) (*os.File, os.FileInfo, error) {
+	if len(components) == 0 {
+		return nil, nil, content.ErrInvalidAsset
+	}
+
+	cleanRoot, err := localpath.CleanRequired(root)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %v", ErrInvalidLocalPath, err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(cleanRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	current := resolvedRoot
+	for index, component := range components {
+		if unsafeMediaComponent(component) {
+			return nil, nil, fmt.Errorf("%w: unsafe path component", content.ErrInvalidAsset)
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return nil, nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, nil, fmt.Errorf("%w: symlink %s", content.ErrInvalidAsset, filepath.ToSlash(current))
+		}
+		if index < len(components)-1 {
+			if !info.IsDir() {
+				return nil, nil, fmt.Errorf("%w: path component is not a directory", content.ErrInvalidAsset)
+			}
+			continue
+		}
+		if info.IsDir() {
+			return nil, nil, content.ErrInvalidAsset
+		}
+	}
+
+	if !pathWithinRoot(resolvedRoot, current) {
+		return nil, nil, fmt.Errorf("%w: path escapes content root", content.ErrInvalidAsset)
+	}
+	file, err := os.Open(current)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	info, statErr := file.Stat()
+	lstatInfo, lstatErr := os.Lstat(current)
+	resolvedFile, resolveErr := filepath.EvalSymlinks(current)
+	switch {
+	case statErr != nil:
+		file.Close()
+		return nil, nil, statErr
+	case lstatErr != nil:
+		file.Close()
+		return nil, nil, lstatErr
+	case resolveErr != nil:
+		file.Close()
+		return nil, nil, resolveErr
+	case info.IsDir(), lstatInfo.Mode()&os.ModeSymlink != 0, !os.SameFile(info, lstatInfo), !pathWithinRoot(resolvedRoot, resolvedFile):
+		file.Close()
+		return nil, nil, content.ErrInvalidAsset
+	default:
+		return file, info, nil
+	}
+}
+
+func unsafeMediaComponent(component string) bool {
+	return component == "" || component == "." || component == ".." || strings.Contains(component, "/") || strings.Contains(component, "\\")
+}
+
+func pathWithinRoot(root string, candidate string) bool {
+	root = filepath.Clean(root)
+	candidate = filepath.Clean(candidate)
+	if root == candidate {
+		return true
+	}
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil || rel == "." || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func writeUploadedFile(destination string, reader io.Reader) error {

@@ -1,9 +1,8 @@
 # Admin API
 
 All endpoints require the session token in either `X-Styxpress-Session` or
-`Authorization: Bearer <token>`. The embedded admin UI receives this token
-automatically; direct API clients can use the token printed by
-`styxpress-admin`.
+`Authorization: Bearer <token>`. The embedded admin UI asks for the local token
+printed by `styxpress-admin`; direct API clients can use the same token.
 
 Errors use this shape:
 

@@ -5,16 +5,16 @@ by severity.
 
 | ID | Severity | Area | Status | Title |
 | --- | --- | --- | --- | --- |
-| FND-001 | Critical | Backend/rendering/config | Confirmed | `publicDir` can equal `contentDir` and delete source content |
-| FND-002 | High | Security/dependencies/SFTP | Confirmed | Vulnerable `golang.org/x/crypto` with reachable SSH calls |
-| FND-003 | High | Frontend/content workflow | Confirmed | Image upload or deletion automatically publishes drafts |
+| FND-001 | Critical | Backend/rendering/config | Fixed | `publicDir` can equal `contentDir` and delete source content |
+| FND-002 | High | Security/dependencies/SFTP | Fixed | Vulnerable `golang.org/x/crypto` with reachable SSH calls |
+| FND-003 | High | Frontend/content workflow | Fixed | Image upload or deletion automatically publishes drafts |
 | FND-004 | Medium | Rendering/feed/sitemap | Confirmed | Feed, sitemap, and canonical URLs use relative URLs instead of absolute URLs |
-| FND-005 | High | Security/admin bootstrap | Confirmed | The unauthenticated SPA receives the admin bearer token |
-| FND-006 | High | Backend/preview/filesystem | Confirmed | Cover preview follows symlinks and can read local files |
-| FND-007 | Medium | Backend/filesystem/symlink | Confirmed | Symlinks in intermediate path components can redirect writes and deletes outside roots |
+| FND-005 | High | Security/admin bootstrap | Fixed | The unauthenticated SPA receives the admin bearer token |
+| FND-006 | High | Backend/preview/filesystem | Fixed | Cover preview follows symlinks and can read local files |
+| FND-007 | Medium | Backend/filesystem/symlink | Fixed | Symlinks in intermediate path components can redirect writes and deletes outside roots |
 | FND-008 | Medium | Rendering/cleanup | Confirmed | Output for deleted or renamed posts remains public |
 | FND-009 | Low | Config/concurrency | Confirmed | Config saves are non-atomic and site creation is race-prone |
-| FND-010 | Medium | Frontend/security hardening | Confirmed | HTML preview iframe has no sandbox |
+| FND-010 | Medium | Frontend/security hardening | Fixed | HTML preview iframe has no sandbox |
 | FND-011 | Medium | Frontend/auth/state | Confirmed | Invalid tokens and logout leave API-backed data visible |
 | FND-012 | Medium | Frontend/state loading | Confirmed | Workspace is marked loaded even if posts or site config fail |
 | FND-013 | Medium | Frontend/unsaved changes | Confirmed | The Configuration screen does not participate in the unsaved changes guard |
@@ -22,10 +22,10 @@ by severity.
 | FND-015 | Medium | Frontend/API client | Confirmed | `apiRequest` fails with `SyntaxError` on non-JSON responses |
 | FND-016 | Low | Frontend/editor robustness | Confirmed | Malformed percent-encoding in image src breaks image refresh |
 | FND-017 | Low | Frontend/multi-site state | Confirmed | `Last local build` can show the previous site's result |
-| FND-018 | High | Release/security/toolchain | Confirmed | Release builds can use Go 1.22.2 with reachable standard library vulnerabilities |
+| FND-018 | High | Release/security/toolchain | Fixed | Release builds can use Go 1.22.2 with reachable standard library vulnerabilities |
 | FND-019 | Medium | Security/deploy/secrets | Confirmed | Global SFTP secret is reusable across sites/configurations |
 | FND-020 | Medium | Deploy/status | Confirmed | Local deploy state is treated as remote truth |
-| FND-021 | Low | Release/frontend supply chain | Confirmed | Frontend install/build are non-deterministic and have no audit gate |
+| FND-021 | Low | Release/frontend supply chain | Fixed | Frontend install/build are non-deterministic and have no audit gate |
 | FND-022 | Medium | Config/path resolution | Confirmed | Relative paths in `-config` mode depend on the working directory |
 
 ## FND-001 - `publicDir` can equal `contentDir` and delete source content
@@ -33,6 +33,10 @@ by severity.
 **Severity:** Critical
 
 **Area:** Backend/rendering/config
+
+**Status:** Fixed. Config validation, API config saves, and renderer
+construction now reject equal, nested, or symlink-overlapping content/public
+roots before rendering can write or delete public output.
 
 **References:**
 
@@ -63,18 +67,21 @@ Config validation does not enforce separation between source content and public
 output. The renderer directly joins `publicRoot/posts/<slug>` and removes that
 directory for drafts without checking whether it is outside `contentRoot`.
 
-**Suggested Fix:**
+**Resolution:**
 
 Normalize `contentDir` and `publicDir` to absolute paths resolved with
-`EvalSymlinks`, then reject equal or dangerously overlapping configurations. Add
-tests that simulate `contentDir == publicDir` and confirm rendering fails before
-any write or delete.
+`EvalSymlinks`, then reject equal or dangerously overlapping configurations.
+Regression tests cover same-root and symlink-overlap cases in config, rendering,
+and API config saves.
 
 ## FND-002 - Vulnerable `golang.org/x/crypto` with reachable SSH calls
 
 **Severity:** High
 
 **Area:** Security/dependencies/SFTP
+
+**Status:** Fixed. `golang.org/x/crypto` is upgraded to `v0.52.0`; related
+`golang.org/x/sys` checksums were updated through module resolution.
 
 **References:**
 
@@ -102,16 +109,20 @@ GO-2026-5020, GO-2026-5019, GO-2026-5018, GO-2026-5017, GO-2026-5015,
 GO-2026-5013, GO-2025-4116, GO-2025-3487. The first seven are fixed in
 `golang.org/x/crypto@v0.52.0`.
 
-**Suggested Fix:**
+**Resolution:**
 
-Upgrade `golang.org/x/crypto` to at least `v0.52.0`, update any related
-indirect dependencies, then rerun `go test ./...` and `govulncheck`.
+`golang.org/x/crypto` was upgraded to `v0.52.0`. Verification includes Go tests
+and `govulncheck` on the updated tree.
 
 ## FND-003 - Image upload or deletion automatically publishes drafts
 
 **Severity:** High
 
 **Area:** Frontend/content workflow
+
+**Status:** Fixed. Media upload/delete now renders already-published posts
+through the dedicated render endpoint and does not call the publish endpoint for
+drafts.
 
 **References:**
 
@@ -144,11 +155,12 @@ The frontend flow uses a function named `renderCurrentPost`, but the store
 function it invokes is `publishPost`, not a non-mutating render operation. The
 corresponding backend endpoint marks the post as published before rendering.
 
-**Suggested Fix:**
+**Resolution:**
 
-Separate media saving, local rendering, and intentional publishing. The media
-panel should not call `/publish`; after upload/delete it should refresh draft
-state and, at most, render only if the post was already published.
+The media panel no longer calls `/publish` after upload/delete. It refreshes the
+post state and calls the non-mutating render endpoint only when the selected
+post is already published. Backend tests verify that rendering a draft returns
+400 and does not create `published_at.txt` or public output.
 
 ## FND-004 - Feed, sitemap, and canonical URLs use relative URLs instead of absolute URLs
 
@@ -192,14 +204,16 @@ and use it for feed, sitemap, canonical, and Open Graph URLs.
 
 **Area:** Security/admin bootstrap
 
+**Status:** Fixed. The admin SPA no longer receives the session token through
+served HTML or JavaScript bootstrap.
+
 **References:**
 
 - `cmd/styxpress-admin/main.go:56`: `newHandler` mounts `/api/` and the SPA.
-- `cmd/styxpress-admin/main.go:59`: `mux.Handle("/", embeddedSPA(sessionToken))`
-  exposes the SPA without authentication.
-- `cmd/styxpress-admin/main.go:77`: `embeddedSPA` injects the token into HTML.
-- `cmd/styxpress-admin/main.go:111`: the script writes
-  `window.__STYXPRESS_SESSION__`.
+- `cmd/styxpress-admin/main.go:58`: `mux.Handle("/", embeddedSPA())` serves the
+  SPA without passing the session token into the static handler.
+- `cmd/styxpress-admin/main.go:70`: `embeddedSPA` reads the built `index.html`
+  and serves it without token injection.
 - `README.md:119`: documents `./styxpress-admin -addr 127.0.0.1:8080`, but the
   flag also allows non-loopback addresses.
 
@@ -210,24 +224,27 @@ proxy, any anonymous request to `/` receives the bearer token and can then call
 all of `/api`. The token no longer protects the instance when the HTML that
 contains it is served to untrusted clients.
 
-**Evidence:**
+**Original Evidence:**
 
 API protection relies on `X-Styxpress-Session`/`Authorization`, but the secret is
 automatically delivered by the unauthenticated SPA route.
 
-**Suggested Fix:**
+**Resolution:**
 
-Do not inject the bearer token into HTML that is accessible without
-authentication. Options include manual token entry, a server-side session with a
-local login, or blocking non-loopback binding unless an explicit
-`--unsafe-remote-admin` flag is supplied with a strong warning. Add a test that
-an anonymous request to the SPA does not contain the token.
+The HTML bootstrap injection was removed. The frontend auth store now starts
+without a token, and the user must paste the local token printed by the admin
+process. The token is kept in frontend memory and added to API calls through
+`X-Styxpress-Session`. `cmd/styxpress-admin/main_test.go` verifies that an
+anonymous SPA response does not contain `window.__STYXPRESS_SESSION__`.
 
 ## FND-006 - Cover preview follows symlinks and can read local files
 
 **Severity:** High
 
 **Area:** Backend/preview/filesystem
+
+**Status:** Fixed. Preview cover reads and authenticated cover/asset serving now
+reject symlinked files and symlinked parent components under the content root.
 
 **References:**
 
@@ -255,16 +272,23 @@ Routes and public rendering reject symlinks, but `previewCoverURL` does not. The
 difference shows that the case is treated as dangerous elsewhere but is missing
 from preview.
 
-**Suggested Fix:**
+**Resolution:**
 
-Reject symlinks in `findCover` and before any `ReadFile` of a preview cover. Add
-a test with a symlinked `cover.jpg` that verifies an error or absent cover.
+`previewCoverURL` now reads cover files through a no-symlink path helper instead
+of direct `os.ReadFile`. The API cover/asset serving path also opens media
+through a helper that rejects unsafe components, symlinks, directories, and
+paths that resolve outside the content root. Tests cover symlinked cover files
+and symlinked post directories without leaking the target contents.
 
 ## FND-007 - Symlinks in intermediate path components can redirect writes and deletes outside roots
 
 **Severity:** Medium
 
 **Area:** Backend/filesystem/symlink
+
+**Status:** Fixed for the content repository and rendering public output.
+Repository write/delete paths and renderer write/delete/copy paths now verify
+parent components before filesystem mutation.
 
 **References:**
 
@@ -289,11 +313,18 @@ The code checks some final files with `Lstat`, but does not walk all parent
 components. Filesystem calls on full paths traverse symlinks in parent
 directories.
 
-**Suggested Fix:**
+**Resolution:**
 
-Introduce common helpers to verify paths under a root: walk components with
-`Lstat`, reject symlinks, resolve with `EvalSymlinks` where possible, and verify
-the root prefix before writing or deleting.
+Content repository operations now walk parent components with `Lstat` before
+creating, writing, reading, or deleting post, cover, and asset paths. Rendering
+output operations now use root-aware helpers for public writes, atomic renames,
+copy sources, asset reconciliation, and draft output cleanup. Regression tests
+cover symlinked content parents, symlinked asset parents, symlinked public
+parents during writes, and symlinked public parents during draft cleanup.
+
+Residual risk: the helpers still have normal TOCTOU exposure between `Lstat` and
+`OpenFile`/`Rename`/`Remove`; closing that fully would require platform-specific
+`openat`/`O_NOFOLLOW` style APIs.
 
 ## FND-008 - Output for deleted or renamed posts remains public
 
@@ -363,6 +394,9 @@ Use temp file + chmod + fsync + rename for config saves, introduce a mutex in
 
 **Area:** Frontend/security hardening
 
+**Status:** Fixed. The site preview iframe now has a restrictive empty
+`sandbox` attribute.
+
 **References:**
 
 - `admin/web/src/stores/siteConfig.js:81`: `previewSiteConfig` receives HTML
@@ -385,11 +419,11 @@ script, that code would have a very weak barrier to the parent and local API.
 The iframe sets no `sandbox` attribute. The code creates an object URL with MIME
 type `text/html`.
 
-**Suggested Fix:**
+**Resolution:**
 
-Add a restrictive `sandbox`, ideally without `allow-scripts` and without
-`allow-same-origin`, and keep the preview as an isolated document. Also consider
-a preview-specific CSP.
+`admin/web/src/components/SiteConfigScreen.vue` now sets `sandbox=""` on the
+preview iframe, granting no script, same-origin, form, popup, or top-navigation
+capabilities. A preview-specific CSP remains a possible hardening follow-up.
 
 ## FND-011 - Invalid tokens and logout leave API-backed data visible
 
@@ -613,9 +647,11 @@ workspace reset.
 
 **References:**
 
-- `go.mod:3`: the module declares `go 1.22.2`.
-- `scripts/build-release.sh:43`: the script uses the local `go build` without a
-  minimum version or patch requirement.
+- Original finding: `go.mod:3` declared `go 1.22.2`.
+- Fixed state: `go.mod` declares `go 1.25.11` and prefers toolchain
+  `go1.26.4`.
+- Fixed state: `scripts/build-release.sh` and `scripts/run_admin.sh` call the
+  shared Go toolchain gate before building.
 - Review environment: `go version go1.22.2 linux/amd64`.
 - Policy source: the Go project's security policy supports the latest two Go
   releases; Go 1.22 is no longer within that support window as of the review
@@ -654,6 +690,15 @@ Set a supported and updated toolchain in `go.mod`, update the release
 environment, and make `scripts/build-release.sh` fail if `go version` or
 `govulncheck ./...` are not acceptable. Run the gate with the same toolchain
 used to build distributed binaries.
+
+**Fix Applied:**
+
+`go.mod` now encodes Go `1.25.11` as the minimum supported beta toolchain and
+prefers Go `1.26.4`. `scripts/go-toolchain.sh` rejects unsupported Go versions
+and stale patch versions before `scripts/build-release.sh` or
+`scripts/run_admin.sh` builds anything. The gate accepts Go `1.25.11` or newer
+on the 1.25 line, Go `1.26.4` or newer on the 1.26 line, or a newer supported
+Go release.
 
 ## FND-019 - Global SFTP secret is reusable across sites/configurations
 
@@ -728,6 +773,9 @@ before deciding to return early.
 
 **Area:** Release/frontend supply chain
 
+**Status:** Fixed. Integrated admin and release scripts now install from the
+lockfile and run a production dependency audit before building the frontend.
+
 **References:**
 
 - `scripts/run_admin.sh:9`: installs dependencies only if `node_modules` is
@@ -751,11 +799,12 @@ vulnerabilities in frontend dependencies.
 `package-lock.json` exists, so the project already has deterministic input for
 `npm ci`, but scripts do not use it.
 
-**Suggested Fix:**
+**Resolution:**
 
-Use `npm ci` in integrated/release scripts, remove the release assumption about
-local `node_modules`, and add `npm audit --omit=dev` or an explicit threshold as
-a gate.
+`scripts/run_admin.sh` and `scripts/build-release.sh` now run `npm ci`, then
+`npm audit --omit=dev`, then `npm run build`. This makes the script inputs
+deterministic and blocks builds when production dependency advisories are
+reported by npm audit.
 
 ## FND-022 - Relative paths in `-config` mode depend on the working directory
 

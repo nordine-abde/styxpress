@@ -14,9 +14,7 @@ const postsStore = usePostsStore()
 const siteConfigStore = useSiteConfigStore()
 const uiStore = useUiStore()
 const tokenInput = ref(authStore.token)
-const showSessionBox = computed(() => {
-    return !authStore.hasInjectedSession || uiStore.unauthorized || uiStore.notice || uiStore.error
-})
+const showTokenForm = computed(() => !authStore.hasToken || uiStore.unauthorized)
 const hasUnsavedChanges = computed(() => siteConfigStore.isDirty || postsStore.isDirty)
 
 async function applyToken() {
@@ -52,12 +50,17 @@ function confirmDiscardUnsavedChanges() {
 </script>
 
 <template>
-    <section v-if="showSessionBox" class="session-box">
-        <template v-if="authStore.hasInjectedSession">
+    <section class="session-box">
+        <template v-if="!showTokenForm">
             <p class="label">Local session</p>
             <p class="session-state">
                 connected
             </p>
+            <div class="button-row">
+                <UiButton tone="ghost" @click="clearToken">
+                    Clear
+                </UiButton>
+            </div>
         </template>
         <template v-else>
             <UiField

@@ -156,6 +156,7 @@ onBeforeUnmount(() => {
                 <iframe
                     v-if="siteConfigStore.previewUrl"
                     class="preview-frame"
+                    sandbox=""
                     title="Site preview"
                     :src="siteConfigStore.previewUrl"
                 ></iframe>
