@@ -22,6 +22,7 @@ import (
 	"github.com/nordine-abde/styxpress/internal/config"
 	"github.com/nordine-abde/styxpress/internal/content"
 	deploypkg "github.com/nordine-abde/styxpress/internal/deploy"
+	"github.com/nordine-abde/styxpress/internal/localpath"
 	"github.com/nordine-abde/styxpress/internal/rendering"
 	"github.com/nordine-abde/styxpress/internal/siteconfig"
 )
@@ -41,6 +42,11 @@ type Server struct {
 	logger         *log.Logger
 	deploySecretMu sync.RWMutex
 	deploySecret   string
+}
+
+type sitePaths struct {
+	contentDir string
+	publicDir  string
 }
 
 type ErrorResponse struct {
@@ -261,7 +267,7 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 
 	saved, err := s.saveActiveConfig(cfg)
 	if err != nil {
-		if errors.Is(err, config.ErrInvalidConfig) {
+		if errors.Is(err, config.ErrInvalidConfig) || errors.Is(err, ErrInvalidLocalPath) {
 			WriteError(w, http.StatusBadRequest, "invalid_config", err.Error())
 			return
 		}
@@ -732,7 +738,12 @@ func (s *Server) renderPost(w http.ResponseWriter, r *http.Request) {
 		s.writeRenderError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, renderPostResponse{Post: result, Site: site})
+	deploySummary, err := s.autoDeploy(r.Context())
+	if err != nil {
+		s.writeDeployError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, renderPostResponse{Post: result, Site: site, Deploy: deploySummary})
 }
 
 func (s *Server) renderSite(w http.ResponseWriter, r *http.Request) {
@@ -803,7 +814,7 @@ func (s *Server) deployStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, response)
 		return
 	}
-	publicDir, err := configuredPath(cfg.PublicDir)
+	paths, err := configuredSitePaths(cfg)
 	if err != nil {
 		s.writeConfigPathError(w, err)
 		return
@@ -813,7 +824,7 @@ func (s *Server) deployStatus(w http.ResponseWriter, r *http.Request) {
 		s.writeConfigPathError(w, err)
 		return
 	}
-	summary, err := deploypkg.Status(r.Context(), publicDir, deployConfig)
+	summary, err := deploypkg.Status(r.Context(), paths.publicDir, deployConfig)
 	if err != nil {
 		s.writeDeployError(w, err)
 		return
@@ -855,7 +866,7 @@ func (s *Server) deployNow(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "deploy_disabled", "SFTP deploy is disabled")
 		return
 	}
-	publicDir, err := configuredPath(cfg.PublicDir)
+	paths, err := configuredSitePaths(cfg)
 	if err != nil {
 		s.writeConfigPathError(w, err)
 		return
@@ -865,7 +876,7 @@ func (s *Server) deployNow(w http.ResponseWriter, r *http.Request) {
 		s.writeConfigPathError(w, err)
 		return
 	}
-	summary, err := deploypkg.Sync(r.Context(), publicDir, deployConfig)
+	summary, err := deploypkg.Sync(r.Context(), paths.publicDir, deployConfig)
 	if err != nil {
 		s.writeDeployError(w, err)
 		return
@@ -918,7 +929,7 @@ func (s *Server) autoDeploy(ctx context.Context) (*deploypkg.Summary, error) {
 	if !cfg.Deploy.Enabled || cfg.Deploy.Mode != "auto" {
 		return nil, nil
 	}
-	publicDir, err := configuredPath(cfg.PublicDir)
+	paths, err := configuredSitePaths(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -926,7 +937,7 @@ func (s *Server) autoDeploy(ctx context.Context) (*deploypkg.Summary, error) {
 	if err != nil {
 		return nil, err
 	}
-	summary, err := deploypkg.Sync(ctx, publicDir, deployConfig)
+	summary, err := deploypkg.Sync(ctx, paths.publicDir, deployConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -946,7 +957,11 @@ func (s *Server) configuredContentDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return configuredPath(cfg.ContentDir)
+	paths, err := configuredSitePaths(cfg)
+	if err != nil {
+		return "", err
+	}
+	return paths.contentDir, nil
 }
 
 func (s *Server) renderer() (*rendering.Renderer, error) {
@@ -954,15 +969,11 @@ func (s *Server) renderer() (*rendering.Renderer, error) {
 	if err != nil {
 		return nil, err
 	}
-	contentDir, err := configuredPath(cfg.ContentDir)
+	paths, err := configuredSitePaths(cfg)
 	if err != nil {
 		return nil, err
 	}
-	publicDir, err := configuredPath(cfg.PublicDir)
-	if err != nil {
-		return nil, err
-	}
-	return rendering.New(contentDir, publicDir)
+	return rendering.New(paths.contentDir, paths.publicDir)
 }
 
 func (s *Server) deployConfig(site config.Site) (deploypkg.Config, error) {
@@ -1063,11 +1074,19 @@ func (s *Server) activeSite() (config.Site, error) {
 
 func (s *Server) saveActiveConfig(cfg config.Config) (config.Config, error) {
 	if s.siteStore != nil {
+		cfg = config.WithDefaults(cfg)
+		if _, err := configuredSitePaths(cfg); err != nil {
+			return config.Config{}, err
+		}
 		site, err := s.siteStore.SaveActive(cfg)
 		if err != nil {
 			return config.Config{}, err
 		}
 		return site.Config, nil
+	}
+	cfg = config.WithDefaults(cfg)
+	if _, err := configuredSitePaths(cfg); err != nil {
+		return config.Config{}, err
 	}
 	if err := config.Save(s.configPath, cfg); err != nil {
 		return config.Config{}, err
@@ -1093,7 +1112,7 @@ func (s *Server) sites() ([]config.Site, string, error) {
 }
 
 func (s *Server) writeConfigPathError(w http.ResponseWriter, err error) {
-	if errors.Is(err, config.ErrInvalidConfig) || errors.Is(err, config.ErrInvalidSiteID) || errors.Is(err, ErrInvalidLocalPath) {
+	if errors.Is(err, config.ErrInvalidConfig) || errors.Is(err, config.ErrInvalidSiteID) || errors.Is(err, ErrInvalidLocalPath) || errors.Is(err, rendering.ErrInvalidRenderConfig) {
 		WriteError(w, http.StatusBadRequest, "invalid_config", err.Error())
 		return
 	}
@@ -1173,17 +1192,26 @@ func (s *Server) writeDeployError(w http.ResponseWriter, err error) {
 var ErrInvalidLocalPath = errors.New("invalid local path")
 
 func configuredPath(value string) (string, error) {
-	if strings.TrimSpace(value) == "" {
-		return "", fmt.Errorf("%w: path is required", ErrInvalidLocalPath)
-	}
-	if strings.Contains(value, "\x00") {
-		return "", fmt.Errorf("%w: path contains NUL byte", ErrInvalidLocalPath)
-	}
-	path, err := filepath.Abs(value)
+	path, err := localpath.CleanRequired(value)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %v", ErrInvalidLocalPath, err)
 	}
-	return filepath.Clean(path), nil
+	return path, nil
+}
+
+func configuredSitePaths(cfg config.Config) (sitePaths, error) {
+	contentDir, err := configuredPath(cfg.ContentDir)
+	if err != nil {
+		return sitePaths{}, err
+	}
+	publicDir, err := configuredPath(cfg.PublicDir)
+	if err != nil {
+		return sitePaths{}, err
+	}
+	if err := localpath.EnsureSeparateRoots("contentDir", contentDir, "publicDir", publicDir); err != nil {
+		return sitePaths{}, fmt.Errorf("%w: %v", ErrInvalidLocalPath, err)
+	}
+	return sitePaths{contentDir: contentDir, publicDir: publicDir}, nil
 }
 
 func readUpload(w http.ResponseWriter, r *http.Request, allowPathOverride bool) (multipart.File, *multipart.FileHeader, bool) {

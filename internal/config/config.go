@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/nordine-abde/styxpress/internal/localpath"
 )
 
 const (
@@ -139,6 +141,9 @@ func (c Config) Validate() error {
 	}
 	if c.Deploy.Mode != "manual" && c.Deploy.Mode != "auto" {
 		return fmt.Errorf("%w: deploy mode must be manual or auto", ErrInvalidConfig)
+	}
+	if err := localpath.EnsureSeparateRoots("content_dir", c.ContentDir, "public_dir", c.PublicDir); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 	if c.Deploy.SFTP.Port < 1 || c.Deploy.SFTP.Port > 65535 {
 		return fmt.Errorf("%w: SFTP port must be between 1 and 65535", ErrInvalidConfig)

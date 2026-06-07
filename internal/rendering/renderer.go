@@ -20,6 +20,7 @@ import (
 	_ "embed"
 
 	"github.com/nordine-abde/styxpress/internal/content"
+	"github.com/nordine-abde/styxpress/internal/localpath"
 	"github.com/nordine-abde/styxpress/internal/siteconfig"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -170,6 +171,17 @@ func New(contentRoot string, publicRoot string) (*Renderer, error) {
 	}
 	if strings.TrimSpace(publicRoot) == "" {
 		return nil, fmt.Errorf("%w: public root is required", ErrInvalidRenderConfig)
+	}
+	contentRoot, err := localpath.CleanRequired(contentRoot)
+	if err != nil {
+		return nil, fmt.Errorf("%w: content root: %v", ErrInvalidRenderConfig, err)
+	}
+	publicRoot, err = localpath.CleanRequired(publicRoot)
+	if err != nil {
+		return nil, fmt.Errorf("%w: public root: %v", ErrInvalidRenderConfig, err)
+	}
+	if err := localpath.EnsureSeparateRoots("content root", contentRoot, "public root", publicRoot); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRenderConfig, err)
 	}
 	siteCfg, err := siteconfig.LoadOrDefault(contentRoot)
 	if err != nil {

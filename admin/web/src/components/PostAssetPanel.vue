@@ -29,7 +29,7 @@ const imageSize = ref('medium')
 const uploadError = ref('')
 
 const canUpload = computed(() => postsStore.canUploadMedia)
-const busy = computed(() => postsStore.saving || postsStore.uploading || buildStore.publishing)
+const busy = computed(() => postsStore.saving || postsStore.uploading || buildStore.publishing || buildStore.rendering)
 const uploadDisabled = computed(() => !canUpload.value || busy.value)
 const uploadHelp = computed(() => {
     if (!canUpload.value) {
@@ -55,7 +55,7 @@ async function uploadAsset(file) {
     }
     await postsStore.uploadAsset(file, assetPath.value)
     assetPath.value = ''
-    await renderCurrentPost()
+    await renderPublishedPostOutput()
 }
 
 async function uploadCover(file) {
@@ -68,17 +68,17 @@ async function uploadCover(file) {
         return
     }
     await postsStore.uploadCover(file)
-    await renderCurrentPost()
+    await renderPublishedPostOutput()
 }
 
 async function deleteCover() {
     await postsStore.deleteCover()
-    await renderCurrentPost()
+    await renderPublishedPostOutput()
 }
 
 async function deleteAsset(asset) {
     await postsStore.deleteAsset(asset)
-    await renderCurrentPost()
+    await renderPublishedPostOutput()
 }
 
 function insertImage(asset) {
@@ -89,11 +89,11 @@ function insertImage(asset) {
     })
 }
 
-async function renderCurrentPost() {
-    if (!postsStore.selectedSlug) {
+async function renderPublishedPostOutput() {
+    if (!postsStore.selectedSlug || postsStore.draft.publishStatus !== 'published') {
         return
     }
-    await buildStore.publishPost(postsStore.selectedSlug)
+    await buildStore.renderPost(postsStore.selectedSlug)
 }
 
 function isImagePath(path) {

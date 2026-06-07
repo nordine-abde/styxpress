@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -494,6 +496,26 @@ func TestRenderAndPublishEndpointsUseLocalOutput(t *testing.T) {
 		t.Fatalf("alpha output missing: %v", err)
 	}
 
+	renderDraft := authedRequest(t, server, http.MethodPost, "/api/posts/publish-me/render", `{}`)
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, renderDraft)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("render draft status = %d, body = %s; want %d", recorder.Code, recorder.Body.String(), http.StatusBadRequest)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, "posts", "publish-me", "published_at.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("published_at.txt stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(filepath.Join(publicDir, "posts", "publish-me", "index.html")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("draft output stat error = %v, want not exist", err)
+	}
+
+	renderPost := authedRequest(t, server, http.MethodPost, "/api/posts/alpha/render", `{}`)
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, renderPost)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("render post status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
 	publishPost := authedRequest(t, server, http.MethodPost, "/api/posts/publish-me/publish", `{}`)
 	recorder = httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, publishPost)
@@ -537,6 +559,23 @@ func TestInvalidConfiguredPathReturnsBadRequest(t *testing.T) {
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s; want 400", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSaveConfigRejectsOverlappingContentAndPublicDirs(t *testing.T) {
+	server, contentDir, _ := newTestServer(t)
+
+	request := authedRequest(t, server, http.MethodPost, "/api/config", fmt.Sprintf(`{
+		"name": "Unsafe",
+		"contentDir": %q,
+		"publicDir": %q,
+		"deploy": {"mode": "manual", "sftp": {"port": 22}}
+	}`, contentDir, contentDir))
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s; want %d", recorder.Code, recorder.Body.String(), http.StatusBadRequest)
 	}
 }
 

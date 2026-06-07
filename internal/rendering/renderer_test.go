@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -179,6 +180,45 @@ func TestRenderPostRejectsDraft(t *testing.T) {
 		t.Fatalf("RenderPost error = %v, want ErrUnpublishedPost", err)
 	}
 	assertMissing(t, filepath.Join(publicRoot, "posts", "draft", "index.html"))
+}
+
+func TestNewRejectsOverlappingContentAndPublicRoots(t *testing.T) {
+	root := t.TempDir()
+	contentRoot := filepath.Join(root, "content")
+	if err := os.MkdirAll(filepath.Join(contentRoot, "posts", "draft"), 0o755); err != nil {
+		t.Fatalf("MkdirAll draft: %v", err)
+	}
+	sourcePath := filepath.Join(contentRoot, "posts", "draft", "source.md")
+	if err := os.WriteFile(sourcePath, []byte("# Draft\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile source: %v", err)
+	}
+
+	_, err := New(contentRoot, contentRoot)
+	if !errors.Is(err, ErrInvalidRenderConfig) {
+		t.Fatalf("New error = %v, want ErrInvalidRenderConfig", err)
+	}
+	assertFileEquals(t, sourcePath, "# Draft\n")
+}
+
+func TestNewRejectsSymlinkOverlappingContentAndPublicRoots(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires elevated privileges on some Windows setups")
+	}
+
+	root := t.TempDir()
+	contentRoot := filepath.Join(root, "content")
+	if err := os.MkdirAll(contentRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll content: %v", err)
+	}
+	publicRoot := filepath.Join(root, "public-link")
+	if err := os.Symlink(contentRoot, publicRoot); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	_, err := New(contentRoot, publicRoot)
+	if !errors.Is(err, ErrInvalidRenderConfig) {
+		t.Fatalf("New error = %v, want ErrInvalidRenderConfig", err)
+	}
 }
 
 func TestRenderPostReconcilesRemovedAssetsAndReplacedCover(t *testing.T) {

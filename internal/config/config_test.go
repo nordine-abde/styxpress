@@ -101,6 +101,68 @@ func TestValidateRejectsNULBytes(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsOverlappingContentAndPublicDirs(t *testing.T) {
+	root := t.TempDir()
+	contentDir := filepath.Join(root, "content")
+	publicDir := filepath.Join(contentDir, "public")
+
+	cases := []struct {
+		name       string
+		contentDir string
+		publicDir  string
+	}{
+		{
+			name:       "same directory",
+			contentDir: contentDir,
+			publicDir:  contentDir,
+		},
+		{
+			name:       "public nested in content",
+			contentDir: contentDir,
+			publicDir:  publicDir,
+		},
+		{
+			name:       "content nested in public",
+			contentDir: publicDir,
+			publicDir:  contentDir,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Default()
+			cfg.ContentDir = tt.contentDir
+			cfg.PublicDir = tt.publicDir
+			if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("Validate error = %v, want ErrInvalidConfig", err)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsSymlinkOverlappingContentAndPublicDirs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires elevated privileges on some Windows setups")
+	}
+
+	root := t.TempDir()
+	contentDir := filepath.Join(root, "content")
+	if err := os.MkdirAll(contentDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll content: %v", err)
+	}
+	publicLink := filepath.Join(root, "public-link")
+	if err := os.Symlink(contentDir, publicLink); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	cfg := Default()
+	cfg.ContentDir = contentDir
+	cfg.PublicDir = publicLink
+	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Validate error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestValidateRequiresSFTPFieldsWhenDeployEnabled(t *testing.T) {
 	cfg := Default()
 	cfg.Deploy.Enabled = true
