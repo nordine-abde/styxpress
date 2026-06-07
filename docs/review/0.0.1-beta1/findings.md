@@ -744,28 +744,27 @@ clear it when the site changes or when the SFTP section is edited.
 
 - `internal/deploy/sftp.go:84`: `Status` prepares config and reads local files.
 - `internal/deploy/sftp.go:93`: `Status` loads only the local state JSON.
-- `internal/deploy/sftp.go:97`: `Status` returns
-  `buildPlan(local, previous, ...)` without a remote connection.
-- `internal/deploy/sftp.go:113`: `Sync` computes the plan from local state.
-- `internal/deploy/sftp.go:114`: `Sync` returns early without connecting if the
-  local state says in sync and `deleteExtra` is false.
+- `internal/deploy/sftp.go:97`: `Status` returns `buildPlan(local, previous)`
+  without a remote connection.
+- `internal/deploy/sftp.go:113`: `Sync` computes its initial plan from local
+  state before connecting.
 
 **Impact:**
 
 Remote files deleted or modified outside Styxpress are not detected. The panel
-can show "Synced" even if the remote is different or broken, and a manual sync
-can restore nothing because it returns before connecting.
+can show "Synced" even if the remote is different or broken. Manual sync now
+connects and manages the configured remote folder, but deploy status is still a
+local-state summary rather than a remote comparison.
 
 **Evidence:**
 
-`Status` does not call `connect` or `remoteFiles`. `Sync` can exit before
-opening an SFTP session.
+`Status` does not call `connect` or `remoteFiles`.
 
 **Suggested Fix:**
 
 Rename the status as "local-state only" or add an explicit remote verification.
-Provide a "force deploy" command that uploads all files or compares the remote
-before deciding to return early.
+Provide a remote comparison command when beta users need proof that the remote
+folder still matches the generated local output.
 
 ## FND-021 - Frontend install/build are non-deterministic and have no audit gate
 

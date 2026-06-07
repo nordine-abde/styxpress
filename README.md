@@ -140,15 +140,21 @@ creating or deleting sites.
 ## Workflow
 
 1. Create or open a site from **My sites**. New sites get a normalized unique
-   site id and default folders under `~/Styxpress/<site-id>/`.
+   site id, default folders under `~/Styxpress/<site-id>/`, a default
+   `site.toml`, and rendered local public pages.
 2. In **Configuration**, set:
    - `contentDir`: local source content directory.
    - `publicDir`: local generated output directory.
    - optional SFTP deployment settings.
-3. If SFTP deploy is enabled, enter the deploy password or encrypted-key
-   passphrase in the deploy panel. The secret is kept only in the running admin
-   server session.
-4. In **Site**, edit:
+3. If SFTP deploy is enabled for the first time, Styxpress tests the SSH/SFTP
+   connection before saving. When the remote folder already contains files, the
+   UI asks for confirmation because the configured remote folder becomes fully
+   managed by Styxpress. After confirmation, Styxpress immediately syncs the
+   current local public output there.
+4. If SFTP deploy needs a password or encrypted-key passphrase, enter it during
+   setup or in the deploy panel. The secret is verified before use and kept only
+   in the running admin server session.
+5. In **Site**, edit:
    - title
    - description
    - favicon
@@ -158,9 +164,9 @@ creating or deleting sites.
    - watermark visibility
    The preview updates while editing. **Save** writes `site.toml` and renders
    the public site.
-5. In **Posts**, choose an existing post from the list or create a new one.
-6. Edit content in visual compose mode or raw Markdown mode.
-7. Use **Save** to write the post, mark it as published, and render the public
+6. In **Posts**, choose an existing post from the list or create a new one.
+7. Edit content in visual compose mode or raw Markdown mode.
+8. Use **Save** to write the post, mark it as published, and render the public
    output locally. Use **Deploy** from the deploy panel when you want to sync
    the generated output.
 
@@ -174,7 +180,6 @@ name = "My Blog"
 content_dir = "content"
 public_dir = "public"
 deploy_enabled = false
-sftp_delete_extra = false
 sftp_host = ""
 sftp_known_hosts_path = ""
 sftp_key_path = ""
@@ -184,8 +189,9 @@ sftp_user = ""
 ```
 
 When SFTP deploy is enabled, `sftp_host`, `sftp_user`, and `sftp_remote_path`
-are required. `sftp_delete_extra` removes remote files that are not present in
-the local public folder. Secrets are not written to this config.
+are required. The configured remote folder is managed by Styxpress: manual
+deploy overwrites matching remote files and removes files that are not present
+in the local public folder. Secrets are not written to this config.
 
 ## Site Config
 
@@ -224,9 +230,12 @@ SFTP deploy syncs the generated `publicDir` to a configured remote folder.
 Authentication can use `ssh-agent`, an SSH private key, a session password, or
 a session passphrase for encrypted keys. Host keys are checked through the
 configured `known_hosts` path or the user's default SSH known hosts files.
+The first SFTP setup is tested before saving and warns when the remote folder is
+not empty.
 
 Local renders mark output as changed and let the user press **Deploy**. Deploy
-is always an explicit manual action in the beta.
+is always an explicit manual action in the beta. The configured remote folder is
+treated as owned by Styxpress during deploy.
 
 ## Local Output
 

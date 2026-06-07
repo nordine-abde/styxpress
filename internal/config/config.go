@@ -44,7 +44,6 @@ type SFTPConfig struct {
 	RemotePath     string `json:"remotePath"`
 	KeyPath        string `json:"keyPath"`
 	KnownHostsPath string `json:"knownHostsPath"`
-	DeleteExtra    bool   `json:"deleteExtra"`
 }
 
 func Default() Config {
@@ -182,7 +181,6 @@ func encode(w io.Writer, cfg Config) error {
 		"name":                  stringConfigValue(cfg.Name),
 		"content_dir":           stringConfigValue(cfg.ContentDir),
 		"public_dir":            stringConfigValue(cfg.PublicDir),
-		"sftp_delete_extra":     boolConfigValue(cfg.Deploy.SFTP.DeleteExtra),
 		"sftp_host":             stringConfigValue(cfg.Deploy.SFTP.Host),
 		"sftp_known_hosts_path": stringConfigValue(cfg.Deploy.SFTP.KnownHostsPath),
 		"sftp_key_path":         stringConfigValue(cfg.Deploy.SFTP.KeyPath),
@@ -305,12 +303,6 @@ func decode(r io.Reader, cfg *Config) error {
 				return err
 			}
 			cfg.Deploy.SFTP.KnownHostsPath = value
-		case "sftp_delete_extra":
-			parsed, err := strconv.ParseBool(rawValue)
-			if err != nil {
-				return fmt.Errorf("%w: line %d value must be true or false", ErrInvalidConfig, lineNumber)
-			}
-			cfg.Deploy.SFTP.DeleteExtra = parsed
 		default:
 			return fmt.Errorf("%w: unknown key %q", ErrInvalidConfig, key)
 		}

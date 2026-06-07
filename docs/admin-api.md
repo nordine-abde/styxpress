@@ -44,8 +44,7 @@ Config object:
       "user": "",
       "remotePath": "",
       "keyPath": "",
-      "knownHostsPath": "",
-      "deleteExtra": false
+      "knownHostsPath": ""
     }
   }
 }
@@ -53,8 +52,9 @@ Config object:
 
 `contentDir` is always local source content. `publicDir` is always local output.
 When deploy is enabled, `sftp.host`, `sftp.user`, and `sftp.remotePath` are
-required. SFTP passwords and encrypted key passphrases are never part of this
-object.
+required. The configured remote folder is fully managed by Styxpress during
+manual deploy. SFTP passwords and encrypted key passphrases are never part of
+this object.
 
 ## Sites
 
@@ -64,7 +64,8 @@ object.
   Returns the normalized unique id and default local folders for a new site.
 - `POST /api/sites`
   Creates a site from `{"name":"My site","config":{...}}`, initializes its
-  local folders, and selects it.
+  local folders, writes a default `site.toml`, renders default local public
+  pages, and selects it.
 - `POST /api/sites/{id}/select`
   Selects an existing site.
 - `DELETE /api/sites/{id}`
@@ -223,14 +224,22 @@ Render site result:
 - `GET /api/deploy/status`
   Returns whether deploy is enabled and configured, whether a session secret is
   set, and a local out-of-sync summary when possible.
+- `POST /api/deploy/setup`
+  Body is `{"config":{...},"secret":"","confirmRemoteOverwrite":false}`. Tests
+  the proposed SFTP config before the first save. When the remote folder already
+  has files, returns `{"requiresConfirmation":true,"remoteFiles":N}` without
+  saving. Retrying with `confirmRemoteOverwrite:true` saves the config and
+  immediately syncs local public output to the remote folder.
 - `POST /api/deploy/secret`
-  Body is `{"secret":"..."}`. Saves a password or encrypted-key passphrase in
-  the running server session only. Returns `{"secretSet":true}`.
+  Body is `{"secret":"..."}`. Verifies a password or encrypted-key passphrase
+  against the active SFTP config before keeping it in the running server session
+  only. Returns `{"secretSet":true}`.
 - `DELETE /api/deploy/secret`
   Clears the session deploy secret. Returns `{"secretSet":false}`.
 - `POST /api/deploy`
   Runs a manual SFTP sync of `publicDir` to the configured remote path. Deploy
-  must be enabled and configured. Returns a deploy summary.
+  must be enabled and configured. Matching remote files are overwritten and
+  remote files missing locally are removed. Returns a deploy summary.
 
 Deploy status response:
 

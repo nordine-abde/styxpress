@@ -34,8 +34,7 @@ export const useDeployStore = defineStore('deploy', () => {
             user: sftp.user || '',
             remotePath: sftp.remotePath || '',
             keyPath: sftp.keyPath || '',
-            knownHostsPath: sftp.knownHostsPath || '',
-            deleteExtra: sftp.deleteExtra === true
+            knownHostsPath: sftp.knownHostsPath || ''
         })
         const sameConfig = nextSignature === configSignature
         configSignature = nextSignature
@@ -109,7 +108,7 @@ export const useDeployStore = defineStore('deploy', () => {
                 ...status.value,
                 secretSet: payload?.secretSet === true
             }
-            uiStore.setNotice('Deploy secret saved for this session.')
+            uiStore.setNotice('Deploy secret verified for this session.')
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)
@@ -164,6 +163,16 @@ export const useDeployStore = defineStore('deploy', () => {
         }
     }
 
+    function applySetupResult(payload = {}) {
+        status.value = {
+            enabled: true,
+            configured: true,
+            outOfSync: false,
+            secretSet: payload.secretSet === true,
+            summary: payload.summary || null
+        }
+    }
+
     function reset() {
         status.value = { ...emptyStatus }
         error.value = ''
@@ -186,6 +195,7 @@ export const useDeployStore = defineStore('deploy', () => {
         saveSecret,
         clearSecret,
         applyBuildResult,
+        applySetupResult,
         reset
     }
 })

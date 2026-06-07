@@ -126,14 +126,21 @@ renderer.
 ## Deploy
 
 SFTP deploy is optional and syncs the configured `publicDir` to a remote
-absolute path. Deploy status is based on local public files and the previous
+absolute path. The configured remote folder is treated as managed by Styxpress:
+manual deploy overwrites matching files and removes remote files that are not
+present locally. Deploy status is based on local public files and the previous
 deploy state file stored under the admin config area. Local renders mark output
 as changed; the beta only supports explicit manual deploy.
 
+The first SFTP setup tests the SSH/SFTP connection before saving. If the remote
+folder already contains files, the admin asks for confirmation before saving and
+then immediately syncs the current local public output there.
+
 Authentication can use `ssh-agent`, a configured SSH key, default SSH key
-paths, a session password, or a session passphrase for encrypted keys. Host
-keys are verified through a configured `known_hosts` path or the user's default
-SSH known hosts files.
+paths, a session password, or a session passphrase for encrypted keys. Passwords
+and encrypted-key passphrases are verified before they are kept in session
+memory. Host keys are verified through a configured `known_hosts` path or the
+user's default SSH known hosts files.
 
 ## Admin Scope
 

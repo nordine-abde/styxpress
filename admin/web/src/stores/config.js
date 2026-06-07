@@ -16,8 +16,7 @@ const defaultConfig = {
             user: '',
             remotePath: '',
             keyPath: '',
-            knownHostsPath: '',
-            deleteExtra: false
+            knownHostsPath: ''
         }
     }
 }
@@ -64,6 +63,38 @@ export const useConfigStore = defineStore('config', () => {
             syncActiveSiteConfig(config.value)
             syncDeployStore()
             uiStore.setNotice('Configuration saved.')
+        } catch (err) {
+            error.value = err.message
+            uiStore.captureError(err)
+            throw err
+        } finally {
+            saving.value = false
+        }
+    }
+
+    async function setupDeployConfig(nextConfig, options = {}) {
+        const uiStore = useUiStore()
+        const deployStore = useDeployStore()
+        saving.value = true
+        error.value = ''
+        try {
+            const payload = await apiRequest('/api/deploy/setup', {
+                method: 'POST',
+                body: {
+                    config: mergeConfig(nextConfig),
+                    secret: options.secret || '',
+                    confirmRemoteOverwrite: options.confirmRemoteOverwrite === true
+                }
+            })
+            if (payload?.requiresConfirmation) {
+                return payload
+            }
+            config.value = mergeConfig(payload.config)
+            syncActiveSiteConfig(config.value)
+            syncDeployStore()
+            deployStore.applySetupResult(payload)
+            uiStore.setNotice('SFTP deploy configured and synced.')
+            return payload
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)
@@ -189,6 +220,7 @@ export const useConfigStore = defineStore('config', () => {
         activeSite,
         loadConfig,
         saveConfig,
+        setupDeployConfig,
         suggestSite,
         createSite,
         selectSite,
@@ -211,8 +243,7 @@ function mergeConfig(value = {}) {
             sftp: {
                 ...defaultConfig.deploy.sftp,
                 ...sftp,
-                port: normalizePort(sftp.port),
-                deleteExtra: sftp.deleteExtra === true
+                port: normalizePort(sftp.port)
             }
         }
     }

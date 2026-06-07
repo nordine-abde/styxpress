@@ -118,6 +118,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/posts/{slug}/render", s.withAuth(s.renderPost))
 	mux.HandleFunc("POST /api/posts/{slug}/publish", s.withAuth(s.publishPost))
 	mux.HandleFunc("POST /api/site/render", s.withAuth(s.renderSite))
+	mux.HandleFunc("POST /api/deploy/setup", s.withAuth(s.setupDeploy))
 	mux.HandleFunc("GET /api/deploy/status", s.withAuth(s.deployStatus))
 	mux.HandleFunc("POST /api/deploy/secret", s.withAuth(s.saveDeploySecret))
 	mux.HandleFunc("DELETE /api/deploy/secret", s.withAuth(s.deleteDeploySecret))
@@ -208,6 +209,11 @@ func (s *Server) createSite(w http.ResponseWriter, r *http.Request) {
 		s.writeSiteStoreError(w, err)
 		return
 	}
+	if err := initializeDefaultSiteOutput(site.Config); err != nil {
+		_, _ = s.siteStore.Delete(site.ID)
+		s.writeRenderError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusCreated, site)
 }
 
@@ -261,6 +267,14 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 	var cfg config.Config
 	if err := decodeJSONBody(r, &cfg, "request body must be a valid config object"); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	current, err := s.loadConfig()
+	if err == nil && deploySetupRequired(current, cfg) {
+		WriteError(w, http.StatusConflict, "deploy_setup_required", "first SFTP deploy setup must be tested before saving")
+		return
+	} else if err != nil && !errors.Is(err, config.ErrNoActiveSite) {
+		s.writeConfigPathError(w, err)
 		return
 	}
 
@@ -444,6 +458,20 @@ type deployStatusResponse struct {
 	OutOfSync  bool               `json:"outOfSync"`
 	SecretSet  bool               `json:"secretSet"`
 	Summary    *deploypkg.Summary `json:"summary,omitempty"`
+}
+
+type deploySetupRequest struct {
+	Config                 config.Config `json:"config"`
+	Secret                 string        `json:"secret"`
+	ConfirmRemoteOverwrite bool          `json:"confirmRemoteOverwrite"`
+}
+
+type deploySetupResponse struct {
+	RequiresConfirmation bool               `json:"requiresConfirmation"`
+	RemoteFiles          int                `json:"remoteFiles"`
+	Config               config.Config      `json:"config,omitempty"`
+	SecretSet            bool               `json:"secretSet"`
+	Summary              *deploypkg.Summary `json:"summary,omitempty"`
 }
 
 type deploySecretRequest struct {
@@ -753,6 +781,86 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, renderPostResponse{Post: postResult, Site: siteResult})
 }
 
+func (s *Server) setupDeploy(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	site, err := s.activeSite()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	var req deploySetupRequest
+	if err := decodeJSONBody(r, &req, "request body must contain deploy setup config"); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	cfg := config.WithDefaults(req.Config)
+	if !cfg.Deploy.Enabled {
+		WriteError(w, http.StatusBadRequest, "deploy_disabled", "SFTP deploy is disabled")
+		return
+	}
+	if !deployConfigured(cfg) {
+		WriteError(w, http.StatusBadRequest, "invalid_deploy_config", "SFTP host, user, and remote folder are required")
+		return
+	}
+	paths, err := configuredSitePaths(cfg)
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	deployConfig, err := s.deployConfigFor(site.ID, cfg, req.Secret)
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	if req.Secret != "" {
+		if err := deploypkg.VerifySecret(r.Context(), deployConfig); err != nil {
+			s.writeDeployError(w, err)
+			return
+		}
+	}
+	inspection, err := deploypkg.Inspect(r.Context(), deployConfig)
+	if err != nil {
+		s.writeDeployError(w, err)
+		return
+	}
+	if deploySetupRequired(site.Config, cfg) && inspection.RemoteFiles > 0 && !req.ConfirmRemoteOverwrite {
+		writeJSON(w, http.StatusOK, deploySetupResponse{
+			RequiresConfirmation: true,
+			RemoteFiles:          inspection.RemoteFiles,
+			SecretSet:            s.deploySecretSet(),
+		})
+		return
+	}
+	if err := renderSiteOutput(cfg); err != nil {
+		s.writeRenderError(w, err)
+		return
+	}
+	saved, err := s.saveActiveConfig(cfg)
+	if err != nil {
+		if errors.Is(err, config.ErrInvalidConfig) || errors.Is(err, ErrInvalidLocalPath) {
+			WriteError(w, http.StatusBadRequest, "invalid_config", err.Error())
+			return
+		}
+		s.writeConfigPathError(w, err)
+		return
+	}
+	if req.Secret != "" {
+		s.setDeploySecret(req.Secret)
+	}
+	summary, err := deploypkg.Sync(r.Context(), paths.publicDir, deployConfig)
+	if err != nil {
+		s.writeDeployError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, deploySetupResponse{
+		RemoteFiles: inspection.RemoteFiles,
+		Config:      saved,
+		SecretSet:   s.deploySecretSet(),
+		Summary:     &summary,
+	})
+}
+
 func (s *Server) deployStatus(w http.ResponseWriter, r *http.Request) {
 	site, err := s.activeSite()
 	if err != nil {
@@ -796,6 +904,11 @@ func (s *Server) deployStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) saveDeploySecret(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
+	site, err := s.activeSite()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
 	var req deploySecretRequest
 	if err := decodeJSONBody(r, &req, "request body must contain a deploy secret"); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_json", err.Error())
@@ -803,6 +916,24 @@ func (s *Server) saveDeploySecret(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Secret == "" {
 		WriteError(w, http.StatusBadRequest, "invalid_deploy_secret", "password or passphrase is required")
+		return
+	}
+	cfg := site.Config
+	if !cfg.Deploy.Enabled {
+		WriteError(w, http.StatusBadRequest, "deploy_disabled", "SFTP deploy is disabled")
+		return
+	}
+	if !deployConfigured(cfg) {
+		WriteError(w, http.StatusBadRequest, "invalid_deploy_config", "SFTP host, user, and remote folder are required")
+		return
+	}
+	deployConfig, err := s.deployConfigFor(site.ID, cfg, req.Secret)
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	if err := deploypkg.VerifySecret(r.Context(), deployConfig); err != nil {
+		s.writeDeployError(w, err)
 		return
 	}
 	s.setDeploySecret(req.Secret)
@@ -879,6 +1010,40 @@ func (s *Server) renderAll() (rendering.AllResult, error) {
 	return renderer.RenderAll()
 }
 
+func initializeDefaultSiteOutput(cfg config.Config) error {
+	cfg = config.WithDefaults(cfg)
+	paths, err := configuredSitePaths(cfg)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(siteconfig.Path(paths.contentDir)); errors.Is(err, os.ErrNotExist) {
+		defaults := siteconfig.Default()
+		if name := strings.TrimSpace(cfg.Name); name != "" {
+			defaults.Title = name
+		}
+		if err := siteconfig.Save(paths.contentDir, defaults); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	return renderSiteOutput(cfg)
+}
+
+func renderSiteOutput(cfg config.Config) error {
+	cfg = config.WithDefaults(cfg)
+	paths, err := configuredSitePaths(cfg)
+	if err != nil {
+		return err
+	}
+	renderer, err := rendering.New(paths.contentDir, paths.publicDir)
+	if err != nil {
+		return err
+	}
+	_, err = renderer.RenderAll()
+	return err
+}
+
 func (s *Server) repository() (*content.Repository, error) {
 	contentDir, err := s.configuredContentDir()
 	if err != nil {
@@ -912,11 +1077,14 @@ func (s *Server) renderer() (*rendering.Renderer, error) {
 }
 
 func (s *Server) deployConfig(site config.Site) (deploypkg.Config, error) {
-	statePath, err := s.deployStatePath(site.ID)
+	return s.deployConfigFor(site.ID, site.Config, s.deploySecretValue())
+}
+
+func (s *Server) deployConfigFor(siteID string, cfg config.Config, secret string) (deploypkg.Config, error) {
+	statePath, err := s.deployStatePath(siteID)
 	if err != nil {
 		return deploypkg.Config{}, err
 	}
-	cfg := site.Config
 	return deploypkg.Config{
 		Host:           cfg.Deploy.SFTP.Host,
 		Port:           cfg.Deploy.SFTP.Port,
@@ -924,8 +1092,7 @@ func (s *Server) deployConfig(site config.Site) (deploypkg.Config, error) {
 		RemotePath:     cfg.Deploy.SFTP.RemotePath,
 		KeyPath:        cfg.Deploy.SFTP.KeyPath,
 		KnownHostsPath: cfg.Deploy.SFTP.KnownHostsPath,
-		DeleteExtra:    cfg.Deploy.SFTP.DeleteExtra,
-		Secret:         s.deploySecretValue(),
+		Secret:         secret,
 		StatePath:      statePath,
 	}, nil
 }
@@ -978,6 +1145,11 @@ func deployConfigured(cfg config.Config) bool {
 	return strings.TrimSpace(cfg.Deploy.SFTP.Host) != "" &&
 		strings.TrimSpace(cfg.Deploy.SFTP.User) != "" &&
 		strings.TrimSpace(cfg.Deploy.SFTP.RemotePath) != ""
+}
+
+func deploySetupRequired(current config.Config, next config.Config) bool {
+	next = config.WithDefaults(next)
+	return next.Deploy.Enabled && deployConfigured(next) && !deployConfigured(current)
 }
 
 func (s *Server) loadConfig() (config.Config, error) {

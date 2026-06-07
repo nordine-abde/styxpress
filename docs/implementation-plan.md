@@ -21,7 +21,8 @@ Ship a local static blog generator:
 - Running without `-config` uses the multi-site registry and stores site config
   files under the user's config directory.
 - New sites get normalized unique ids and default local folders under
-  `~/Styxpress/<site-id>/`.
+  `~/Styxpress/<site-id>/`, plus a default `site.toml` and rendered local public
+  pages.
 - Running with `-config /path/to/config.toml` uses one explicit config file and
   disables create/delete site actions in the UI.
 

@@ -84,7 +84,7 @@ onMounted(() => {
                         {{ deployStore.status.secretSet ? 'Session secret set' : 'Session secret missing' }}
                     </UiBadge>
                     <p class="muted compact-text">
-                        Used as SFTP password or encrypted key passphrase. Not saved to config.
+                        Verified as SFTP password or encrypted key passphrase. Not saved to config.
                     </p>
                 </div>
                 <UiField
@@ -95,7 +95,7 @@ onMounted(() => {
                 />
                 <div class="button-row">
                     <UiButton tone="primary" :busy="deployStore.savingSecret" :disabled="!secret" @click="saveSecret">
-                        Use for session
+                        Verify for session
                     </UiButton>
                     <UiButton
                         v-if="deployStore.status.secretSet"

@@ -61,15 +61,9 @@ func TestConfigEndpointSavesLocalPathsOnly(t *testing.T) {
 		"contentDir":"`+escapeJSON(contentDir)+`",
 		"publicDir":"`+escapeJSON(publicDir)+`",
 		"deploy":{
-			"enabled":true,
+			"enabled":false,
 			"sftp":{
-				"host":"example.com",
-				"port":2222,
-				"user":"deploy",
-				"remotePath":"/public_html",
-				"keyPath":"~/.ssh/id_ed25519",
-				"knownHostsPath":"~/.ssh/known_hosts",
-				"deleteExtra":true
+				"port":2222
 			}
 		}
 	}`)
@@ -86,8 +80,8 @@ func TestConfigEndpointSavesLocalPathsOnly(t *testing.T) {
 	if saved.Name != "Client Live" || saved.ContentDir != contentDir || saved.PublicDir != publicDir {
 		t.Fatalf("config = %#v, want local paths", saved)
 	}
-	if !saved.Deploy.Enabled || saved.Deploy.SFTP.Host != "example.com" || saved.Deploy.SFTP.DeleteExtra != true {
-		t.Fatalf("deploy config = %#v, want SFTP config without secrets", saved.Deploy)
+	if saved.Deploy.Enabled || saved.Deploy.SFTP.Port != 2222 {
+		t.Fatalf("deploy config = %#v, want disabled SFTP config without secrets", saved.Deploy)
 	}
 
 	for name, body := range map[string]string{
@@ -106,6 +100,33 @@ func TestConfigEndpointSavesLocalPathsOnly(t *testing.T) {
 				t.Fatalf("removed field status = %d, body = %s; want 400", recorder.Code, recorder.Body.String())
 			}
 		})
+	}
+}
+
+func TestConfigEndpointRequiresSetupForFirstSFTPConfig(t *testing.T) {
+	server, contentDir, publicDir := newTestServer(t)
+
+	request := authedRequest(t, server, http.MethodPost, "/api/config", `{
+		"contentDir":"`+escapeJSON(contentDir)+`",
+		"publicDir":"`+escapeJSON(publicDir)+`",
+		"deploy":{
+			"enabled":true,
+			"sftp":{
+				"host":"example.com",
+				"port":22,
+				"user":"deploy",
+				"remotePath":"/public_html"
+			}
+		}
+	}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("save status = %d, body = %s; want 409", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "deploy_setup_required") {
+		t.Fatalf("body = %s, want deploy_setup_required", recorder.Body.String())
 	}
 }
 
@@ -142,27 +163,24 @@ func TestDeployStatusUsesLocalStateWithoutSFTPConnection(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(publicDir, "index.html"), []byte("<h1>Hello</h1>"), 0o644); err != nil {
 		t.Fatalf("write public file: %v", err)
 	}
-	save := authedRequest(t, server, http.MethodPost, "/api/config", `{
-		"contentDir":"`+escapeJSON(contentDir)+`",
-		"publicDir":"`+escapeJSON(publicDir)+`",
-		"deploy":{
-			"enabled":true,
-			"sftp":{
-				"host":"example.invalid",
-				"port":22,
-				"user":"deploy",
-				"remotePath":"/public_html"
-			}
-		}
-	}`)
-	recorder := httptest.NewRecorder()
-	server.Handler().ServeHTTP(recorder, save)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("save config code = %d, body = %s; want 200", recorder.Code, recorder.Body.String())
+	if err := config.Save(server.configPath, config.Config{
+		ContentDir: contentDir,
+		PublicDir:  publicDir,
+		Deploy: config.DeployConfig{
+			Enabled: true,
+			SFTP: config.SFTPConfig{
+				Host:       "example.invalid",
+				Port:       22,
+				User:       "deploy",
+				RemotePath: "/public_html",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("Save config: %v", err)
 	}
 
 	status := authedRequest(t, server, http.MethodGet, "/api/deploy/status", "")
-	recorder = httptest.NewRecorder()
+	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, status)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status code = %d, body = %s; want 200", recorder.Code, recorder.Body.String())
@@ -176,14 +194,14 @@ func TestDeployStatusUsesLocalStateWithoutSFTPConnection(t *testing.T) {
 	}
 }
 
-func TestDeploySecretIsStoredOnlyInServerMemory(t *testing.T) {
+func TestDeploySecretRequiresVerifiedSFTPConfig(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
 	save := authedRequest(t, server, http.MethodPost, "/api/deploy/secret", `{"secret":"session-passphrase"}`)
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, save)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("save secret code = %d, body = %s; want 200", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("save secret code = %d, body = %s; want 400", recorder.Code, recorder.Body.String())
 	}
 	if strings.Contains(recorder.Body.String(), "session-passphrase") {
 		t.Fatalf("save secret response exposed secret: %s", recorder.Body.String())
@@ -199,27 +217,11 @@ func TestDeploySecretIsStoredOnlyInServerMemory(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &statusBody); err != nil {
 		t.Fatalf("decode status: %v", err)
 	}
-	if !statusBody.SecretSet {
-		t.Fatalf("SecretSet = false, want true")
+	if statusBody.SecretSet {
+		t.Fatalf("SecretSet = true, want false after rejected secret")
 	}
 	if strings.Contains(recorder.Body.String(), "session-passphrase") {
 		t.Fatalf("status response exposed secret: %s", recorder.Body.String())
-	}
-
-	clear := authedRequest(t, server, http.MethodDelete, "/api/deploy/secret", "")
-	recorder = httptest.NewRecorder()
-	server.Handler().ServeHTTP(recorder, clear)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("clear secret code = %d, body = %s; want 200", recorder.Code, recorder.Body.String())
-	}
-	status = authedRequest(t, server, http.MethodGet, "/api/deploy/status", "")
-	recorder = httptest.NewRecorder()
-	server.Handler().ServeHTTP(recorder, status)
-	if err := json.Unmarshal(recorder.Body.Bytes(), &statusBody); err != nil {
-		t.Fatalf("decode cleared status: %v", err)
-	}
-	if statusBody.SecretSet {
-		t.Fatalf("SecretSet = true, want false after clearing")
 	}
 }
 
@@ -229,10 +231,13 @@ func TestSiteRegistryUsesLocalConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newServer returned error: %v", err)
 	}
+	root := t.TempDir()
+	contentDir := filepath.Join(root, "blog-content")
+	publicDir := filepath.Join(root, "blog-public")
 
 	create := authedRequest(t, server, http.MethodPost, "/api/sites", `{
 		"name":"My Blog",
-		"config":{"contentDir":"/tmp/blog-content","publicDir":"/tmp/blog-public"}
+		"config":{"contentDir":"`+escapeJSON(contentDir)+`","publicDir":"`+escapeJSON(publicDir)+`"}
 	}`)
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, create)
@@ -250,9 +255,11 @@ func TestSiteRegistryUsesLocalConfig(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode sites: %v", err)
 	}
-	if len(body.Sites) != 1 || body.Sites[0].Config.ContentDir != "/tmp/blog-content" {
+	if len(body.Sites) != 1 || body.Sites[0].Config.ContentDir != contentDir {
 		t.Fatalf("sites response = %#v, want created local site", body)
 	}
+	assertFileExists(t, filepath.Join(contentDir, siteconfig.FileName))
+	assertFileExists(t, filepath.Join(publicDir, "index.html"))
 }
 
 func TestSiteSuggestionUsesUniqueHomePaths(t *testing.T) {
@@ -757,6 +764,17 @@ func newTestServer(t *testing.T) (*Server, string, string) {
 		t.Fatalf("New server: %v", err)
 	}
 	return server, contentDir, publicDir
+}
+
+func assertFileExists(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%q) returned error: %v", path, err)
+	}
+	if info.IsDir() {
+		t.Fatalf("%q is a directory, want file", path)
+	}
 }
 
 func authedRequest(t *testing.T, server *Server, method string, path string, body string) *http.Request {

@@ -31,9 +31,12 @@ type Config struct {
 	RemotePath     string
 	KeyPath        string
 	KnownHostsPath string
-	DeleteExtra    bool
 	Secret         string
 	StatePath      string
+}
+
+type Inspection struct {
+	RemoteFiles int `json:"remoteFiles"`
 }
 
 type Summary struct {
@@ -94,7 +97,7 @@ func Status(_ context.Context, localRoot string, cfg Config) (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
-	return buildPlan(local, previous, cfg.DeleteExtra).summary, nil
+	return buildPlan(local, previous).summary, nil
 }
 
 func Sync(ctx context.Context, localRoot string, cfg Config) (Summary, error) {
@@ -110,10 +113,7 @@ func Sync(ctx context.Context, localRoot string, cfg Config) (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
-	next := buildPlan(local, previous, cfg.DeleteExtra)
-	if !next.summary.OutOfSync && !cfg.DeleteExtra {
-		return next.summary, nil
-	}
+	next := buildPlan(local, previous)
 
 	conn, err := connect(ctx, cfg)
 	if err != nil {
@@ -132,35 +132,70 @@ func Sync(ctx context.Context, localRoot string, cfg Config) (Summary, error) {
 			return Summary{}, err
 		}
 	}
-	if cfg.DeleteExtra {
-		remote, err := remoteFiles(conn.sftp, cfg.RemotePath)
+	remote, err := remoteFiles(conn.sftp, cfg.RemotePath)
+	if err != nil {
+		return Summary{}, err
+	}
+	next.deletes = remoteOnlyFiles(local, remote)
+	next.summary.Deleted = len(next.deletes)
+	next.summary.RemoteOnly = len(next.deletes)
+	for _, file := range next.deletes {
+		if err := ctx.Err(); err != nil {
+			return Summary{}, err
+		}
+		remotePath, err := remoteFilePath(cfg.RemotePath, file.rel)
 		if err != nil {
 			return Summary{}, err
 		}
-		next.deletes = remoteOnlyFiles(local, remote)
-		next.summary.Deleted = len(next.deletes)
-		next.summary.RemoteOnly = len(next.deletes)
-		for _, file := range next.deletes {
-			if err := ctx.Err(); err != nil {
-				return Summary{}, err
-			}
-			remotePath, err := remoteFilePath(cfg.RemotePath, file.rel)
-			if err != nil {
-				return Summary{}, err
-			}
-			if err := conn.sftp.Remove(remotePath); err != nil && !isNotExist(err) {
-				return Summary{}, fmt.Errorf("sftp delete remote file %s: %w", remotePath, err)
-			}
-		}
-		if err := removeEmptyDirs(conn.sftp, cfg.RemotePath); err != nil {
-			return Summary{}, err
+		if err := conn.sftp.Remove(remotePath); err != nil && !isNotExist(err) {
+			return Summary{}, fmt.Errorf("sftp delete remote file %s: %w", remotePath, err)
 		}
 	}
-	if err := saveState(cfg.StatePath, nextState(local, previous, cfg.DeleteExtra)); err != nil {
+	if err := removeEmptyDirs(conn.sftp, cfg.RemotePath); err != nil {
+		return Summary{}, err
+	}
+	if err := saveState(cfg.StatePath, nextState(local)); err != nil {
 		return Summary{}, err
 	}
 	next.summary.OutOfSync = false
 	return next.summary, nil
+}
+
+func Inspect(ctx context.Context, cfg Config) (Inspection, error) {
+	cfg, err := prepareConnectionConfig(cfg)
+	if err != nil {
+		return Inspection{}, err
+	}
+	conn, err := connect(ctx, cfg)
+	if err != nil {
+		return Inspection{}, err
+	}
+	defer conn.close()
+	if err := ensureRemoteRoot(conn.sftp, cfg.RemotePath); err != nil {
+		return Inspection{}, err
+	}
+	files, err := remoteFiles(conn.sftp, cfg.RemotePath)
+	if err != nil {
+		return Inspection{}, err
+	}
+	return Inspection{RemoteFiles: len(files)}, nil
+}
+
+func VerifySecret(ctx context.Context, cfg Config) error {
+	cfg, err := prepareConnectionConfig(cfg)
+	if err != nil {
+		return err
+	}
+	methods, cleanup, err := secretAuthMethods(cfg)
+	if err != nil {
+		return err
+	}
+	conn, err := connectWithMethods(ctx, cfg, methods, cleanup)
+	if err != nil {
+		return err
+	}
+	defer conn.close()
+	return ensureRemoteRoot(conn.sftp, cfg.RemotePath)
 }
 
 func prepare(localRoot string, cfg Config) (string, Config, error) {
@@ -179,29 +214,11 @@ func prepare(localRoot string, cfg Config) (string, Config, error) {
 	if !info.IsDir() {
 		return "", Config{}, fmt.Errorf("%w: public folder must be a directory", ErrInvalidConfig)
 	}
-	cfg.Host = strings.TrimSpace(cfg.Host)
-	cfg.User = strings.TrimSpace(cfg.User)
-	cfg.RemotePath = strings.TrimSpace(cfg.RemotePath)
-	cfg.KeyPath = strings.TrimSpace(cfg.KeyPath)
-	cfg.KnownHostsPath = strings.TrimSpace(cfg.KnownHostsPath)
-	cfg.StatePath = strings.TrimSpace(cfg.StatePath)
-	if cfg.Port == 0 {
-		cfg.Port = 22
-	}
-	if cfg.Host == "" {
-		return "", Config{}, fmt.Errorf("%w: SFTP host is required", ErrInvalidConfig)
-	}
-	if cfg.User == "" {
-		return "", Config{}, fmt.Errorf("%w: SFTP user is required", ErrInvalidConfig)
-	}
-	remotePath, err := cleanRemotePath(cfg.RemotePath, cfg.DeleteExtra)
+	cfg, err = prepareConnectionConfig(cfg)
 	if err != nil {
 		return "", Config{}, err
 	}
-	cfg.RemotePath = remotePath
-	if cfg.Port < 1 || cfg.Port > 65535 {
-		return "", Config{}, fmt.Errorf("%w: SFTP port must be between 1 and 65535", ErrInvalidConfig)
-	}
+	cfg.StatePath = strings.TrimSpace(cfg.StatePath)
 	if cfg.StatePath == "" {
 		return "", Config{}, fmt.Errorf("%w: deploy state path is required", ErrInvalidConfig)
 	}
@@ -213,7 +230,33 @@ func prepare(localRoot string, cfg Config) (string, Config, error) {
 	return filepath.Clean(absLocalRoot), cfg, nil
 }
 
-func cleanRemotePath(value string, deleteExtra bool) (string, error) {
+func prepareConnectionConfig(cfg Config) (Config, error) {
+	cfg.Host = strings.TrimSpace(cfg.Host)
+	cfg.User = strings.TrimSpace(cfg.User)
+	cfg.RemotePath = strings.TrimSpace(cfg.RemotePath)
+	cfg.KeyPath = strings.TrimSpace(cfg.KeyPath)
+	cfg.KnownHostsPath = strings.TrimSpace(cfg.KnownHostsPath)
+	if cfg.Port == 0 {
+		cfg.Port = 22
+	}
+	if cfg.Host == "" {
+		return Config{}, fmt.Errorf("%w: SFTP host is required", ErrInvalidConfig)
+	}
+	if cfg.User == "" {
+		return Config{}, fmt.Errorf("%w: SFTP user is required", ErrInvalidConfig)
+	}
+	remotePath, err := cleanRemotePath(cfg.RemotePath)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.RemotePath = remotePath
+	if cfg.Port < 1 || cfg.Port > 65535 {
+		return Config{}, fmt.Errorf("%w: SFTP port must be between 1 and 65535", ErrInvalidConfig)
+	}
+	return cfg, nil
+}
+
+func cleanRemotePath(value string) (string, error) {
 	if value == "" {
 		return "", fmt.Errorf("%w: SFTP remote path is required", ErrInvalidConfig)
 	}
@@ -227,8 +270,8 @@ func cleanRemotePath(value string, deleteExtra bool) (string, error) {
 	if cleaned == "." {
 		cleaned = "/"
 	}
-	if cleaned == "/" && deleteExtra {
-		return "", fmt.Errorf("%w: refusing to delete extra files at remote root", ErrInvalidConfig)
+	if cleaned == "/" {
+		return "", fmt.Errorf("%w: refusing to manage the remote root folder", ErrInvalidConfig)
 	}
 	return cleaned, nil
 }
@@ -238,6 +281,10 @@ func connect(ctx context.Context, cfg Config) (*client, error) {
 	if err != nil {
 		return nil, err
 	}
+	return connectWithMethods(ctx, cfg, methods, cleanup)
+}
+
+func connectWithMethods(ctx context.Context, cfg Config, methods []ssh.AuthMethod, cleanup func()) (*client, error) {
 	defer cleanup()
 	callback, err := hostKeyCallback(cfg.KnownHostsPath)
 	if err != nil {
@@ -325,6 +372,50 @@ func authMethods(cfg Config) ([]ssh.AuthMethod, func(), error) {
 		return nil, closeAll(cleanup), fmt.Errorf("%w: %s", ErrInvalidConfig, message)
 	}
 	return methods, closeAll(cleanup), nil
+}
+
+func secretAuthMethods(cfg Config) ([]ssh.AuthMethod, func(), error) {
+	if cfg.Secret == "" {
+		return nil, func() {}, fmt.Errorf("%w: password or passphrase is required", ErrInvalidConfig)
+	}
+	if cfg.KeyPath != "" {
+		signer, err := encryptedSignerFromConfiguredKey(cfg.KeyPath, cfg.Secret)
+		if err != nil {
+			return nil, func() {}, err
+		}
+		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, func() {}, nil
+	}
+	return []ssh.AuthMethod{
+		ssh.Password(cfg.Secret),
+		ssh.KeyboardInteractive(func(_ string, _ string, questions []string, _ []bool) ([]string, error) {
+			answers := make([]string, len(questions))
+			for i := range answers {
+				answers[i] = cfg.Secret
+			}
+			return answers, nil
+		}),
+	}, func() {}, nil
+}
+
+func encryptedSignerFromConfiguredKey(keyPath string, secret string) (ssh.Signer, error) {
+	keyPaths := candidateKeyPaths(keyPath)
+	if len(keyPaths) != 1 {
+		return nil, fmt.Errorf("%w: configured private key path is required", ErrInvalidConfig)
+	}
+	data, err := os.ReadFile(keyPaths[0])
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ssh.ParsePrivateKey(data); err == nil {
+		return nil, fmt.Errorf("%w: configured private key is not encrypted; no deploy secret is required", ErrInvalidConfig)
+	} else if !isEncryptedKeyError(err) {
+		return nil, err
+	}
+	signer, err := ssh.ParsePrivateKeyWithPassphrase(data, []byte(secret))
+	if err != nil {
+		return nil, fmt.Errorf("%w: private key passphrase was rejected", ErrInvalidConfig)
+	}
+	return signer, nil
 }
 
 func closeAll(closers []io.Closer) func() {
@@ -571,7 +662,7 @@ func validRelativePath(rel string) bool {
 		rel != ".."
 }
 
-func buildPlan(local map[string]fileMeta, remote map[string]remoteMeta, deleteExtra bool) plan {
+func buildPlan(local map[string]fileMeta, remote map[string]remoteMeta) plan {
 	next := plan{}
 	localKeys := make([]string, 0, len(local))
 	for rel := range local {
@@ -600,9 +691,7 @@ func buildPlan(local map[string]fileMeta, remote map[string]remoteMeta, deleteEx
 			continue
 		}
 		next.summary.RemoteOnly++
-		if deleteExtra {
-			next.deletes = append(next.deletes, remote[rel])
-		}
+		next.deletes = append(next.deletes, remote[rel])
 	}
 	next.summary.Uploaded = len(next.uploads)
 	next.summary.Updated = len(next.updates)
@@ -632,13 +721,8 @@ func remoteOnlyFiles(local map[string]fileMeta, remote map[string]remoteMeta) []
 	return files
 }
 
-func nextState(local map[string]fileMeta, previous map[string]remoteMeta, deleteExtra bool) map[string]remoteMeta {
+func nextState(local map[string]fileMeta) map[string]remoteMeta {
 	state := map[string]remoteMeta{}
-	if !deleteExtra {
-		for rel, file := range previous {
-			state[rel] = file
-		}
-	}
 	for rel, file := range local {
 		state[rel] = remoteMeta{
 			rel:     rel,

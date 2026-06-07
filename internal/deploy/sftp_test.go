@@ -45,7 +45,7 @@ func TestBuildPlanDetectsUploadsUpdatesAndDeletes(t *testing.T) {
 		},
 	}
 
-	plan := buildPlan(local, remote, true)
+	plan := buildPlan(local, remote)
 
 	if !plan.summary.OutOfSync {
 		t.Fatal("OutOfSync = false, want true")
@@ -58,7 +58,7 @@ func TestBuildPlanDetectsUploadsUpdatesAndDeletes(t *testing.T) {
 	}
 }
 
-func TestBuildPlanDoesNotDeleteRemoteOnlyFilesWhenDeleteExtraDisabled(t *testing.T) {
+func TestBuildPlanDeletesRemoteOnlyFiles(t *testing.T) {
 	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 	plan := buildPlan(
 		map[string]fileMeta{
@@ -68,14 +68,13 @@ func TestBuildPlanDoesNotDeleteRemoteOnlyFilesWhenDeleteExtraDisabled(t *testing
 			"index.html": {rel: "index.html", size: 12, modTime: now},
 			"old.html":   {rel: "old.html", size: 5, modTime: now},
 		},
-		false,
 	)
 
-	if plan.summary.OutOfSync {
-		t.Fatalf("OutOfSync = true, want false when only remote extras exist and deletion is disabled")
+	if !plan.summary.OutOfSync {
+		t.Fatalf("OutOfSync = false, want true when remote-only files will be deleted")
 	}
-	if plan.summary.RemoteOnly != 1 || plan.summary.Deleted != 0 {
-		t.Fatalf("summary = %#v, want remote-only count without deletes", plan.summary)
+	if plan.summary.RemoteOnly != 1 || plan.summary.Deleted != 1 {
+		t.Fatalf("summary = %#v, want remote-only count with delete", plan.summary)
 	}
 }
 
@@ -88,7 +87,6 @@ func TestBuildPlanDetectsLocalModTimeChanges(t *testing.T) {
 		map[string]remoteMeta{
 			"index.html": {rel: "index.html", size: 12, modTime: now.Add(-time.Nanosecond)},
 		},
-		false,
 	)
 
 	if plan.summary.Updated != 1 || plan.summary.Unchanged != 0 {
@@ -142,34 +140,19 @@ func TestStatusUsesLocalDeployState(t *testing.T) {
 	}
 }
 
-func TestNextStateKeepsTrackedFilesWhenDeleteExtraDisabled(t *testing.T) {
+func TestNextStateTracksLocalFilesOnly(t *testing.T) {
 	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 	state := nextState(
 		map[string]fileMeta{
 			"index.html": {rel: "index.html", size: 12, modTime: now},
 		},
-		map[string]remoteMeta{
-			"old.html": {rel: "old.html", size: 5, modTime: now.Add(-time.Hour)},
-		},
-		false,
-	)
-
-	if _, ok := state["old.html"]; !ok {
-		t.Fatalf("state = %#v, want tracked remote-only file kept while delete is disabled", state)
-	}
-
-	state = nextState(
-		map[string]fileMeta{
-			"index.html": {rel: "index.html", size: 12, modTime: now},
-		},
-		map[string]remoteMeta{
-			"old.html": {rel: "old.html", size: 5, modTime: now.Add(-time.Hour)},
-		},
-		true,
 	)
 
 	if _, ok := state["old.html"]; ok {
-		t.Fatalf("state = %#v, want tracked remote-only file removed when delete is enabled", state)
+		t.Fatalf("state = %#v, want remote-only file removed from state", state)
+	}
+	if _, ok := state["index.html"]; !ok {
+		t.Fatalf("state = %#v, want local file tracked", state)
 	}
 }
 

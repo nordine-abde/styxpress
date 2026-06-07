@@ -36,7 +36,6 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 				RemotePath:     "/public_html",
 				KeyPath:        "~/.ssh/id_ed25519",
 				KnownHostsPath: "~/.ssh/known_hosts",
-				DeleteExtra:    true,
 			},
 		},
 	}
@@ -56,8 +55,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
-	if strings.Contains(string(data), "deploy_mode") {
-		t.Fatalf("saved config contains removed deploy_mode key:\n%s", data)
+	if strings.Contains(string(data), "deploy_mode") || strings.Contains(string(data), "sftp_delete_extra") {
+		t.Fatalf("saved config contains removed deploy key:\n%s", data)
 	}
 }
 
@@ -199,6 +198,20 @@ func TestLoadRejectsRemovedDeployMode(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	if err := os.WriteFile(path, []byte("deploy_mode = \"auto\"\n"), filePermission); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if _, err := Load(path); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Load error = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestLoadRejectsRemovedSFTPDeleteExtra(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "styxpress", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), directoryPermission); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("sftp_delete_extra = true\n"), filePermission); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
