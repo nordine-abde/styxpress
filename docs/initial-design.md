@@ -127,9 +127,8 @@ renderer.
 
 SFTP deploy is optional and syncs the configured `publicDir` to a remote
 absolute path. Deploy status is based on local public files and the previous
-deploy state file stored under the admin config area. Manual mode marks local
-output as changed after renders; automatic mode syncs after publishing a post
-or rendering the whole site.
+deploy state file stored under the admin config area. Local renders mark output
+as changed; the beta only supports explicit manual deploy.
 
 Authentication can use `ssh-agent`, a configured SSH key, default SSH key
 paths, a session password, or a session passphrase for encrypted keys. Host

@@ -33,7 +33,7 @@ Included:
 - Footer text and footer links.
 - Footer watermark toggle for `Published with Styxpress`.
 - RSS feed and sitemap output.
-- Optional manual or automatic SFTP deploy for generated public output.
+- Optional manual SFTP deploy for generated public output.
 
 Not included in the first release:
 
@@ -145,9 +145,9 @@ creating or deleting sites.
    - `contentDir`: local source content directory.
    - `publicDir`: local generated output directory.
    - optional SFTP deployment settings.
-3. If SFTP deploy is enabled, choose manual or automatic mode. The deploy
-   password or encrypted-key passphrase is entered in the deploy panel and is
-   kept only in the running admin server session.
+3. If SFTP deploy is enabled, enter the deploy password or encrypted-key
+   passphrase in the deploy panel. The secret is kept only in the running admin
+   server session.
 4. In **Site**, edit:
    - title
    - description
@@ -160,9 +160,9 @@ creating or deleting sites.
    the public site.
 5. In **Posts**, choose an existing post from the list or create a new one.
 6. Edit content in visual compose mode or raw Markdown mode.
-7. Use **Save** to write the post, mark it as published, render the public
-   output locally, and run automatic deploy when enabled. Manual deploy stays
-   available from the deploy panel after local output changes.
+7. Use **Save** to write the post, mark it as published, and render the public
+   output locally. Use **Deploy** from the deploy panel when you want to sync
+   the generated output.
 
 ## Admin Config
 
@@ -174,7 +174,6 @@ name = "My Blog"
 content_dir = "content"
 public_dir = "public"
 deploy_enabled = false
-deploy_mode = "manual"
 sftp_delete_extra = false
 sftp_host = ""
 sftp_known_hosts_path = ""
@@ -184,10 +183,9 @@ sftp_remote_path = ""
 sftp_user = ""
 ```
 
-When SFTP deploy is enabled, `sftp_host`, `sftp_user`, and
-`sftp_remote_path` are required. `deploy_mode` is `manual` or `auto`.
-`sftp_delete_extra` removes remote files that are not present in the local
-public folder. Secrets are not written to this config.
+When SFTP deploy is enabled, `sftp_host`, `sftp_user`, and `sftp_remote_path`
+are required. `sftp_delete_extra` removes remote files that are not present in
+the local public folder. Secrets are not written to this config.
 
 ## Site Config
 
@@ -227,9 +225,8 @@ Authentication can use `ssh-agent`, an SSH private key, a session password, or
 a session passphrase for encrypted keys. Host keys are checked through the
 configured `known_hosts` path or the user's default SSH known hosts files.
 
-Manual deploy mode marks output as changed after local renders and lets the
-user press **Deploy**. Automatic mode runs a deploy after publishing a post or
-rendering the whole site.
+Local renders mark output as changed and let the user press **Deploy**. Deploy
+is always an explicit manual action in the beta.
 
 ## Local Output
 

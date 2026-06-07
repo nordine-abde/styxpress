@@ -39,9 +39,7 @@ const statusLabel = computed(() => {
 })
 
 const subtitle = computed(() => {
-    return deployStore.automatic
-        ? 'Automatic SFTP deployment for the generated public folder.'
-        : 'Manual SFTP deployment for the generated public folder.'
+    return 'Manual SFTP deployment for the generated public folder.'
 })
 
 async function saveSecret() {

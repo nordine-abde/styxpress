@@ -62,7 +62,6 @@ func TestConfigEndpointSavesLocalPathsOnly(t *testing.T) {
 		"publicDir":"`+escapeJSON(publicDir)+`",
 		"deploy":{
 			"enabled":true,
-			"mode":"manual",
 			"sftp":{
 				"host":"example.com",
 				"port":2222,
@@ -87,15 +86,26 @@ func TestConfigEndpointSavesLocalPathsOnly(t *testing.T) {
 	if saved.Name != "Client Live" || saved.ContentDir != contentDir || saved.PublicDir != publicDir {
 		t.Fatalf("config = %#v, want local paths", saved)
 	}
-	if !saved.Deploy.Enabled || saved.Deploy.Mode != "manual" || saved.Deploy.SFTP.Host != "example.com" || saved.Deploy.SFTP.DeleteExtra != true {
+	if !saved.Deploy.Enabled || saved.Deploy.SFTP.Host != "example.com" || saved.Deploy.SFTP.DeleteExtra != true {
 		t.Fatalf("deploy config = %#v, want SFTP config without secrets", saved.Deploy)
 	}
 
-	removedField := authedRequest(t, server, http.MethodPost, "/api/config", `{"remoteHost":"example.com","deploy":{"sftp":{"password":"secret"}}}`)
-	recorder = httptest.NewRecorder()
-	server.Handler().ServeHTTP(recorder, removedField)
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("removed field status = %d, body = %s; want 400", recorder.Code, recorder.Body.String())
+	for name, body := range map[string]string{
+		"removed remote key": `{"remoteHost":"example.com","deploy":{"sftp":{"password":"secret"}}}`,
+		"removed deploy mode": `{
+			"contentDir":"` + escapeJSON(contentDir) + `",
+			"publicDir":"` + escapeJSON(publicDir) + `",
+			"deploy":{"mode":"auto"}
+		}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := authedRequest(t, server, http.MethodPost, "/api/config", body)
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("removed field status = %d, body = %s; want 400", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 
@@ -137,7 +147,6 @@ func TestDeployStatusUsesLocalStateWithoutSFTPConnection(t *testing.T) {
 		"publicDir":"`+escapeJSON(publicDir)+`",
 		"deploy":{
 			"enabled":true,
-			"mode":"manual",
 			"sftp":{
 				"host":"example.invalid",
 				"port":22,
@@ -610,7 +619,7 @@ func TestSaveConfigRejectsOverlappingContentAndPublicDirs(t *testing.T) {
 		"name": "Unsafe",
 		"contentDir": %q,
 		"publicDir": %q,
-		"deploy": {"mode": "manual", "sftp": {"port": 22}}
+		"deploy": {"sftp": {"port": 22}}
 	}`, contentDir, contentDir))
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)

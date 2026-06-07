@@ -4,7 +4,6 @@ import DeployPanel from './DeployPanel.vue'
 import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
-import UiSelect from './ui/UiSelect.vue'
 import UiSwitch from './ui/UiSwitch.vue'
 import { useConfigStore } from '../stores/config'
 import { useDeployStore } from '../stores/deploy'
@@ -13,10 +12,6 @@ import { useSiteWorkspaceStore } from '../stores/siteWorkspace'
 const configStore = useConfigStore()
 const deployStore = useDeployStore()
 const siteWorkspaceStore = useSiteWorkspaceStore()
-const deployModeOptions = [
-    { value: 'manual', label: 'Manual' },
-    { value: 'auto', label: 'Automatic' }
-]
 const form = reactive(cloneConfig(configStore.config))
 
 watch(
@@ -65,14 +60,11 @@ function cloneConfig(value) {
                 <section class="config-section">
                     <h3>SFTP</h3>
                     <div class="field-grid">
-                        <div class="two-column">
-                            <UiSwitch
-                                v-model="form.deploy.enabled"
-                                label="Enable SFTP deploy"
-                                description="Syncs the generated public folder to a remote host."
-                            />
-                            <UiSelect v-model="form.deploy.mode" label="Deploy mode" :options="deployModeOptions" />
-                        </div>
+                        <UiSwitch
+                            v-model="form.deploy.enabled"
+                            label="Enable SFTP deploy"
+                            description="Syncs the generated public folder to a remote host."
+                        />
 
                         <div class="two-column">
                             <UiField v-model="form.deploy.sftp.host" label="Host" placeholder="example.com" />

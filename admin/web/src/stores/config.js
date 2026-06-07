@@ -10,7 +10,6 @@ const defaultConfig = {
     publicDir: 'public',
     deploy: {
         enabled: false,
-        mode: 'manual',
         sftp: {
             host: '',
             port: 22,
@@ -199,15 +198,16 @@ export const useConfigStore = defineStore('config', () => {
 
 function mergeConfig(value = {}) {
     const deploy = value.deploy || {}
+    const deployConfig = { ...deploy }
+    delete deployConfig.mode
     const sftp = deploy.sftp || {}
     return {
         ...defaultConfig,
         ...value,
         deploy: {
             ...defaultConfig.deploy,
-            ...deploy,
+            ...deployConfig,
             enabled: deploy.enabled === true,
-            mode: deploy.mode === 'auto' ? 'auto' : 'manual',
             sftp: {
                 ...defaultConfig.deploy.sftp,
                 ...sftp,

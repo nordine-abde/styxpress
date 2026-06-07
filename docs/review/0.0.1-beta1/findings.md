@@ -147,7 +147,7 @@ drafts.
 
 A user preparing a draft who uploads a cover, uploads an image, or removes media
 unintentionally publishes the post. This changes the state from draft to
-published, generates public output, and can trigger auto deploy if configured.
+published and generates public output.
 
 **Evidence:**
 

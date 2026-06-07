@@ -34,7 +34,6 @@ type Config struct {
 
 type DeployConfig struct {
 	Enabled bool       `json:"enabled"`
-	Mode    string     `json:"mode"`
 	SFTP    SFTPConfig `json:"sftp"`
 }
 
@@ -53,7 +52,6 @@ func Default() Config {
 		ContentDir: "content",
 		PublicDir:  "public",
 		Deploy: DeployConfig{
-			Mode: "manual",
 			SFTP: SFTPConfig{
 				Port: 22,
 			},
@@ -131,16 +129,12 @@ func (c Config) Validate() error {
 	if strings.Contains(c.Name, "\x00") ||
 		strings.Contains(c.ContentDir, "\x00") ||
 		strings.Contains(c.PublicDir, "\x00") ||
-		strings.Contains(c.Deploy.Mode, "\x00") ||
 		strings.Contains(c.Deploy.SFTP.Host, "\x00") ||
 		strings.Contains(c.Deploy.SFTP.User, "\x00") ||
 		strings.Contains(c.Deploy.SFTP.RemotePath, "\x00") ||
 		strings.Contains(c.Deploy.SFTP.KeyPath, "\x00") ||
 		strings.Contains(c.Deploy.SFTP.KnownHostsPath, "\x00") {
 		return fmt.Errorf("%w: fields must not contain NUL bytes", ErrInvalidConfig)
-	}
-	if c.Deploy.Mode != "manual" && c.Deploy.Mode != "auto" {
-		return fmt.Errorf("%w: deploy mode must be manual or auto", ErrInvalidConfig)
 	}
 	if err := localpath.EnsureSeparateRoots("content_dir", c.ContentDir, "public_dir", c.PublicDir); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
@@ -171,10 +165,6 @@ func WithDefaults(cfg Config) Config {
 	if cfg.PublicDir == "" {
 		cfg.PublicDir = defaults.PublicDir
 	}
-	cfg.Deploy.Mode = strings.TrimSpace(cfg.Deploy.Mode)
-	if cfg.Deploy.Mode == "" {
-		cfg.Deploy.Mode = defaults.Deploy.Mode
-	}
 	cfg.Deploy.SFTP.Host = strings.TrimSpace(cfg.Deploy.SFTP.Host)
 	cfg.Deploy.SFTP.User = strings.TrimSpace(cfg.Deploy.SFTP.User)
 	cfg.Deploy.SFTP.RemotePath = strings.TrimSpace(cfg.Deploy.SFTP.RemotePath)
@@ -189,7 +179,6 @@ func WithDefaults(cfg Config) Config {
 func encode(w io.Writer, cfg Config) error {
 	values := map[string]configValue{
 		"deploy_enabled":        boolConfigValue(cfg.Deploy.Enabled),
-		"deploy_mode":           stringConfigValue(cfg.Deploy.Mode),
 		"name":                  stringConfigValue(cfg.Name),
 		"content_dir":           stringConfigValue(cfg.ContentDir),
 		"public_dir":            stringConfigValue(cfg.PublicDir),
@@ -280,12 +269,6 @@ func decode(r io.Reader, cfg *Config) error {
 				return fmt.Errorf("%w: line %d value must be true or false", ErrInvalidConfig, lineNumber)
 			}
 			cfg.Deploy.Enabled = parsed
-		case "deploy_mode":
-			value, err := decodeStringValue(rawValue, lineNumber)
-			if err != nil {
-				return err
-			}
-			cfg.Deploy.Mode = value
 		case "sftp_host":
 			value, err := decodeStringValue(rawValue, lineNumber)
 			if err != nil {

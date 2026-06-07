@@ -38,7 +38,6 @@ Config object:
   "publicDir": "public",
   "deploy": {
     "enabled": false,
-    "mode": "manual",
     "sftp": {
       "host": "",
       "port": 22,
@@ -53,9 +52,9 @@ Config object:
 ```
 
 `contentDir` is always local source content. `publicDir` is always local output.
-`deploy.mode` is `manual` or `auto`. When deploy is enabled, `sftp.host`,
-`sftp.user`, and `sftp.remotePath` are required. SFTP passwords and encrypted
-key passphrases are never part of this object.
+When deploy is enabled, `sftp.host`, `sftp.user`, and `sftp.remotePath` are
+required. SFTP passwords and encrypted key passphrases are never part of this
+object.
 
 ## Sites
 
@@ -189,13 +188,11 @@ Uploads are limited to 64 MiB. Asset paths are cleaned and must remain inside
 - `POST /api/posts/{slug}/publish`
   Marks a draft as published, then renders the post and site locally. The admin
   UI calls this as part of the single post **Save** action. Returns
-  `{"post":{...},"site":{...}}` and may include `"deploy":{...}` when automatic
-  deploy is enabled.
+  `{"post":{...},"site":{...}}`.
 - `POST /api/site/render`
   Renders all public posts, homepage, feed, sitemap, stylesheet, and favicon
   locally. The admin UI calls this as part of the single site **Save** action.
-  Returns `{"posts":[...],"site":{...}}` and may include `"deploy":{...}` when
-  automatic deploy is enabled.
+  Returns `{"posts":[...],"site":{...}}`.
 
 Render post result:
 
@@ -241,7 +238,6 @@ Deploy status response:
 {
   "enabled": true,
   "configured": true,
-  "mode": "manual",
   "outOfSync": true,
   "secretSet": false,
   "summary": {
@@ -269,6 +265,3 @@ Deploy summaries use this shape:
   "remoteOnly": 0
 }
 ```
-
-Automatic deploy runs after `POST /api/posts/{slug}/publish` and
-`POST /api/site/render` when deploy is enabled and `deploy.mode` is `auto`.

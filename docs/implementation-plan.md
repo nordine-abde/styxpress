@@ -51,7 +51,7 @@ Ship a local static blog generator:
 
 ### 5. SFTP Deploy
 
-- Deploy settings live in admin config and support manual or automatic mode.
+- Deploy settings live in admin config and support explicit manual sync.
 - SFTP sync uploads generated public files and can optionally delete remote
   files that are no longer present locally.
 - Deploy state is tracked locally under the admin config area.

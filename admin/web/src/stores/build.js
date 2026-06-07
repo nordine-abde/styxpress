@@ -25,7 +25,7 @@ export const useBuildStore = defineStore('build', () => {
             await postsStore.loadPosts()
             await postsStore.selectPost(slug)
             deployStore.applyBuildResult(lastResult.value)
-            uiStore.setNotice(lastResult.value?.deploy ? 'Post saved, rendered, and deployed.' : 'Post saved and rendered.')
+            uiStore.setNotice('Post saved and rendered.')
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)
@@ -49,7 +49,7 @@ export const useBuildStore = defineStore('build', () => {
             await postsStore.loadPosts()
             await postsStore.selectPost(slug)
             deployStore.applyBuildResult(lastResult.value)
-            uiStore.setNotice(lastResult.value?.deploy ? 'Post rendered and deployed.' : 'Post rendered locally.')
+            uiStore.setNotice('Post rendered locally.')
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)
@@ -70,7 +70,7 @@ export const useBuildStore = defineStore('build', () => {
                 body: {}
             })
             deployStore.applyBuildResult(lastResult.value)
-            uiStore.setNotice(lastResult.value?.deploy ? 'Site rendered and deployed.' : 'Site rendered locally.')
+            uiStore.setNotice('Site rendered locally.')
         } catch (err) {
             error.value = err.message
             uiStore.captureError(err)

@@ -6,7 +6,6 @@ import { useUiStore } from './ui'
 const emptyStatus = {
     enabled: false,
     configured: false,
-    mode: 'manual',
     outOfSync: false,
     secretSet: false,
     summary: null
@@ -22,9 +21,7 @@ export const useDeployStore = defineStore('deploy', () => {
     let configSignature = ''
 
     const enabled = computed(() => status.value.enabled === true)
-    const automatic = computed(() => enabled.value && status.value.mode === 'auto')
-    const manual = computed(() => enabled.value && status.value.mode === 'manual')
-    const canDeploy = computed(() => manual.value && status.value.configured && status.value.outOfSync)
+    const canDeploy = computed(() => enabled.value && status.value.configured && status.value.outOfSync)
     const busy = computed(() => checking.value || deploying.value || savingSecret.value || clearingSecret.value)
 
     function syncFromConfig(config) {
@@ -32,7 +29,6 @@ export const useDeployStore = defineStore('deploy', () => {
         const sftp = deploy.sftp || {}
         const nextSignature = JSON.stringify({
             enabled: deploy.enabled === true,
-            mode: deploy.mode === 'auto' ? 'auto' : 'manual',
             host: sftp.host || '',
             port: Number(sftp.port || 22),
             user: sftp.user || '',
@@ -47,7 +43,6 @@ export const useDeployStore = defineStore('deploy', () => {
             ...status.value,
             enabled: deploy.enabled === true,
             configured: Boolean(sftp.host && sftp.user && sftp.remotePath),
-            mode: deploy.mode === 'auto' ? 'auto' : 'manual',
             outOfSync: sameConfig && deploy.enabled === true ? status.value.outOfSync : false,
             secretSet: status.value.secretSet,
             summary: sameConfig && deploy.enabled === true ? status.value.summary : null
@@ -146,21 +141,11 @@ export const useDeployStore = defineStore('deploy', () => {
         }
     }
 
-    function applyBuildResult(result) {
+    function applyBuildResult() {
         if (!enabled.value) {
             return
         }
-        if (result?.deploy) {
-            status.value = {
-                ...status.value,
-                configured: true,
-                outOfSync: false,
-                secretSet: status.value.secretSet,
-                summary: result.deploy
-            }
-            return
-        }
-        if (manual.value && status.value.configured) {
+        if (status.value.configured) {
             status.value = {
                 ...status.value,
                 outOfSync: true,
@@ -173,7 +158,6 @@ export const useDeployStore = defineStore('deploy', () => {
         status.value = {
             enabled: payload.enabled === true,
             configured: payload.configured === true,
-            mode: payload.mode === 'auto' ? 'auto' : 'manual',
             outOfSync: payload.outOfSync === true,
             secretSet: payload.secretSet === true,
             summary: payload.summary || null
@@ -194,8 +178,6 @@ export const useDeployStore = defineStore('deploy', () => {
         clearingSecret,
         error,
         enabled,
-        automatic,
-        manual,
         canDeploy,
         busy,
         syncFromConfig,

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -28,7 +29,6 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		PublicDir:  "/tmp/public",
 		Deploy: DeployConfig{
 			Enabled: true,
-			Mode:    "manual",
 			SFTP: SFTPConfig{
 				Host:           "example.com",
 				Port:           2222,
@@ -52,6 +52,13 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if got != cfg {
 		t.Fatalf("Load() = %#v, want %#v", got, cfg)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if strings.Contains(string(data), "deploy_mode") {
+		t.Fatalf("saved config contains removed deploy_mode key:\n%s", data)
+	}
 }
 
 func TestSaveAppliesDefaults(t *testing.T) {
@@ -68,8 +75,8 @@ func TestSaveAppliesDefaults(t *testing.T) {
 	if got.ContentDir != "content" || got.PublicDir != "public" {
 		t.Fatalf("Load() = %#v, want default paths", got)
 	}
-	if got.Deploy.Mode != "manual" || got.Deploy.SFTP.Port != 22 {
-		t.Fatalf("Load() deploy = %#v, want default manual SFTP port", got.Deploy)
+	if got.Deploy.SFTP.Port != 22 {
+		t.Fatalf("Load() deploy = %#v, want default SFTP port", got.Deploy)
 	}
 }
 
@@ -178,6 +185,20 @@ func TestLoadRejectsRemovedRemoteKeys(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	if err := os.WriteFile(path, []byte("remote_host = \"example.com\"\n"), filePermission); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if _, err := Load(path); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Load error = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestLoadRejectsRemovedDeployMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "styxpress", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), directoryPermission); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("deploy_mode = \"auto\"\n"), filePermission); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

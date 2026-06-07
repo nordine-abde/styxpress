@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -430,21 +429,18 @@ type previewResponse struct {
 }
 
 type renderPostResponse struct {
-	Post   rendering.Result     `json:"post"`
-	Site   rendering.SiteResult `json:"site"`
-	Deploy *deploypkg.Summary   `json:"deploy,omitempty"`
+	Post rendering.Result     `json:"post"`
+	Site rendering.SiteResult `json:"site"`
 }
 
 type renderSiteResponse struct {
-	Posts  []rendering.Result   `json:"posts"`
-	Site   rendering.SiteResult `json:"site"`
-	Deploy *deploypkg.Summary   `json:"deploy,omitempty"`
+	Posts []rendering.Result   `json:"posts"`
+	Site  rendering.SiteResult `json:"site"`
 }
 
 type deployStatusResponse struct {
 	Enabled    bool               `json:"enabled"`
 	Configured bool               `json:"configured"`
-	Mode       string             `json:"mode"`
 	OutOfSync  bool               `json:"outOfSync"`
 	SecretSet  bool               `json:"secretSet"`
 	Summary    *deploypkg.Summary `json:"summary,omitempty"`
@@ -717,12 +713,7 @@ func (s *Server) renderPost(w http.ResponseWriter, r *http.Request) {
 		s.writeRenderError(w, err)
 		return
 	}
-	deploySummary, err := s.autoDeploy(r.Context())
-	if err != nil {
-		s.writeDeployError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, renderPostResponse{Post: result, Site: site, Deploy: deploySummary})
+	writeJSON(w, http.StatusOK, renderPostResponse{Post: result, Site: site})
 }
 
 func (s *Server) renderSite(w http.ResponseWriter, r *http.Request) {
@@ -731,12 +722,7 @@ func (s *Server) renderSite(w http.ResponseWriter, r *http.Request) {
 		s.writeRenderError(w, err)
 		return
 	}
-	deploySummary, err := s.autoDeploy(r.Context())
-	if err != nil {
-		s.writeDeployError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, renderSiteResponse{Posts: result.Posts, Site: result.Site, Deploy: deploySummary})
+	writeJSON(w, http.StatusOK, renderSiteResponse{Posts: result.Posts, Site: result.Site})
 }
 
 func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
@@ -764,12 +750,7 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 		s.writeRenderError(w, err)
 		return
 	}
-	deploySummary, err := s.autoDeploy(r.Context())
-	if err != nil {
-		s.writeDeployError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, renderPostResponse{Post: postResult, Site: siteResult, Deploy: deploySummary})
+	writeJSON(w, http.StatusOK, renderPostResponse{Post: postResult, Site: siteResult})
 }
 
 func (s *Server) deployStatus(w http.ResponseWriter, r *http.Request) {
@@ -781,7 +762,6 @@ func (s *Server) deployStatus(w http.ResponseWriter, r *http.Request) {
 	cfg := site.Config
 	response := deployStatusResponse{
 		Enabled:   cfg.Deploy.Enabled,
-		Mode:      cfg.Deploy.Mode,
 		SecretSet: s.deploySecretSet(),
 	}
 	if !cfg.Deploy.Enabled {
@@ -897,30 +877,6 @@ func (s *Server) renderAll() (rendering.AllResult, error) {
 		return rendering.AllResult{}, err
 	}
 	return renderer.RenderAll()
-}
-
-func (s *Server) autoDeploy(ctx context.Context) (*deploypkg.Summary, error) {
-	site, err := s.activeSite()
-	if err != nil {
-		return nil, err
-	}
-	cfg := site.Config
-	if !cfg.Deploy.Enabled || cfg.Deploy.Mode != "auto" {
-		return nil, nil
-	}
-	paths, err := configuredSitePaths(cfg)
-	if err != nil {
-		return nil, err
-	}
-	deployConfig, err := s.deployConfig(site)
-	if err != nil {
-		return nil, err
-	}
-	summary, err := deploypkg.Sync(ctx, paths.publicDir, deployConfig)
-	if err != nil {
-		return nil, err
-	}
-	return &summary, nil
 }
 
 func (s *Server) repository() (*content.Repository, error) {
