@@ -99,6 +99,21 @@ func (r *Repository) WritePost(post Post, opts WritePostOptions) (Post, error) {
 	return r.writePost(post, update, opts)
 }
 
+func (r *Repository) DeletePost(slug string) error {
+	if err := ValidateSlug(slug); err != nil {
+		return err
+	}
+
+	dir := r.postDir(slug)
+	if err := requireDirectoryNoSymlink(r.root, dir, ErrInvalidPost); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrPostNotFound
+		}
+		return err
+	}
+	return os.RemoveAll(dir)
+}
+
 func (r *Repository) LoadPost(slug string) (Post, error) {
 	if err := ValidateSlug(slug); err != nil {
 		return Post{}, err

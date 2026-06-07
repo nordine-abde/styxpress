@@ -111,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/posts", s.withAuth(s.savePost))
 	mux.HandleFunc("GET /api/posts/{slug}", s.withAuth(s.getPost))
 	mux.HandleFunc("POST /api/posts/{slug}", s.withAuth(s.savePost))
+	mux.HandleFunc("DELETE /api/posts/{slug}", s.withAuth(s.deletePost))
 	mux.HandleFunc("GET /api/posts/{slug}/cover", s.withAuth(s.getCover))
 	mux.HandleFunc("POST /api/posts/{slug}/cover", s.withAuth(s.uploadCover))
 	mux.HandleFunc("DELETE /api/posts/{slug}/cover", s.withAuth(s.deleteCover))
@@ -547,6 +548,41 @@ func (s *Server) savePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, newPostResponse(saved, true))
+}
+
+func (s *Server) deletePost(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	repo, err := s.repository()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	if err := repo.DeletePost(slug); err != nil {
+		s.writeContentError(w, err)
+		return
+	}
+
+	cfg, err := s.loadConfig()
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	paths, err := configuredSitePaths(cfg)
+	if err != nil {
+		s.writeConfigPathError(w, err)
+		return
+	}
+	if err := rendering.RemovePostOutput(paths.publicDir, slug); err != nil {
+		s.writeRenderError(w, err)
+		return
+	}
+
+	result, err := s.renderAll()
+	if err != nil {
+		s.writeRenderError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, renderSiteResponse{Posts: result.Posts, Site: result.Site})
 }
 
 func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {

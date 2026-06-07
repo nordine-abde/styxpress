@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { apiRequest } from '../api/client'
+import { useDeployStore } from './deploy'
 import { useUiStore } from './ui'
 
 const emptyPost = {
@@ -45,6 +46,7 @@ export const usePostsStore = defineStore('posts', () => {
     const postSetupOpen = ref(false)
     const loading = ref(false)
     const saving = ref(false)
+    const deleting = ref(false)
     const uploading = ref(false)
     const error = ref('')
     const isDirty = ref(false)
@@ -171,6 +173,35 @@ export const usePostsStore = defineStore('posts', () => {
         return saved
     }
 
+    async function deletePost(slug = selectedSlug.value) {
+        const uiStore = useUiStore()
+        const deployStore = useDeployStore()
+        const postSlug = typeof slug === 'string' ? slug.trim() : ''
+        if (!postSlug) {
+            return null
+        }
+        deleting.value = true
+        error.value = ''
+        try {
+            const result = await apiRequest(`/api/posts/${encodeURIComponent(postSlug)}`, {
+                method: 'DELETE'
+            })
+            if (selectedSlug.value === postSlug) {
+                clearSelection()
+            }
+            await loadPosts()
+            deployStore.applyBuildResult(result)
+            uiStore.setNotice('Post deleted.')
+            return result
+        } catch (err) {
+            error.value = err.message
+            uiStore.captureError(err)
+            throw err
+        } finally {
+            deleting.value = false
+        }
+    }
+
     async function uploadCover(file) {
         const uiStore = useUiStore()
         if (!canUploadMedia.value || !file) {
@@ -291,6 +322,7 @@ export const usePostsStore = defineStore('posts', () => {
         postSetupOpen,
         loading,
         saving,
+        deleting,
         uploading,
         error,
         isDirty,
@@ -304,6 +336,7 @@ export const usePostsStore = defineStore('posts', () => {
         discardDraftChanges,
         reset,
         saveDraft,
+        deletePost,
         createPreparedPost,
         uploadCover,
         deleteCover,

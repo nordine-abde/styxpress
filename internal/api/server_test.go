@@ -597,6 +597,74 @@ func TestRenderAndPublishEndpointsUseLocalOutput(t *testing.T) {
 	}
 }
 
+func TestDeletePostRemovesContentAndPublicOutput(t *testing.T) {
+	server, contentDir, publicDir := newTestServer(t)
+	repo := content.NewRepository(contentDir)
+	publishedAt := mustTime(t, "2026-04-01T09:30:00Z")
+	writePost(t, repo, content.Post{
+		Slug:        "alpha",
+		Title:       "Alpha",
+		Source:      "# Alpha",
+		PublishedAt: publishedAt,
+		UpdatedAt:   publishedAt,
+	})
+	writePost(t, repo, content.Post{
+		Slug:        "bravo",
+		Title:       "Bravo",
+		Source:      "# Bravo",
+		PublishedAt: publishedAt.Add(time.Hour),
+		UpdatedAt:   publishedAt.Add(time.Hour),
+	})
+
+	renderSite := authedRequest(t, server, http.MethodPost, "/api/site/render", `{}`)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, renderSite)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("render status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	assertFileExists(t, filepath.Join(publicDir, "posts", "alpha", "index.html"))
+
+	deletePost := authedRequest(t, server, http.MethodDelete, "/api/posts/alpha", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, deletePost)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("delete status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var deleteBody renderSiteResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &deleteBody); err != nil {
+		t.Fatalf("decode delete response: %v", err)
+	}
+	if len(deleteBody.Posts) != 1 || deleteBody.Posts[0].Slug != "bravo" {
+		t.Fatalf("delete response posts = %#v, want only bravo", deleteBody.Posts)
+	}
+	assertPathMissing(t, filepath.Join(contentDir, "posts", "alpha"))
+	assertPathMissing(t, filepath.Join(publicDir, "posts", "alpha"))
+	assertFileOmits(t, filepath.Join(publicDir, "index.html"), []string{"Alpha", "/posts/alpha/"})
+	assertFileOmits(t, filepath.Join(publicDir, "feed.xml"), []string{"Alpha", "/posts/alpha/"})
+	assertFileOmits(t, filepath.Join(publicDir, "sitemap.xml"), []string{"/posts/alpha/"})
+
+	list := authedRequest(t, server, http.MethodGet, "/api/posts", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, list)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var listBody postListResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(listBody.Posts) != 1 || listBody.Posts[0].Slug != "bravo" {
+		t.Fatalf("list posts = %#v, want only bravo", listBody.Posts)
+	}
+
+	missingDelete := authedRequest(t, server, http.MethodDelete, "/api/posts/alpha", "")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, missingDelete)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("missing delete status = %d, body = %s; want 404", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestInvalidConfiguredPathReturnsBadRequest(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.toml")
@@ -774,6 +842,26 @@ func assertFileExists(t *testing.T, path string) {
 	}
 	if info.IsDir() {
 		t.Fatalf("%q is a directory, want file", path)
+	}
+}
+
+func assertPathMissing(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected %s to be missing, stat err: %v", path, err)
+	}
+}
+
+func assertFileOmits(t *testing.T, path string, values []string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	for _, value := range values {
+		if strings.Contains(string(data), value) {
+			t.Fatalf("did not expect %q in %s:\n%s", value, path, string(data))
+		}
 	}
 }
 

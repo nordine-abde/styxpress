@@ -494,6 +494,13 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 	if err := os.WriteFile(staleDraftPath, []byte("stale draft"), 0o644); err != nil {
 		t.Fatalf("write stale draft output: %v", err)
 	}
+	staleDeletedPath := filepath.Join(publicRoot, "posts", "deleted-post", "index.html")
+	if err := os.MkdirAll(filepath.Dir(staleDeletedPath), 0o755); err != nil {
+		t.Fatalf("make stale deleted dir: %v", err)
+	}
+	if err := os.WriteFile(staleDeletedPath, []byte("stale deleted"), 0o644); err != nil {
+		t.Fatalf("write stale deleted output: %v", err)
+	}
 
 	renderer, err := New(contentRoot, publicRoot)
 	if err != nil {
@@ -530,6 +537,7 @@ func TestRenderSiteWritesHomepageFeedAndSitemap(t *testing.T) {
 	})
 	assertFileOmits(t, result.SitemapPath, []string{`draft-post`})
 	assertMissing(t, staleDraftPath)
+	assertMissing(t, staleDeletedPath)
 }
 
 func TestRenderUsesSiteConfigHeaderFooterAndStylesheet(t *testing.T) {

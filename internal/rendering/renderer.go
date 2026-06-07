@@ -200,6 +200,17 @@ func New(contentRoot string, publicRoot string) (*Renderer, error) {
 	}, nil
 }
 
+func RemovePostOutput(publicRoot string, slug string) error {
+	if err := content.ValidateSlug(slug); err != nil {
+		return err
+	}
+	publicRoot, err := localpath.CleanRequired(publicRoot)
+	if err != nil {
+		return fmt.Errorf("%w: public root: %v", ErrInvalidRenderConfig, err)
+	}
+	return removePostOutput(publicRoot, slug)
+}
+
 func (r *Renderer) RenderSite() (SiteResult, error) {
 	posts, err := r.homepagePosts(true)
 	if err != nil {
@@ -255,7 +266,7 @@ func (r *Renderer) RenderAll() (AllResult, error) {
 	if err != nil {
 		return AllResult{}, err
 	}
-	if err := r.removeUnpublishedPostOutput(allPosts); err != nil {
+	if err := r.reconcilePostOutput(allPosts); err != nil {
 		return AllResult{}, err
 	}
 	posts, err := repo.ListPublishedPosts()
@@ -423,7 +434,7 @@ func (r *Renderer) homepagePosts(cleanupOutput bool) ([]content.Post, error) {
 		return nil, err
 	}
 	if cleanupOutput {
-		if err := r.removeUnpublishedPostOutput(allPosts); err != nil {
+		if err := r.reconcilePostOutput(allPosts); err != nil {
 			return nil, err
 		}
 	}
@@ -494,16 +505,42 @@ func (r *Renderer) renderSitemap(posts []content.Post) ([]byte, error) {
 	return append([]byte(xml.Header), data...), nil
 }
 
-func (r *Renderer) removeUnpublishedPostOutput(posts []content.Post) error {
+func (r *Renderer) reconcilePostOutput(posts []content.Post) error {
+	published := make(map[string]bool, len(posts))
 	for _, post := range posts {
 		if post.IsPublished() {
+			published[post.Slug] = true
+		}
+	}
+
+	postsRoot := filepath.Join(r.publicRoot, postsDirName)
+	entries, err := readDirectoryNoSymlink(r.publicRoot, postsRoot, ErrUnsafeAsset)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if published[entry.Name()] {
 			continue
 		}
-		if err := removeAllNoSymlink(r.publicRoot, filepath.Join(r.publicRoot, postsDirName, post.Slug), ErrUnsafeAsset); err != nil {
+		if err := removeAllNoSymlink(r.publicRoot, filepath.Join(postsRoot, entry.Name()), ErrUnsafeAsset); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func removePostOutput(publicRoot string, slug string) error {
+	postsRoot := filepath.Join(publicRoot, postsDirName)
+	if err := requireDirectoryNoSymlink(publicRoot, postsRoot, ErrUnsafeAsset); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return removeAllNoSymlink(publicRoot, filepath.Join(postsRoot, slug), ErrUnsafeAsset)
 }
 
 func (r *Renderer) summarizePosts(posts []content.Post, absolute bool) []postSummary {

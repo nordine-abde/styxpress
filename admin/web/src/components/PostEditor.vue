@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue'
+import ConfirmPrompt from './ui/ConfirmPrompt.vue'
 import DeployPanel from './DeployPanel.vue'
 import FileField from './ui/FileField.vue'
 import PostAssetPanel from './PostAssetPanel.vue'
@@ -16,7 +17,7 @@ const editorMode = ref('compose')
 const sourceInput = ref(null)
 const visualEditor = ref(null)
 
-const saving = computed(() => postsStore.saving || buildStore.publishing)
+const saving = computed(() => postsStore.saving || postsStore.deleting || buildStore.publishing)
 const modeLabel = computed(() => editorMode.value === 'markdown' ? 'Markdown' : 'Content')
 
 async function importMarkdown(file) {
@@ -32,6 +33,10 @@ async function importMarkdown(file) {
 async function saveAndRenderPost() {
     const saved = await postsStore.saveDraft()
     await buildStore.publishPost(saved.slug)
+}
+
+async function deletePost() {
+    await postsStore.deletePost(postsStore.selectedSlug)
 }
 
 function backToList() {
@@ -108,9 +113,18 @@ function encodeMarkdownPath(path) {
             <UiPanel title="Post">
                 <div class="field-grid">
                     <div class="editor-actions">
-                        <UiButton tone="ghost" @click="backToList">
-                            Back to posts
-                        </UiButton>
+                        <div class="editor-actions-left">
+                            <UiButton tone="ghost" @click="backToList">
+                                Back to posts
+                            </UiButton>
+                            <ConfirmPrompt
+                                v-if="postsStore.selectedSlug"
+                                label="Delete"
+                                confirm-label="Delete post"
+                                :disabled="saving || postsStore.deleting"
+                                @confirm="deletePost"
+                            />
+                        </div>
                         <div class="editor-actions-right">
                             <div class="mode-switch" aria-label="Editor mode">
                                 <UiButton
@@ -206,6 +220,7 @@ function encodeMarkdownPath(path) {
     justify-content: space-between;
 }
 
+.editor-actions-left,
 .editor-actions-right {
     display: flex;
     flex-wrap: wrap;

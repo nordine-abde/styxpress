@@ -92,6 +92,37 @@ func TestRepositoryCreatePostRejectsExistingDirectory(t *testing.T) {
 	}
 }
 
+func TestRepositoryDeletePostRemovesPostDirectory(t *testing.T) {
+	root := t.TempDir()
+	repo := NewRepository(root)
+	if _, err := repo.WritePost(Post{
+		Slug:   "hello-world",
+		Title:  "Hello World",
+		Source: "Body",
+	}, WritePostOptions{Now: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatalf("WritePost returned error: %v", err)
+	}
+	if err := repo.WriteCover("hello-world", "cover.jpg", strings.NewReader("cover")); err != nil {
+		t.Fatalf("WriteCover returned error: %v", err)
+	}
+	if err := repo.WriteAsset("hello-world", "gallery/image.jpg", strings.NewReader("image")); err != nil {
+		t.Fatalf("WriteAsset returned error: %v", err)
+	}
+
+	if err := repo.DeletePost("hello-world"); err != nil {
+		t.Fatalf("DeletePost returned error: %v", err)
+	}
+	if _, err := repo.LoadPost("hello-world"); !errors.Is(err, ErrPostNotFound) {
+		t.Fatalf("LoadPost after delete error = %v, want ErrPostNotFound", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "posts", "hello-world")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deleted post dir stat error = %v, want not exist", err)
+	}
+	if err := repo.DeletePost("hello-world"); !errors.Is(err, ErrPostNotFound) {
+		t.Fatalf("second DeletePost error = %v, want ErrPostNotFound", err)
+	}
+}
+
 func TestRepositoryRejectsInvalidPostMetadata(t *testing.T) {
 	repo := NewRepository(t.TempDir())
 
@@ -323,6 +354,38 @@ func TestRepositoryRejectsSymlinkedPostsParentForPostWrites(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outside, "hello-world", "source.md")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("outside source stat error = %v, want not exist", err)
+	}
+}
+
+func TestRepositoryRejectsSymlinkedPostForDelete(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	postsDir := filepath.Join(root, "posts")
+	if err := os.MkdirAll(postsDir, directoryMode); err != nil {
+		t.Fatalf("MkdirAll posts returned error: %v", err)
+	}
+	outsidePost := filepath.Join(outside, "hello-world")
+	if err := os.MkdirAll(outsidePost, directoryMode); err != nil {
+		t.Fatalf("MkdirAll outside post returned error: %v", err)
+	}
+	outsideFile := filepath.Join(outsidePost, "source.md")
+	if err := os.WriteFile(outsideFile, []byte("keep"), fileMode); err != nil {
+		t.Fatalf("WriteFile outside source returned error: %v", err)
+	}
+	if err := os.Symlink(outsidePost, filepath.Join(postsDir, "hello-world")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	repo := NewRepository(root)
+	if err := repo.DeletePost("hello-world"); !errors.Is(err, ErrInvalidPost) {
+		t.Fatalf("DeletePost symlinked post error = %v, want ErrInvalidPost", err)
+	}
+	data, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatalf("ReadFile outside source returned error: %v", err)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("outside source = %q, want keep", data)
 	}
 }
 
