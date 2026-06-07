@@ -1,4 +1,8 @@
 <script setup>
+defineOptions({
+    inheritAttrs: false
+})
+
 defineProps({
     label: {
         type: String,
@@ -38,6 +42,7 @@ defineEmits(['update:modelValue'])
         <span>{{ label }}</span>
         <textarea
             v-if="multiline"
+            v-bind="$attrs"
             :value="modelValue"
             :rows="rows"
             :placeholder="placeholder"
@@ -45,6 +50,7 @@ defineEmits(['update:modelValue'])
         ></textarea>
         <input
             v-else
+            v-bind="$attrs"
             :type="type"
             :value="modelValue"
             :placeholder="placeholder"

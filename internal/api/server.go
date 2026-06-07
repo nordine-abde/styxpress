@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"log"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -29,9 +31,10 @@ import (
 const SessionHeader = "X-Styxpress-Session"
 
 const (
-	maxUploadBytes      = 64 << 20
-	siteAssetFileMode   = 0o644
-	siteAssetFolderMode = 0o755
+	maxUploadBytes       = 64 << 20
+	siteAssetFileMode    = 0o644
+	siteAssetFolderMode  = 0o755
+	deployRequestTimeout = 2 * time.Minute
 )
 
 type Server struct {
@@ -813,13 +816,15 @@ func (s *Server) setupDeploy(w http.ResponseWriter, r *http.Request) {
 		s.writeConfigPathError(w, err)
 		return
 	}
+	deployCtx, cancelDeploy := deployRequestContext(r)
+	defer cancelDeploy()
 	if req.Secret != "" {
-		if err := deploypkg.VerifySecret(r.Context(), deployConfig); err != nil {
+		if err := deploypkg.VerifySecret(deployCtx, deployConfig); err != nil {
 			s.writeDeployError(w, err)
 			return
 		}
 	}
-	inspection, err := deploypkg.Inspect(r.Context(), deployConfig)
+	inspection, err := deploypkg.Inspect(deployCtx, deployConfig)
 	if err != nil {
 		s.writeDeployError(w, err)
 		return
@@ -848,7 +853,7 @@ func (s *Server) setupDeploy(w http.ResponseWriter, r *http.Request) {
 	if req.Secret != "" {
 		s.setDeploySecret(req.Secret)
 	}
-	summary, err := deploypkg.Sync(r.Context(), paths.publicDir, deployConfig)
+	summary, err := deploypkg.Sync(deployCtx, paths.publicDir, deployConfig)
 	if err != nil {
 		s.writeDeployError(w, err)
 		return
@@ -932,7 +937,9 @@ func (s *Server) saveDeploySecret(w http.ResponseWriter, r *http.Request) {
 		s.writeConfigPathError(w, err)
 		return
 	}
-	if err := deploypkg.VerifySecret(r.Context(), deployConfig); err != nil {
+	deployCtx, cancelDeploy := deployRequestContext(r)
+	defer cancelDeploy()
+	if err := deploypkg.VerifySecret(deployCtx, deployConfig); err != nil {
 		s.writeDeployError(w, err)
 		return
 	}
@@ -966,7 +973,9 @@ func (s *Server) deployNow(w http.ResponseWriter, r *http.Request) {
 		s.writeConfigPathError(w, err)
 		return
 	}
-	summary, err := deploypkg.Sync(r.Context(), paths.publicDir, deployConfig)
+	deployCtx, cancelDeploy := deployRequestContext(r)
+	defer cancelDeploy()
+	summary, err := deploypkg.Sync(deployCtx, paths.publicDir, deployConfig)
 	if err != nil {
 		s.writeDeployError(w, err)
 		return
@@ -1152,6 +1161,10 @@ func deploySetupRequired(current config.Config, next config.Config) bool {
 	return next.Deploy.Enabled && deployConfigured(next) && !deployConfigured(current)
 }
 
+func deployRequestContext(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(r.Context(), deployRequestTimeout)
+}
+
 func (s *Server) loadConfig() (config.Config, error) {
 	if s.siteStore != nil {
 		site, err := s.siteStore.Active()
@@ -1288,12 +1301,22 @@ func (s *Server) writeRenderError(w http.ResponseWriter, err error) {
 
 func (s *Server) writeDeployError(w http.ResponseWriter, err error) {
 	switch {
+	case isTimeoutError(err):
+		WriteError(w, http.StatusGatewayTimeout, "deploy_timeout", "SFTP operation timed out")
 	case errors.Is(err, ErrInvalidLocalPath), errors.Is(err, config.ErrInvalidConfig), errors.Is(err, deploypkg.ErrInvalidConfig):
 		WriteError(w, http.StatusBadRequest, "invalid_deploy_config", err.Error())
 	default:
 		s.logger.Printf("deploy error: %v", err)
 		WriteError(w, http.StatusBadGateway, "deploy_failed", err.Error())
 	}
+}
+
+func isTimeoutError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 var ErrInvalidLocalPath = errors.New("invalid local path")

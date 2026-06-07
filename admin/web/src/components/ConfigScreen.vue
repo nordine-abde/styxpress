@@ -17,6 +17,7 @@ const form = reactive(cloneConfig(configStore.config))
 const deploySecret = ref('')
 const showKeyInput = ref(false)
 const setupWarning = ref(null)
+const operationError = ref('')
 
 const savedKeyPath = computed(() => configStore.config?.deploy?.sftp?.keyPath?.trim() || '')
 const keyInputHidden = computed(() => (
@@ -33,6 +34,7 @@ watch(
         Object.assign(form, cloneConfig(value))
         deploySecret.value = ''
         setupWarning.value = null
+        operationError.value = ''
         showKeyInput.value = !value?.deploy?.sftp?.keyPath
     },
     { deep: true, immediate: true }
@@ -48,23 +50,28 @@ async function confirmRemoteOverwrite() {
 
 async function persistConfig(confirmRemoteOverwrite) {
     setupWarning.value = null
+    operationError.value = ''
     const nextConfig = cloneConfig(form)
-    if (requiresDeploySetup(nextConfig)) {
-        const payload = await configStore.setupDeployConfig(nextConfig, {
-            secret: deploySecret.value,
-            confirmRemoteOverwrite
-        })
-        if (payload?.requiresConfirmation) {
-            setupWarning.value = payload
-            return
+    try {
+        if (requiresDeploySetup(nextConfig)) {
+            const payload = await configStore.setupDeployConfig(nextConfig, {
+                secret: deploySecret.value,
+                confirmRemoteOverwrite
+            })
+            if (payload?.requiresConfirmation) {
+                setupWarning.value = payload
+                return
+            }
+            deploySecret.value = ''
+        } else {
+            await configStore.saveConfig(nextConfig)
         }
-        deploySecret.value = ''
-    } else {
-        await configStore.saveConfig(nextConfig)
-    }
-    await siteWorkspaceStore.loadCurrentSite({ force: true })
-    if (deployStore.enabled && deployStore.status.configured) {
-        await deployStore.refreshStatus({ quiet: true }).catch(() => {})
+        await siteWorkspaceStore.loadCurrentSite({ force: true })
+        if (deployStore.enabled && deployStore.status.configured) {
+            await deployStore.refreshStatus({ quiet: true }).catch(() => {})
+        }
+    } catch (err) {
+        operationError.value = err?.message || 'Configuration could not be saved.'
     }
 }
 
@@ -171,6 +178,7 @@ function requiresDeploySetup(value) {
                                 v-model="deploySecret"
                                 type="password"
                                 label="Password or key passphrase"
+                                autocomplete="current-password"
                                 help="Optional when ssh-agent or an unencrypted key can authenticate. If provided, it must pass an SSH test before saving."
                             />
 
@@ -198,6 +206,12 @@ function requiresDeploySetup(value) {
                         Reload
                     </UiButton>
                 </div>
+                <p v-if="configStore.saving && firstDeploySetup" class="progress-text">
+                    Testing SFTP connection...
+                </p>
+                <p v-if="operationError" class="form-error" role="alert">
+                    {{ operationError }}
+                </p>
             </form>
         </UiPanel>
 
@@ -260,5 +274,21 @@ h3 {
     flex-wrap: wrap;
     gap: 0.55rem;
     align-items: center;
+}
+
+.progress-text,
+.form-error {
+    margin: 0;
+    font-size: 0.86rem;
+}
+
+.progress-text {
+    color: var(--color-muted);
+}
+
+.form-error {
+    color: var(--color-danger);
+    font-weight: 700;
+    overflow-wrap: anywhere;
 }
 </style>

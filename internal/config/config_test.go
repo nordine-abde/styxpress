@@ -206,17 +206,28 @@ func TestLoadRejectsRemovedDeployMode(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsRemovedSFTPDeleteExtra(t *testing.T) {
+func TestLoadDropsRemovedSFTPDeleteExtra(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "styxpress", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(path), directoryPermission); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(path, []byte("sftp_delete_extra = true\n"), filePermission); err != nil {
+	if err := os.WriteFile(path, []byte("content_dir = \"content\"\npublic_dir = \"public\"\nsftp_delete_extra = true\n"), filePermission); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if _, err := Load(path); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("Load error = %v, want ErrInvalidConfig", err)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if strings.Contains(string(data), "sftp_delete_extra") {
+		t.Fatalf("saved config contains removed key:\n%s", data)
 	}
 }
 
@@ -247,6 +258,29 @@ func TestSiteStoreMigratesLegacyConfig(t *testing.T) {
 	}
 	if sites[0].Config.ContentDir != legacy.ContentDir || sites[0].Config.PublicDir != legacy.PublicDir {
 		t.Fatalf("site config = %#v, want legacy local paths", sites[0].Config)
+	}
+}
+
+func TestSiteStoreMigratesLegacyConfigWithRemovedSFTPDeleteExtra(t *testing.T) {
+	root := t.TempDir()
+	legacyPath := filepath.Join(root, configFileName)
+	if err := os.WriteFile(legacyPath, []byte("name = \"Legacy site\"\ncontent_dir = \"/tmp/legacy-content\"\npublic_dir = \"/tmp/legacy-public\"\nsftp_delete_extra = true\n"), filePermission); err != nil {
+		t.Fatalf("WriteFile legacy config: %v", err)
+	}
+
+	store := NewSiteStore(root)
+	sites, activeID, err := store.List()
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if activeID != defaultSiteID {
+		t.Fatalf("activeID = %q, want %q", activeID, defaultSiteID)
+	}
+	if len(sites) != 1 {
+		t.Fatalf("sites len = %d, want 1", len(sites))
+	}
+	if sites[0].Config.Deploy.Enabled {
+		t.Fatalf("site config = %#v, want deploy disabled", sites[0].Config)
 	}
 }
 

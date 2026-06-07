@@ -80,6 +80,7 @@ type plan struct {
 }
 
 type client struct {
+	conn net.Conn
 	ssh  *ssh.Client
 	sftp *sftp.Client
 }
@@ -296,6 +297,9 @@ func connectWithMethods(ctx context.Context, cfg Config, methods []ssh.AuthMetho
 	if err != nil {
 		return nil, err
 	}
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = rawConn.SetDeadline(deadline)
+	}
 	sshConn, chans, reqs, err := ssh.NewClientConn(rawConn, addr, &ssh.ClientConfig{
 		User:            cfg.User,
 		Auth:            methods,
@@ -312,12 +316,13 @@ func connectWithMethods(ctx context.Context, cfg Config, methods []ssh.AuthMetho
 		_ = sshClient.Close()
 		return nil, err
 	}
-	return &client{ssh: sshClient, sftp: sftpClient}, nil
+	return &client{conn: rawConn, ssh: sshClient, sftp: sftpClient}, nil
 }
 
 func (c *client) close() {
 	_ = c.sftp.Close()
 	_ = c.ssh.Close()
+	_ = c.conn.Close()
 }
 
 func authMethods(cfg Config) ([]ssh.AuthMethod, func(), error) {

@@ -1,0 +1,16 @@
+name: styxpress-sftp-test
+
+services:
+  sftp:
+    build:
+      context: ./docker/sftp-test
+    container_name: styxpress-sftp-test
+    environment:
+      STYXPRESS_SFTP_PASSWORD: ${STYXPRESS_SFTP_PASSWORD:-correct-pass}
+      STYXPRESS_SFTP_REMOTE_PATH: /home/deploy/public_html
+      STYXPRESS_SFTP_RESET_REMOTE: "1"
+      STYXPRESS_SFTP_SEED_REMOTE: "1"
+    ports:
+      - "127.0.0.1:${STYXPRESS_SFTP_TEST_PORT:-2222}:22"
+    volumes:
+      - ./.styxpress-test/sftp/home:/home/deploy

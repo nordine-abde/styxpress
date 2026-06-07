@@ -91,6 +91,7 @@ onMounted(() => {
                     v-model="secret"
                     type="password"
                     label="Password / passphrase"
+                    autocomplete="current-password"
                     placeholder="Only kept in this server session"
                 />
                 <div class="button-row">

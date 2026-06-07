@@ -303,6 +303,11 @@ func decode(r io.Reader, cfg *Config) error {
 				return err
 			}
 			cfg.Deploy.SFTP.KnownHostsPath = value
+		case "sftp_delete_extra":
+			// Removed before beta: tolerate stale local config files so saving rewrites them cleanly.
+			if _, err := strconv.ParseBool(rawValue); err != nil {
+				return fmt.Errorf("%w: line %d value must be true or false", ErrInvalidConfig, lineNumber)
+			}
 		default:
 			return fmt.Errorf("%w: unknown key %q", ErrInvalidConfig, key)
 		}
