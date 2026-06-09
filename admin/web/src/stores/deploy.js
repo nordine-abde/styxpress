@@ -70,7 +70,7 @@ export const useDeployStore = defineStore('deploy', () => {
         }
     }
 
-    async function deployNow() {
+    async function deployNow(options = {}) {
         const uiStore = useUiStore()
         deploying.value = true
         error.value = ''
@@ -87,8 +87,11 @@ export const useDeployStore = defineStore('deploy', () => {
             uiStore.setNotice('Deploy completed.')
             return summary
         } catch (err) {
-            error.value = err.message
-            uiStore.captureError(err)
+            const quietSecretError = options.quietSecretError && isSecretRequiredError(err)
+            error.value = quietSecretError ? '' : err.message
+            if (!quietSecretError) {
+                uiStore.captureError(err)
+            }
             throw err
         } finally {
             deploying.value = false
@@ -199,3 +202,14 @@ export const useDeployStore = defineStore('deploy', () => {
         reset
     }
 })
+
+function isSecretRequiredError(err) {
+    if (err?.code !== 'invalid_deploy_config') {
+        return false
+    }
+    const message = String(err?.message || '').toLowerCase()
+    return message.includes('password') ||
+        message.includes('passphrase') ||
+        message.includes('encrypted private key') ||
+        message.includes('ssh-agent')
+}

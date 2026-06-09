@@ -1,6 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
-import DeployPanel from './DeployPanel.vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import UiBadge from './ui/UiBadge.vue'
 import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
@@ -9,15 +8,18 @@ import UiSwitch from './ui/UiSwitch.vue'
 import { useConfigStore } from '../stores/config'
 import { useDeployStore } from '../stores/deploy'
 import { useSiteWorkspaceStore } from '../stores/siteWorkspace'
+import { useUiStore } from '../stores/ui'
 
 const configStore = useConfigStore()
 const deployStore = useDeployStore()
 const siteWorkspaceStore = useSiteWorkspaceStore()
+const uiStore = useUiStore()
 const form = reactive(cloneConfig(configStore.config))
 const deploySecret = ref('')
 const showKeyInput = ref(false)
 const setupWarning = ref(null)
 const operationError = ref('')
+const savedSnapshot = ref(snapshotConfig(form))
 
 const savedKeyPath = computed(() => configStore.config?.deploy?.sftp?.keyPath?.trim() || '')
 const keyInputHidden = computed(() => (
@@ -26,12 +28,15 @@ const keyInputHidden = computed(() => (
     form.deploy.sftp.keyPath === savedKeyPath.value
 ))
 const firstDeploySetup = computed(() => requiresDeploySetup(form))
-const saveLabel = computed(() => (firstDeploySetup.value ? 'Test and save config' : 'Save config'))
+const saveBusy = computed(() => configStore.saving || siteWorkspaceStore.loading)
+const configDirty = computed(() => snapshotConfig(form) !== savedSnapshot.value)
 
 watch(
     () => configStore.config,
     (value) => {
-        Object.assign(form, cloneConfig(value))
+        const cloned = cloneConfig(value)
+        Object.assign(form, cloned)
+        savedSnapshot.value = snapshotConfig(cloned)
         deploySecret.value = ''
         setupWarning.value = null
         operationError.value = ''
@@ -70,6 +75,9 @@ async function persistConfig(confirmRemoteOverwrite) {
         if (deployStore.enabled && deployStore.status.configured) {
             await deployStore.refreshStatus({ quiet: true }).catch(() => {})
         }
+        const savedConfig = cloneConfig(configStore.config)
+        Object.assign(form, savedConfig)
+        savedSnapshot.value = snapshotConfig(savedConfig)
     } catch (err) {
         operationError.value = err?.message || 'Configuration could not be saved.'
     }
@@ -81,6 +89,10 @@ async function reload() {
 
 function cloneConfig(value) {
     return JSON.parse(JSON.stringify(value))
+}
+
+function snapshotConfig(value) {
+    return JSON.stringify(cloneConfig(value))
 }
 
 function changeKey() {
@@ -104,6 +116,19 @@ function deployConfigured(value) {
 function requiresDeploySetup(value) {
     return value?.deploy?.enabled === true && deployConfigured(value) && !deployConfigured(configStore.config)
 }
+
+onMounted(() => {
+    uiStore.registerHeaderSaveAction('config', {
+        isAvailable: () => true,
+        isDirty: () => configDirty.value,
+        isBusy: () => saveBusy.value,
+        run: save
+    })
+})
+
+onBeforeUnmount(() => {
+    uiStore.unregisterHeaderSaveAction('config')
+})
 </script>
 
 <template>
@@ -199,9 +224,6 @@ function requiresDeploySetup(value) {
                 </section>
 
                 <div class="button-row">
-                    <UiButton tone="primary" type="submit" :busy="configStore.saving || siteWorkspaceStore.loading">
-                        {{ saveLabel }}
-                    </UiButton>
                     <UiButton tone="ghost" :busy="configStore.loading" @click="reload">
                         Reload
                     </UiButton>
@@ -214,8 +236,6 @@ function requiresDeploySetup(value) {
                 </p>
             </form>
         </UiPanel>
-
-        <DeployPanel />
     </div>
 </template>
 

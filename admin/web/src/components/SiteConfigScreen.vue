@@ -1,18 +1,17 @@
 <script setup>
-import { computed, onBeforeUnmount, reactive, watch } from 'vue'
-import DeployPanel from './DeployPanel.vue'
+import { computed, onBeforeUnmount, onMounted, reactive, watch } from 'vue'
 import SiteFaviconEditor from './SiteFaviconEditor.vue'
 import SiteLinkEditor from './SiteLinkEditor.vue'
-import UiBadge from './ui/UiBadge.vue'
-import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
 import UiSwitch from './ui/UiSwitch.vue'
 import { cloneDefault, mergeConfig, useSiteConfigStore } from '../stores/siteConfig'
 import { useBuildStore } from '../stores/build'
+import { useUiStore } from '../stores/ui'
 
 const siteConfigStore = useSiteConfigStore()
 const buildStore = useBuildStore()
+const uiStore = useUiStore()
 const form = reactive(cloneDefault())
 const saving = computed(() => siteConfigStore.saving || siteConfigStore.faviconUploading || buildStore.rendering)
 let savedSnapshot = snapshotConfig(form)
@@ -93,6 +92,16 @@ onBeforeUnmount(() => {
     if (previewTimer) {
         window.clearTimeout(previewTimer)
     }
+    uiStore.unregisterHeaderSaveAction('site-config')
+})
+
+onMounted(() => {
+    uiStore.registerHeaderSaveAction('site-config', {
+        isAvailable: () => true,
+        isDirty: () => siteConfigStore.isDirty,
+        isBusy: () => saving.value,
+        run: saveAndRender
+    })
 })
 </script>
 
@@ -100,15 +109,6 @@ onBeforeUnmount(() => {
     <div class="site-config-layout">
         <section class="site-config-main">
             <form class="site-config-form" @submit.prevent="saveAndRender">
-                <div class="site-config-toolbar">
-                    <UiBadge :tone="siteConfigStore.isDirty ? 'warning' : 'success'">
-                        {{ siteConfigStore.isDirty ? 'Unsaved changes' : 'Saved' }}
-                    </UiBadge>
-                    <UiButton tone="primary" type="submit" :busy="saving">
-                        Save
-                    </UiButton>
-                </div>
-
                 <UiPanel title="Site">
                     <div class="field-grid">
                         <div class="two-column">
@@ -181,8 +181,6 @@ onBeforeUnmount(() => {
                     </p>
                 </div>
             </UiPanel>
-
-            <DeployPanel compact />
         </aside>
     </div>
 </template>
@@ -200,14 +198,6 @@ onBeforeUnmount(() => {
 .result {
     display: grid;
     gap: 1rem;
-}
-
-.site-config-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: center;
-    justify-content: flex-end;
 }
 
 .preview-frame {

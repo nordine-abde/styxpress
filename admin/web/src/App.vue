@@ -9,10 +9,12 @@ import SiteConfigScreen from './components/SiteConfigScreen.vue'
 import SiteListScreen from './components/SiteListScreen.vue'
 import UiButton from './components/ui/UiButton.vue'
 import UiBadge from './components/ui/UiBadge.vue'
+import UiField from './components/ui/UiField.vue'
 import styxpressMarkUrl from './assets/styxpress-mark.png'
 import { useAuthStore } from './stores/auth'
 import { useBuildStore } from './stores/build'
 import { useConfigStore } from './stores/config'
+import { useDeployStore } from './stores/deploy'
 import { usePostsStore } from './stores/posts'
 import { useSiteConfigStore } from './stores/siteConfig'
 import { useSiteWorkspaceStore } from './stores/siteWorkspace'
@@ -21,11 +23,14 @@ import { useUiStore } from './stores/ui'
 const authStore = useAuthStore()
 const buildStore = useBuildStore()
 const configStore = useConfigStore()
+const deployStore = useDeployStore()
 const postsStore = usePostsStore()
 const siteConfigStore = useSiteConfigStore()
 const siteWorkspaceStore = useSiteWorkspaceStore()
 const uiStore = useUiStore()
 const sidebarOpen = ref(true)
+const deploySecret = ref('')
+const deploySecretOpen = ref(false)
 
 const activeLabel = computed(() => {
     if (uiStore.activeView === 'sites') {
@@ -44,7 +49,41 @@ const activeSiteName = computed(() => {
     return configStore.activeSite?.name || configStore.config.name || 'Configured site'
 })
 
-const hasUnsavedChanges = computed(() => siteConfigStore.isDirty || postsStore.isDirty)
+const saveAction = computed(() => uiStore.headerSaveAction)
+const saveAvailable = computed(() => {
+    const action = saveAction.value
+    return Boolean(action?.run) && action?.isAvailable?.() !== false
+})
+const headerSaving = computed(() => Boolean(saveAction.value?.isBusy?.()))
+const localChangesToSave = computed(() => {
+    return Boolean(saveAction.value?.isDirty?.()) || siteConfigStore.isDirty || postsStore.isDirty
+})
+const hasUnsavedChanges = computed(() => localChangesToSave.value)
+const localSaveLabel = computed(() => (
+    localChangesToSave.value ? 'Local changes to save' : 'No local changes to save'
+))
+const deployStatusLabel = computed(() => {
+    if (!deployStore.enabled || !deployStore.status.configured) {
+        return 'Deploy not configured'
+    }
+    return deployStore.status.outOfSync ? 'Saved changes to deploy' : 'No saved changes to deploy'
+})
+const deployStatusTone = computed(() => {
+    if (!deployStore.enabled || !deployStore.status.configured) {
+        return 'neutral'
+    }
+    return deployStore.status.outOfSync ? 'warning' : 'success'
+})
+const deployConfigReady = computed(() => {
+    const deploy = configStore.config?.deploy || {}
+    const sftp = deploy.sftp || {}
+    return deploy.enabled === true &&
+        Boolean(String(sftp.host || '').trim()) &&
+        Boolean(String(sftp.user || '').trim()) &&
+        Boolean(String(sftp.remotePath || '').trim())
+})
+const deployReady = computed(() => deployStore.enabled && deployStore.status.configured)
+const deployBusy = computed(() => deployStore.deploying || deployStore.savingSecret)
 
 const workspaceTitle = computed(() => {
     if (uiStore.activeView === 'posts') {
@@ -63,6 +102,7 @@ onMounted(async () => {
         return
     }
     await configStore.loadConfig()
+    refreshDeployStatus()
 })
 
 onBeforeUnmount(() => {
@@ -79,6 +119,13 @@ watch(
         if (view !== 'sites') {
             sidebarOpen.value = true
         }
+    }
+)
+
+watch(
+    () => [uiStore.activeView, deployConfigReady.value, configStore.activeSiteId],
+    () => {
+        refreshDeployStatus()
     }
 )
 
@@ -117,6 +164,75 @@ function openPostsList() {
 
 function toggleSidebar() {
     sidebarOpen.value = !sidebarOpen.value
+}
+
+async function saveFromHeader() {
+    const action = saveAction.value
+    if (!saveAvailable.value) {
+        uiStore.setNotice('Open an editable screen to save local changes.')
+        return
+    }
+    await action.run()
+}
+
+async function deployFromHeader() {
+    if (localChangesToSave.value) {
+        uiStore.setNotice('Save local changes before deploying.')
+        return
+    }
+    if (!deployReady.value) {
+        uiStore.setNotice('Configure SFTP deploy before deploying.')
+        uiStore.setActiveView('config')
+        sidebarOpen.value = true
+        return
+    }
+    deploySecretOpen.value = false
+    try {
+        await deployStore.deployNow({ quietSecretError: true })
+    } catch (err) {
+        if (deployNeedsSecret(err)) {
+            deploySecret.value = ''
+            deploySecretOpen.value = true
+            uiStore.setNotice('Enter the SFTP password or key passphrase to deploy.')
+        }
+    }
+}
+
+async function saveSecretAndDeploy() {
+    if (!deploySecret.value) {
+        return
+    }
+    try {
+        await deployStore.saveSecret(deploySecret.value)
+        deploySecret.value = ''
+        deploySecretOpen.value = false
+        await deployStore.deployNow()
+    } catch {
+        // Stores expose the verification or deploy error to the UI.
+    }
+}
+
+function cancelDeploySecret() {
+    deploySecret.value = ''
+    deploySecretOpen.value = false
+}
+
+function deployNeedsSecret(err) {
+    if (err?.code !== 'invalid_deploy_config') {
+        return false
+    }
+    const message = String(err?.message || '').toLowerCase()
+    return message.includes('password') ||
+        message.includes('passphrase') ||
+        message.includes('encrypted private key') ||
+        message.includes('ssh-agent')
+}
+
+function refreshDeployStatus() {
+    if (uiStore.activeView === 'sites' || !deployConfigReady.value) {
+        return
+    }
+    deployStore.refreshStatus({ quiet: true }).catch(() => {})
 }
 
 function handleBeforeUnload(event) {
@@ -249,15 +365,40 @@ function confirmDiscardUnsavedChanges() {
                     </span>
                     <span>{{ sidebarOpen ? 'Close' : 'Menu' }}</span>
                 </UiButton>
-                <div>
+                <div class="topbar-title">
                     <p class="eyebrow">{{ activeSiteName }}</p>
                     <h2>{{ workspaceTitle }}</h2>
                 </div>
-                <div class="status-row">
-                    <UiBadge :tone="authStore.hasToken ? 'success' : 'warning'">
-                        {{ authStore.hasToken ? 'session ready' : 'session missing' }}
-                    </UiBadge>
-                    <UiBadge>{{ postsStore.posts.length }} posts</UiBadge>
+                <div class="topbar-actions">
+                    <div class="status-row header-status">
+                        <UiBadge :tone="authStore.hasToken ? 'success' : 'warning'">
+                            {{ authStore.hasToken ? 'session ready' : 'session missing' }}
+                        </UiBadge>
+                        <UiBadge :tone="localChangesToSave ? 'warning' : 'success'">
+                            {{ localSaveLabel }}
+                        </UiBadge>
+                        <UiBadge :tone="deployStatusTone">
+                            {{ deployStatusLabel }}
+                        </UiBadge>
+                        <UiBadge>{{ postsStore.posts.length }} posts</UiBadge>
+                    </div>
+                    <div class="header-command-row">
+                        <UiButton
+                            tone="primary"
+                            :busy="headerSaving"
+                            :disabled="!saveAvailable"
+                            @click="saveFromHeader"
+                        >
+                            Save
+                        </UiButton>
+                        <UiButton
+                            tone="primary"
+                            :busy="deployBusy"
+                            @click="deployFromHeader"
+                        >
+                            Deploy
+                        </UiButton>
+                    </div>
                 </div>
             </header>
 
@@ -281,5 +422,40 @@ function confirmDiscardUnsavedChanges() {
                 <ConfigScreen />
             </section>
         </main>
+
+        <div v-if="deploySecretOpen" class="modal-backdrop" @click.self="cancelDeploySecret">
+            <section
+                class="modal-panel"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="deploy-secret-title"
+            >
+                <form class="modal-content" @submit.prevent="saveSecretAndDeploy">
+                    <div class="modal-heading">
+                        <h3 id="deploy-secret-title">Password / passphrase</h3>
+                        <p class="muted">Only kept in this server session.</p>
+                    </div>
+                    <UiField
+                        v-model="deploySecret"
+                        type="password"
+                        label="Password / passphrase"
+                        autocomplete="current-password"
+                    />
+                    <div class="modal-actions">
+                        <UiButton
+                            tone="primary"
+                            type="submit"
+                            :busy="deployStore.savingSecret || deployStore.deploying"
+                            :disabled="!deploySecret"
+                        >
+                            Verify and deploy
+                        </UiButton>
+                        <UiButton tone="ghost" @click="cancelDeploySecret">
+                            Cancel
+                        </UiButton>
+                    </div>
+                </form>
+            </section>
+        </div>
     </div>
 </template>

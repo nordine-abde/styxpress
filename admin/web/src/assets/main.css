@@ -213,6 +213,30 @@ a {
     box-shadow: 0 10px 26px rgb(89 47 15 / 9%);
 }
 
+.topbar-title {
+    flex: 1 1 14rem;
+    min-width: 0;
+}
+
+.topbar-actions {
+    display: grid;
+    gap: 0.6rem;
+    justify-items: end;
+    margin-left: auto;
+}
+
+.header-status,
+.header-command-row {
+    justify-content: flex-end;
+}
+
+.header-command-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: start;
+}
+
 .menu-button {
     flex: 0 0 auto;
 }
@@ -236,11 +260,50 @@ a {
 
 .status-row,
 .button-row,
-.inline-row {
+.inline-row,
+.modal-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
     align-items: center;
+}
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgb(21 33 31 / 42%);
+}
+
+.modal-panel {
+    width: min(100%, 26rem);
+    border: 1px solid color-mix(in srgb, var(--color-border) 78%, white);
+    border-radius: 8px;
+    background: var(--color-surface);
+    box-shadow: 0 22px 60px rgb(15 23 42 / 18%);
+}
+
+.modal-content,
+.modal-heading {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.modal-content {
+    padding: 1rem;
+}
+
+.modal-heading h3,
+.modal-heading p {
+    margin: 0;
+}
+
+.modal-heading h3 {
+    color: var(--color-heading);
+    font-size: 1rem;
 }
 
 .posts-layout,
@@ -323,6 +386,20 @@ a {
 
     .workspace {
         padding: 1.4rem;
+    }
+}
+
+@media (max-width: 760px) {
+    .topbar-actions,
+    .header-status,
+    .header-command-row {
+        justify-items: start;
+        justify-content: flex-start;
+    }
+
+    .topbar-actions {
+        width: 100%;
+        margin-left: 0;
     }
 }
 

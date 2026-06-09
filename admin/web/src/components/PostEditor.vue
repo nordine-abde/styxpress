@@ -1,7 +1,6 @@
 <script setup>
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import ConfirmPrompt from './ui/ConfirmPrompt.vue'
-import DeployPanel from './DeployPanel.vue'
 import FileField from './ui/FileField.vue'
 import PostAssetPanel from './PostAssetPanel.vue'
 import UiButton from './ui/UiButton.vue'
@@ -10,9 +9,11 @@ import UiPanel from './ui/UiPanel.vue'
 import VisualMarkdownEditor from './VisualMarkdownEditor.vue'
 import { useBuildStore } from '../stores/build'
 import { usePostsStore } from '../stores/posts'
+import { useUiStore } from '../stores/ui'
 
 const buildStore = useBuildStore()
 const postsStore = usePostsStore()
+const uiStore = useUiStore()
 const editorMode = ref('compose')
 const sourceInput = ref(null)
 const visualEditor = ref(null)
@@ -103,6 +104,19 @@ function setSource(nextSource, selectionStart, selectionEnd) {
 function encodeMarkdownPath(path) {
     return path.split('/').map((part) => encodeURIComponent(part)).join('/')
 }
+
+onMounted(() => {
+    uiStore.registerHeaderSaveAction('post-editor', {
+        isAvailable: () => true,
+        isDirty: () => postsStore.isDirty,
+        isBusy: () => saving.value,
+        run: saveAndRenderPost
+    })
+})
+
+onBeforeUnmount(() => {
+    uiStore.unregisterHeaderSaveAction('post-editor')
+})
 </script>
 
 <template>
@@ -140,9 +154,6 @@ function encodeMarkdownPath(path) {
                                     MD
                                 </UiButton>
                             </div>
-                            <UiButton tone="primary" :busy="saving" @click="saveAndRenderPost">
-                                Save
-                            </UiButton>
                         </div>
                     </div>
 
@@ -184,17 +195,11 @@ function encodeMarkdownPath(path) {
                         ></textarea>
                     </div>
 
-                    <div class="button-row">
-                        <UiButton tone="primary" :busy="saving" @click="saveAndRenderPost">
-                            Save
-                        </UiButton>
-                    </div>
                     <p v-if="buildStore.error" class="error-text compact-text">
                         {{ buildStore.error }}
                     </p>
                 </div>
             </UiPanel>
-            <DeployPanel compact />
         </div>
     </div>
 </template>

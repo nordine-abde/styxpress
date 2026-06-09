@@ -1,11 +1,13 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import UiButton from './ui/UiButton.vue'
 import UiField from './ui/UiField.vue'
 import UiPanel from './ui/UiPanel.vue'
 import { usePostsStore } from '../stores/posts'
+import { useUiStore } from '../stores/ui'
 
 const postsStore = usePostsStore()
+const uiStore = useUiStore()
 const slugEdited = ref(false)
 const submitted = ref(false)
 
@@ -72,6 +74,19 @@ function slugFromTitle(value) {
         .replace(/^-+|-+$/g, '')
         .replace(/-{2,}/g, '-')
 }
+
+onMounted(() => {
+    uiStore.registerHeaderSaveAction('post-create', {
+        isAvailable: () => true,
+        isDirty: () => postsStore.isDirty,
+        isBusy: () => postsStore.saving,
+        run: createPost
+    })
+})
+
+onBeforeUnmount(() => {
+    uiStore.unregisterHeaderSaveAction('post-create')
+})
 </script>
 
 <template>
@@ -95,9 +110,6 @@ function slugFromTitle(value) {
                 <div class="button-row">
                     <UiButton tone="ghost" :disabled="postsStore.saving" @click="cancel">
                         Cancel
-                    </UiButton>
-                    <UiButton tone="primary" type="submit" :busy="postsStore.saving" :disabled="!canCreate">
-                        Start writing
                     </UiButton>
                 </div>
             </form>
