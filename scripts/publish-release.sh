@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_DIR="$ROOT_DIR/dist/releases"
 TARGET="${STYXPRESS_RELEASE_TARGET:-all}"
+BUILD_VERSION="${STYXPRESS_RELEASE_VERSION:-}"
 TITLE=""
 NOTES=""
 NOTES_FILE=""
@@ -25,6 +26,8 @@ Examples:
 Options:
   --target <goos/goarch|all>  Build target passed to scripts/build-release.sh.
                              Defaults to all.
+  --build-version <version>    Version appended to built artifact names.
+                             Defaults to the release tag.
   --title <title>             GitHub release title. Defaults to "Styxpress <tag>".
   --notes <text>              GitHub release notes. Defaults to "Release <tag>.".
   --notes-file <path>         Read GitHub release notes from a file.
@@ -58,6 +61,15 @@ while [ "$#" -gt 0 ]; do
             ;;
         --target=*)
             TARGET="${1#--target=}"
+            shift
+            ;;
+        --build-version)
+            [ "$#" -ge 2 ] || die "--build-version requires a value."
+            BUILD_VERSION="$2"
+            shift 2
+            ;;
+        --build-version=*)
+            BUILD_VERSION="${1#--build-version=}"
             shift
             ;;
         --title)
@@ -125,6 +137,14 @@ if [ -n "$NOTES" ] && [ -n "$NOTES_FILE" ]; then
     die "Use either --notes or --notes-file, not both."
 fi
 
+if [ -z "$BUILD_VERSION" ]; then
+    BUILD_VERSION="$TAG"
+fi
+
+if [[ ! "$BUILD_VERSION" =~ ^[A-Za-z0-9._+-]+$ ]]; then
+    die "Build version may only contain letters, numbers, dots, underscores, plus signs, and hyphens."
+fi
+
 if [ -n "$NOTES_FILE" ] && [ ! -f "$NOTES_FILE" ]; then
     die "Release notes file does not exist: $NOTES_FILE"
 fi
@@ -163,7 +183,7 @@ mkdir -p "$RELEASE_DIR"
 
 if [ "$SKIP_BUILD" -eq 0 ]; then
     find "$RELEASE_DIR" -maxdepth 1 -type d -name 'styxpress-admin_*' -prune -exec rm -rf {} +
-    ./scripts/build-release.sh "$TARGET"
+    ./scripts/build-release.sh "$TARGET" --version "$BUILD_VERSION"
 fi
 
 find "$RELEASE_DIR" -maxdepth 1 -type f \

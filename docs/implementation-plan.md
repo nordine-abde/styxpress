@@ -89,7 +89,7 @@ For release builds:
 
 ```bash
 ./scripts/build-release.sh linux/amd64
-./scripts/build-release.sh all
+./scripts/build-release.sh all --version v0.1.0
 ```
 
 ## Deferred Work

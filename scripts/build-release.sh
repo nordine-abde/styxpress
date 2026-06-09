@@ -2,7 +2,64 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET="${1:-linux/amd64}"
+TARGET="${STYXPRESS_RELEASE_TARGET:-linux/amd64}"
+VERSION="${STYXPRESS_RELEASE_VERSION:-}"
+TARGET_SET=0
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  ./scripts/build-release.sh [target] [options]
+
+Examples:
+  ./scripts/build-release.sh
+  ./scripts/build-release.sh all
+  ./scripts/build-release.sh all --version v0.1.0
+  ./scripts/build-release.sh linux/amd64 --version v0.1.0
+
+Options:
+  --version <version>  Append a version to release directory and binary names.
+  -h, --help          Show this help.
+USAGE
+}
+
+die() {
+    echo "$*" >&2
+    exit 1
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --version)
+            [ "$#" -ge 2 ] || die "--version requires a value."
+            VERSION="$2"
+            shift 2
+            ;;
+        --version=*)
+            VERSION="${1#--version=}"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            die "Unknown option: $1"
+            ;;
+        *)
+            if [ "$TARGET_SET" -eq 1 ]; then
+                die "Unexpected argument: $1"
+            fi
+            TARGET="$1"
+            TARGET_SET=1
+            shift
+            ;;
+    esac
+done
+
+if [ -n "$VERSION" ] && [[ ! "$VERSION" =~ ^[A-Za-z0-9._+-]+$ ]]; then
+    die "Version may only contain letters, numbers, dots, underscores, plus signs, and hyphens."
+fi
 
 source "$ROOT_DIR/scripts/go-toolchain.sh"
 styxpress_require_supported_go_toolchain
@@ -39,10 +96,16 @@ for target in "${targets[@]}"; do
         exit 1
     fi
 
-    dir="dist/releases/styxpress-admin_${goos}_${goarch}"
-    binary="styxpress-admin"
+    if [ -n "$VERSION" ]; then
+        dir="dist/releases/styxpress-admin_${VERSION}_${goos}_${goarch}"
+        binary="styxpress-admin_${VERSION}"
+    else
+        dir="dist/releases/styxpress-admin_${goos}_${goarch}"
+        binary="styxpress-admin"
+    fi
+
     if [ "$goos" = "windows" ]; then
-        binary="styxpress-admin.exe"
+        binary="$binary.exe"
     fi
 
     output="$dir/$binary"

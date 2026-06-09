@@ -275,7 +275,7 @@ Useful scripts:
 ```bash
 ./scripts/run_admin.sh
 ./scripts/build-release.sh linux/amd64
-./scripts/build-release.sh all
+./scripts/build-release.sh all --version v0.1.0
 ./scripts/publish-release.sh v0.1.0
 ```
 
