@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Styxpress - Static Blog Admin</title>
+    <meta name="description" content="Styxpress e un generatore locale di blog statici con admin Go, UI Vue, contenuti Markdown e deploy SFTP opzionale.">
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="site-header">
+        <a class="brand" href="#top" aria-label="Styxpress home">
+            <span class="brand-mark" aria-hidden="true">S</span>
+            <span>Styxpress</span>
+        </a>
+        <nav class="nav" aria-label="Sezioni">
+            <a href="#download">Download</a>
+            <a href="#features">Feature</a>
+            <a href="#guide">Guida</a>
+            <a href="#safety">Sicurezza</a>
+        </nav>
+    </header>
+
+    <main id="top">
+        <section class="hero" aria-labelledby="hero-title">
+            <div class="hero-content">
+                <p class="eyebrow">Admin locale per siti statici</p>
+                <h1 id="hero-title">Styxpress</h1>
+                <p class="hero-copy">
+                    Scrivi contenuti Markdown, gestisci piu siti locali, genera HTML statico e
+                    pubblica solo quando sei pronto.
+                </p>
+                <div class="hero-actions">
+                    <a class="button primary" href="#download">Scarica</a>
+                    <a class="button secondary" href="#guide">Leggi la guida</a>
+                </div>
+            </div>
+        </section>
+
+        <section id="safety" class="warning-band" aria-labelledby="warning-title">
+            <div>
+                <p class="eyebrow">Beta warning</p>
+                <h2 id="warning-title">Questa versione e beta e puo avere effetti distruttivi.</h2>
+            </div>
+            <p>
+                Usa Styxpress con cautela. Una configurazione errata puo sovrascrivere file nel
+                <code>publicDir</code>. Se abiliti il deploy SFTP, la cartella remota configurata
+                diventa gestita da Styxpress: il deploy puo modificare o rimuovere file remoti.
+                Fai backup e prova prima su cartelle e server non critici.
+            </p>
+        </section>
+
+        <section id="download" class="section split" aria-labelledby="download-title">
+            <div class="section-heading">
+                <p class="eyebrow">Download</p>
+                <h2 id="download-title">Installa il binario rilasciato</h2>
+                <p>
+                    L'installer automatico supporta Linux e macOS su <code>amd64</code> e
+                    <code>arm64</code>. Scarica l'asset della GitHub Release, verifica
+                    <code>SHA256SUMS</code>, installa un binario versionato in
+                    <code>~/.local/bin</code> e crea il comando stabile
+                    <code>styxpress-admin</code>.
+                </p>
+            </div>
+            <div class="command-stack" aria-label="Comandi installazione">
+                <div>
+                    <span>Ultima release pubblicata, incluse prerelease beta</span>
+                    <pre><code>curl -fsSL https://raw.githubusercontent.com/nordine-abde/styxpress/main/scripts/install-styxpress-admin.sh | bash</code></pre>
+                </div>
+                <div>
+                    <span>Release specifica</span>
+                    <pre><code>curl -fsSL https://raw.githubusercontent.com/nordine-abde/styxpress/main/scripts/install-styxpress-admin.sh | bash -s -- --version v0.0.1-beta.1</code></pre>
+                </div>
+                <a class="inline-link" href="https://github.com/nordine-abde/styxpress/releases">Apri GitHub Releases</a>
+            </div>
+        </section>
+
+        <section class="section quickstart" aria-labelledby="quickstart-title">
+            <div class="section-heading">
+                <p class="eyebrow">Avvio</p>
+                <h2 id="quickstart-title">Il binario non usa sempre la porta 8080</h2>
+                <p>
+                    Di default l'admin ascolta su <code>127.0.0.1:0</code>, quindi sceglie una
+                    porta locale libera e la stampa nel terminale insieme al token di sessione.
+                    Usa <code>-addr</code> solo se vuoi fissare una porta.
+                </p>
+            </div>
+            <div class="quick-grid">
+                <pre><code>styxpress-admin</code></pre>
+                <pre><code>styxpress-admin -addr 127.0.0.1:8080</code></pre>
+                <pre><code>styxpress-admin -config /path/to/config.toml</code></pre>
+            </div>
+        </section>
+
+        <section id="features" class="section" aria-labelledby="features-title">
+            <div class="section-heading">
+                <p class="eyebrow">Feature</p>
+                <h2 id="features-title">Cosa fa Styxpress</h2>
+                <p>
+                    Styxpress non serve il sito pubblico: genera file statici. La directory
+                    <code>publicDir</code> puo essere servita da Caddy, Nginx o qualsiasi server statico.
+                </p>
+            </div>
+            <div class="feature-grid">
+                <article class="feature-card">
+                    <h3>Contenuto locale</h3>
+                    <p>Post Markdown, metadati, immagini e <code>site.toml</code> restano sul tuo computer.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Registro multi-sito</h3>
+                    <p>Crea e apri piu siti locali senza gestire manualmente file config separati.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Editor Compose e MD</h3>
+                    <p>Scrivi in modalita visuale oppure modifica direttamente il Markdown grezzo.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Output statico</h3>
+                    <p>Genera HTML, feed RSS, sitemap, favicon, stylesheet e pagine dei post.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Media dei post</h3>
+                    <p>Carica cover e immagini locali, poi inseriscile nel corpo del post.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>SFTP opzionale</h3>
+                    <p>Sincronizza manualmente il <code>publicDir</code> verso una cartella remota gestita.</p>
+                </article>
+            </div>
+        </section>
+
+        <section id="guide" class="section guide" aria-labelledby="guide-title">
+            <div class="section-heading">
+                <p class="eyebrow">Guida all'uso</p>
+                <h2 id="guide-title">Tour verificato dell'applicazione</h2>
+                <p>
+                    Questi passaggi sono stati eseguiti in un workspace temporaneo. Gli screenshot
+                    mostrano l'app reale: avvio, token, creazione sito, configurazione, post,
+                    editor Compose, Markdown e output pubblico statico.
+                </p>
+            </div>
+
+            <ol class="guide-list">
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">01</span>
+                        <h3>Avvia l'admin e inserisci il token</h3>
+                        <p>
+                            Esegui <code>styxpress-admin</code>. Il terminale stampa l'URL locale e
+                            il token di sessione. Apri l'URL, incolla il token in
+                            <strong>Session token</strong> e premi <strong>Set</strong>. Se riavvii
+                            il server, usa il nuovo token.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/01-token-login.png" alt="Schermata di login con campo Session token" decoding="async">
+                        <figcaption>Accesso alla sessione locale.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">02</span>
+                        <h3>Apri My sites</h3>
+                        <p>
+                            Dopo il token, Styxpress mostra il registro dei siti. Da qui puoi creare
+                            un nuovo sito o aprirne uno esistente. In modalita <code>-config</code>
+                            esplicita la creazione e la cancellazione dei siti non sono disponibili.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/02-my-sites-empty.png" alt="Lista My sites vuota con form per nuovo sito" decoding="async">
+                        <figcaption>Registro multi-sito ancora vuoto.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">03</span>
+                        <h3>Crea un sito locale</h3>
+                        <p>
+                            Inserisci il nome. L'app propone un <strong>Site ID</strong> normalizzato
+                            e cartelle predefinite sotto <code>~/Styxpress/&lt;site-id&gt;/</code>.
+                            Puoi modificare <code>Content folder</code> e <code>Public folder</code>
+                            prima di premere <strong>Create and configure</strong>.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/03-create-site-suggestion.png" alt="Suggerimento di site id e cartelle locali per un nuovo sito" decoding="async">
+                        <figcaption>Slug sito e percorsi suggeriti.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">04</span>
+                        <h3>Controlla Configuration</h3>
+                        <p>
+                            <code>contentDir</code> contiene sorgenti, Markdown, metadati, media e
+                            <code>site.toml</code>. <code>publicDir</code> contiene HTML, feed,
+                            sitemap, stylesheet e asset generati. Mantieni sempre queste directory
+                            separate.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/04-configuration-folders.png" alt="Schermata Configuration con content folder e public folder" decoding="async">
+                        <figcaption>Cartelle locali di input e output.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step danger-step">
+                    <div class="step-copy">
+                        <span class="step-number">05</span>
+                        <h3>Configura SFTP solo se sei pronto</h3>
+                        <p>
+                            Attivando SFTP compaiono host, porta, utente, cartella remota, chiave e
+                            known hosts. La cartella remota diventa gestita da Styxpress: il deploy
+                            sovrascrive file corrispondenti e rimuove file remoti non presenti nel
+                            <code>publicDir</code>.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/05-sftp-managed-warning.png" alt="Avviso SFTP Remote folder is managed by Styxpress" decoding="async">
+                        <figcaption>Avviso distruttivo del deploy SFTP.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">06</span>
+                        <h3>Personalizza Site</h3>
+                        <p>
+                            In <strong>Site</strong> modifica titolo, descrizione, favicon, link di
+                            header, footer e watermark. La preview si aggiorna durante l'editing.
+                            <strong>Save</strong> scrive <code>site.toml</code> e rigenera il sito.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/06-site-preview-editing.png" alt="Schermata Site con form e preview del sito" decoding="async">
+                        <figcaption>Configurazione pubblica e preview live.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">07</span>
+                        <h3>Vai in Posts</h3>
+                        <p>
+                            La sezione <strong>Posts</strong> mostra l'elenco dei post Markdown.
+                            Quando entri qui, la sidebar si chiude per lasciare spazio al lavoro;
+                            il pulsante <strong>Menu</strong> la riapre.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/07-posts-empty.png" alt="Lista Posts vuota con pulsante New" decoding="async">
+                        <figcaption>Lista post vuota.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">08</span>
+                        <h3>Crea un post</h3>
+                        <p>
+                            Premi <strong>New</strong>, inserisci il titolo e controlla lo slug.
+                            Lo slug usa lettere minuscole ASCII, numeri e trattini. Premi
+                            <strong>Save</strong> nella barra superiore per creare il post.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/08-new-post-slug.png" alt="Form New post con titolo e slug generato" decoding="async">
+                        <figcaption>Identita iniziale del post.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">09</span>
+                        <h3>Scrivi in Compose</h3>
+                        <p>
+                            <strong>Compose</strong> e l'editor visuale. Usa la toolbar per heading,
+                            grassetto, corsivo, liste, citazioni e link. Il contenuto resta Markdown:
+                            quando salvi, viene scritto in <code>content/posts/&lt;slug&gt;/source.md</code>.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/09-compose-editor.png" alt="Editor post in modalita Compose con toolbar visuale" decoding="async">
+                        <figcaption>Editor visuale del corpo Markdown.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">10</span>
+                        <h3>Carica immagini del post</h3>
+                        <p>
+                            Nel pannello <strong>Images</strong> puoi caricare cover e asset. Se il
+                            post non e ancora salvato o ha modifiche locali, l'upload salva prima il
+                            draft. Il pulsante <strong>Insert</strong> aggiunge un riferimento come
+                            <code>assets/foto.png#medium</code>.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/10-image-asset-uploaded.png" alt="Pannello Images con asset immagine caricato" decoding="async">
+                        <figcaption>Asset immagine caricato e pronto da inserire.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">11</span>
+                        <h3>Salva e renderizza</h3>
+                        <p>
+                            <strong>Save</strong> salva il post e renderizza la pagina statica nel
+                            <code>publicDir</code>. Il deploy remoto non parte automaticamente:
+                            usa <strong>Deploy</strong> solo dopo aver salvato le modifiche locali.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/11-post-saved-with-image.png" alt="Post salvato con immagine inserita nel contenuto" decoding="async">
+                        <figcaption>Post salvato con asset locale.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">12</span>
+                        <h3>Passa a MD quando vuoi il sorgente</h3>
+                        <p>
+                            <strong>MD</strong> mostra il Markdown grezzo in una textarea e abilita
+                            <strong>Import Markdown</strong>. L'import copia il contenuto del file
+                            nel post gestito da Styxpress; non mantiene un collegamento al file
+                            originale.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/12-markdown-editor.png" alt="Editor post in modalita Markdown con textarea e Import Markdown" decoding="async">
+                        <figcaption>Modalita Markdown raw.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">13</span>
+                        <h3>Torna alla lista post</h3>
+                        <p>
+                            La lista indica titolo, slug, stato draft/published e data. Se ci sono
+                            modifiche non salvate, Styxpress chiede conferma prima di lasciare
+                            l'editor.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/13-post-list-published.png" alt="Lista Posts con un post pubblicato" decoding="async">
+                        <figcaption>Post pubblicato nell'elenco.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">14</span>
+                        <h3>Servi il publicDir</h3>
+                        <p>
+                            Il sito pubblico e composto da file statici. La home, il feed, la sitemap
+                            e le pagine dei post sono in <code>publicDir</code>. Puoi servirli con
+                            Nginx, Caddy, un hosting statico o una CDN.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/14-public-home.png" alt="Home statica generata da Styxpress" decoding="async">
+                        <figcaption>Home pubblica generata.</figcaption>
+                    </figure>
+                </li>
+
+                <li class="guide-step">
+                    <div class="step-copy">
+                        <span class="step-number">15</span>
+                        <h3>Controlla la pagina del post</h3>
+                        <p>
+                            Ogni post pubblicato genera una pagina sotto
+                            <code>public/posts/&lt;slug&gt;/index.html</code>. Non serve il server
+                            admin Go per leggere il sito pubblico.
+                        </p>
+                    </div>
+                    <figure>
+                        <img src="assets/screenshots/15-public-post.png" alt="Pagina statica del post generata da Styxpress" decoding="async">
+                        <figcaption>Pagina post statica.</figcaption>
+                    </figure>
+                </li>
+            </ol>
+        </section>
+
+        <section class="section file-layout" aria-labelledby="layout-title">
+            <div class="section-heading">
+                <p class="eyebrow">File generati</p>
+                <h2 id="layout-title">Layout su disco</h2>
+                <p>
+                    Questa e la separazione fondamentale: contenuto sorgente in
+                    <code>contentDir</code>, output pubblico in <code>publicDir</code>.
+                </p>
+            </div>
+            <div class="layout-grid">
+                <div>
+                    <h3>contentDir</h3>
+                    <pre><code>content/
+  site.toml
+  assets/
+  posts/
+    first-field-report/
+      source.md
+      title.txt
+      description.txt
+      published_at.txt
+      updated_at.txt
+      assets/</code></pre>
+                </div>
+                <div>
+                    <h3>publicDir</h3>
+                    <pre><code>public/
+  index.html
+  feed.xml
+  sitemap.xml
+  favicon.ico
+  assets/
+    styxpress.css
+  posts/
+    first-field-report/
+      index.html</code></pre>
+                </div>
+            </div>
+        </section>
+
+        <section class="section faq" aria-labelledby="faq-title">
+            <div class="section-heading">
+                <p class="eyebrow">Note operative</p>
+                <h2 id="faq-title">Domande frequenti</h2>
+            </div>
+            <div class="faq-grid">
+                <article>
+                    <h3>Devo usare sempre 8080?</h3>
+                    <p>No. Il binario sceglie una porta libera. Usa <code>-addr 127.0.0.1:8080</code> se vuoi una porta fissa.</p>
+                </article>
+                <article>
+                    <h3>Il token va salvato?</h3>
+                    <p>No. E un token di sessione stampato dal server locale. Se riavvii Styxpress, incolla il nuovo token.</p>
+                </article>
+                <article>
+                    <h3>Quando parte il deploy?</h3>
+                    <p>Solo quando premi <strong>Deploy</strong>. Prima salva le modifiche locali con <strong>Save</strong>.</p>
+                </article>
+                <article>
+                    <h3>Windows?</h3>
+                    <p>Le release possono includere asset Windows, ma l'installer automatico e pensato per Linux e macOS.</p>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>Styxpress e software beta. Usa backup, cartelle di prova e deploy remoti non critici prima di pubblicare siti importanti.</p>
+        <a href="https://github.com/nordine-abde/styxpress">Repository GitHub</a>
+    </footer>
+</body>
+</html>
