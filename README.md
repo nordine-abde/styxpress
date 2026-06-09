@@ -22,6 +22,24 @@ or another static file server. The admin can optionally sync the generated
 public folder over SFTP, but the public site never needs a dynamic application
 server.
 
+## Install Released Binary
+
+On Linux and macOS, install the newest published release with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nordine-abde/styxpress/main/scripts/install-styxpress-admin.sh | bash
+```
+
+To install a specific beta release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nordine-abde/styxpress/main/scripts/install-styxpress-admin.sh | bash -s -- --version v0.0.1-beta.1
+```
+
+The installer downloads the matching GitHub release asset, verifies
+`SHA256SUMS`, installs a versioned binary under `~/.local/bin`, and creates the
+stable `styxpress-admin` command.
+
 ## Current Scope
 
 Included:
