@@ -122,20 +122,44 @@ case "$(uname -m)" in
         ;;
 esac
 
-asset_base="styxpress-admin_${VERSION}_${goos}_${goarch}"
-asset="$asset_base.tar.gz"
 release_url="https://github.com/$REPO/releases/download/$VERSION"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
-echo "Downloading $asset..."
-curl -fsSL "$release_url/$asset" -o "$tmp_dir/$asset"
+echo "Downloading SHA256SUMS..."
 curl -fsSL "$release_url/SHA256SUMS" -o "$tmp_dir/SHA256SUMS"
 
 cd "$tmp_dir"
 
-checksum_line="$(grep " $asset$" SHA256SUMS || true)"
-[ -n "$checksum_line" ] || die "SHA256SUMS does not contain $asset."
+asset_bases=(
+    "styxpress-admin_${VERSION}_${goos}_${goarch}"
+)
+
+if [[ "$VERSION" == v* ]]; then
+    asset_bases+=("styxpress-admin_${VERSION#v}_${goos}_${goarch}")
+fi
+
+asset_bases+=("styxpress-admin_${goos}_${goarch}")
+
+asset=""
+asset_base=""
+checksum_line=""
+
+for candidate_base in "${asset_bases[@]}"; do
+    candidate_asset="$candidate_base.tar.gz"
+    candidate_checksum_line="$(grep " $candidate_asset$" SHA256SUMS || true)"
+    if [ -n "$candidate_checksum_line" ]; then
+        asset_base="$candidate_base"
+        asset="$candidate_asset"
+        checksum_line="$candidate_checksum_line"
+        break
+    fi
+done
+
+[ -n "$asset" ] || die "Could not find a $goos/$goarch archive in SHA256SUMS for release $VERSION."
+
+echo "Downloading $asset..."
+curl -fsSL "$release_url/$asset" -o "$tmp_dir/$asset"
 
 if command -v sha256sum >/dev/null 2>&1; then
     printf '%s\n' "$checksum_line" | sha256sum -c -
@@ -147,11 +171,19 @@ fi
 
 tar -xzf "$asset"
 
-binary="$tmp_dir/$asset_base/styxpress-admin_$VERSION"
-[ -x "$binary" ] || die "Downloaded archive did not contain $asset_base/styxpress-admin_$VERSION."
+binary=""
+for candidate_binary in "$tmp_dir/$asset_base"/styxpress-admin*; do
+    if [ -f "$candidate_binary" ] && [ -x "$candidate_binary" ]; then
+        binary="$candidate_binary"
+        break
+    fi
+done
+
+[ -n "$binary" ] || die "Downloaded archive did not contain an executable styxpress-admin binary."
 
 mkdir -p "$INSTALL_DIR"
-versioned_command="$INSTALL_DIR/styxpress-admin_$VERSION"
+installed_binary_name="$(basename "$binary")"
+versioned_command="$INSTALL_DIR/$installed_binary_name"
 stable_command="$INSTALL_DIR/styxpress-admin"
 
 cp "$binary" "$versioned_command"
