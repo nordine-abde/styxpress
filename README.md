@@ -4,6 +4,14 @@
   <img src="admin/web/src/assets/styxpress-mark.png" alt="Styxpress mark" width="160" height="160">
 </p>
 
+## Beta Warning
+
+**Styxpress is currently beta software. Use it carefully.** It can have
+destructive effects if configured incorrectly, including overwriting generated
+files in `publicDir` or modifying remote files during SFTP deployment. Keep
+backups of source content and test with non-critical folders and servers before
+using it on important sites.
+
 Styxpress is a local static blog generator with a small Go admin server and a
 Vue admin UI. Source content stays on the user's computer. Styxpress renders
 HTML, feeds, sitemap, media, favicon files, and a single built-in stylesheet
@@ -268,6 +276,7 @@ Useful scripts:
 ./scripts/run_admin.sh
 ./scripts/build-release.sh linux/amd64
 ./scripts/build-release.sh all
+./scripts/publish-release.sh v0.1.0
 ```
 
 The frontend production build is expected at
