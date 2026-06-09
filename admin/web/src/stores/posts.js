@@ -8,7 +8,7 @@ const emptyPost = {
     slug: '',
     title: '',
     description: '',
-    source: '# New post\n',
+    source: '',
     cover: '',
     assets: [],
     publishedAt: '',
@@ -165,7 +165,7 @@ export const usePostsStore = defineStore('posts', () => {
             ...draft.value,
             slug: draft.value.slug.trim(),
             title,
-            source: draft.value.source === emptyPost.source ? `# ${title}\n` : draft.value.source
+            source: draft.value.source === emptyPost.source ? '' : draft.value.source
         })
         const saved = await saveDraft()
         postSetupOpen.value = false

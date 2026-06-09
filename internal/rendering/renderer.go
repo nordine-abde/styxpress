@@ -368,7 +368,7 @@ func (r *Renderer) renderPostDocument(post content.Post, cfg siteconfig.Config, 
 	}
 
 	var article bytes.Buffer
-	if err := r.markdown.Convert([]byte(normalizeMarkdownSource(post.Source)), &article); err != nil {
+	if err := r.markdown.Convert([]byte(normalizeMarkdownSource(post.Source, post.Title)), &article); err != nil {
 		return "", err
 	}
 
@@ -578,10 +578,11 @@ func formatOptionalTime(value time.Time, layout string) string {
 	return value.UTC().Format(layout)
 }
 
-func normalizeMarkdownSource(source string) string {
+func normalizeMarkdownSource(source string, title string) string {
 	if source == "" {
 		return ""
 	}
+	source = removeDuplicateLeadingHeading(source, title)
 	lines := strings.SplitAfter(source, "\n")
 	var normalized strings.Builder
 	for _, line := range lines {
@@ -593,6 +594,52 @@ func normalizeMarkdownSource(source string) string {
 		normalized.WriteString(line)
 	}
 	return normalized.String()
+}
+
+func removeDuplicateLeadingHeading(source string, title string) string {
+	title = normalizeHeadingText(title)
+	if title == "" {
+		return source
+	}
+
+	offset := 0
+	for offset < len(source) {
+		lineEnd := strings.IndexByte(source[offset:], '\n')
+		if lineEnd < 0 {
+			break
+		}
+		line := source[offset : offset+lineEnd+1]
+		if strings.TrimSpace(line) != "" {
+			break
+		}
+		offset += len(line)
+	}
+
+	rest := source[offset:]
+	line, trailing := firstMarkdownLine(rest)
+	heading := strings.TrimSpace(line)
+	if !strings.HasPrefix(heading, "# ") {
+		return source
+	}
+	if normalizeHeadingText(strings.TrimSpace(strings.TrimPrefix(heading, "# "))) != title {
+		return source
+	}
+	return source[:offset] + strings.TrimLeft(trailing, "\r\n")
+}
+
+func firstMarkdownLine(source string) (string, string) {
+	if index := strings.IndexByte(source, '\n'); index >= 0 {
+		line := source[:index]
+		if strings.HasSuffix(line, "\r") {
+			return strings.TrimSuffix(line, "\r"), source[index+1:]
+		}
+		return line, source[index+1:]
+	}
+	return source, ""
+}
+
+func normalizeHeadingText(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func splitLineEnding(line string) (string, string) {

@@ -182,7 +182,7 @@ onBeforeUnmount(() => {
                             ref="visualEditor"
                             v-model="postsStore.draft.source"
                             :slug="postsStore.selectedSlug"
-                            placeholder="# Post title"
+                            placeholder="Write the post body"
                         />
                         <textarea
                             v-else
@@ -190,7 +190,7 @@ onBeforeUnmount(() => {
                             :value="postsStore.draft.source"
                             class="markdown"
                             rows="22"
-                            placeholder="# Post title"
+                            placeholder="Write the post body"
                             @input="postsStore.draft.source = $event.target.value"
                         ></textarea>
                     </div>

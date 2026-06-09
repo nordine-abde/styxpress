@@ -68,6 +68,42 @@ func TestRenderPostWritesDocumentAndAssets(t *testing.T) {
 	}
 }
 
+func TestRenderPostOmitsDuplicateLeadingMarkdownTitle(t *testing.T) {
+	contentRoot := filepath.Join(t.TempDir(), "content")
+	publicRoot := filepath.Join(t.TempDir(), "public")
+	repo := content.NewRepository(contentRoot)
+	if _, err := repo.WritePost(content.Post{
+		Slug:        "duplicate-title",
+		Title:       "Duplicate Title",
+		Source:      "\n# Duplicate Title\n\nBody text.\n",
+		PublishedAt: time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC),
+	}, content.WritePostOptions{}); err != nil {
+		t.Fatalf("write post: %v", err)
+	}
+
+	renderer, err := New(contentRoot, publicRoot)
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	result, err := renderer.RenderPost("duplicate-title")
+	if err != nil {
+		t.Fatalf("render post: %v", err)
+	}
+
+	data, err := os.ReadFile(result.IndexPath)
+	if err != nil {
+		t.Fatalf("read index: %v", err)
+	}
+	html := string(data)
+	if count := strings.Count(html, `<h1>Duplicate Title</h1>`); count != 1 {
+		t.Fatalf("duplicate title h1 count = %d, want 1:\n%s", count, html)
+	}
+	if !strings.Contains(html, `<p>Body text.</p>`) {
+		t.Fatalf("rendered body missing:\n%s", html)
+	}
+}
+
 func TestRenderPostEscapesRawHTML(t *testing.T) {
 	contentRoot := filepath.Join(t.TempDir(), "content")
 	publicRoot := filepath.Join(t.TempDir(), "public")
