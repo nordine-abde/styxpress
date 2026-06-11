@@ -37,6 +37,15 @@ function dateLabel(post) {
     return 'Not published'
 }
 
+function shortDate(post) {
+    const raw = post.publishedAt || post.updatedAt
+    if (!raw) {
+        return ''
+    }
+    const d = new Date(raw)
+    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d)
+}
+
 function startNewPost() {
     if (!confirmDiscardDraft()) {
         return
@@ -86,7 +95,12 @@ function confirmDiscardDraft() {
         />
 
         <ul v-else class="list">
-            <li v-for="post in postsStore.posts" :key="post.slug">
+            <li
+                v-for="(post, index) in postsStore.posts"
+                :key="post.slug"
+                :style="{ animationDelay: `${index * 45}ms` }"
+                class="post-card-wrapper"
+            >
                 <button
                     type="button"
                     class="post-item"
@@ -101,8 +115,11 @@ function confirmDiscardDraft() {
                         compact
                     />
                     <div class="post-details">
-                        <strong>{{ post.title }}</strong>
-                        <span>{{ post.slug }}</span>
+                        <div class="post-title-row">
+                            <strong>{{ post.title }}</strong>
+                            <span v-if="shortDate(post)" class="date-chip">{{ shortDate(post) }}</span>
+                        </div>
+                        <span class="post-slug">{{ post.slug }}</span>
                         <div class="post-meta">
                             <UiBadge :tone="statusTone(post)">
                                 {{ statusLabel(post) }}
@@ -117,16 +134,33 @@ function confirmDiscardDraft() {
 </template>
 
 <style scoped>
+@keyframes post-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.post-card-wrapper {
+    animation: post-enter 0.32s ease both;
+}
+
 .post-item {
     display: grid;
-    gap: 0.25rem;
+    gap: 0.35rem;
     width: 100%;
     border: 1px solid var(--color-border);
-    border-radius: 8px;
-    padding: 0.8rem;
-    background: var(--color-surface);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+    background: linear-gradient(135deg, var(--color-surface) 0%, color-mix(in srgb, var(--color-surface-muted) 18%, var(--color-surface)) 100%);
     color: var(--color-text);
     text-align: left;
+    box-shadow: 0 1px 4px rgb(15 23 42 / 3%);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .post-item.has-cover {
@@ -134,25 +168,58 @@ function confirmDiscardDraft() {
     align-items: center;
 }
 
-.post-item:hover,
+.post-item:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--color-accent) 36%, var(--color-border));
+    box-shadow: 0 6px 20px rgb(15 23 42 / 7%), 0 0 0 1px color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
 .post-item.active {
     border-color: var(--color-accent);
-    background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface));
+    background: color-mix(in srgb, var(--color-accent) 5%, var(--color-surface));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 18%, transparent), 0 4px 16px rgb(15 23 42 / 6%);
+}
+
+.post-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 strong {
     color: var(--color-heading);
+    font-size: 0.98rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.date-chip {
+    flex: 0 0 auto;
+    border-radius: 5px;
+    padding: 0.15rem 0.5rem;
+    background: color-mix(in srgb, var(--color-surface-muted) 72%, var(--color-surface));
+    color: var(--color-muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
 
 .post-details {
     display: grid;
-    gap: 0.25rem;
+    gap: 0.3rem;
     min-width: 0;
 }
 
-span,
+.post-slug {
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
+}
+
 small {
     color: var(--color-muted);
+    font-size: 0.78rem;
     overflow-wrap: anywhere;
 }
 

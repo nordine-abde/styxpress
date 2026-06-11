@@ -186,34 +186,49 @@ async function deleteSite(site) {
         />
 
         <ul v-if="!configStore.loading && configStore.sites.length > 0" class="site-library" aria-label="Configured sites">
-            <li v-for="site in configStore.sites" :key="site.id" class="site-card">
-                <div class="site-card-main">
-                    <div class="site-title-row">
-                        <strong>{{ site.name }}</strong>
-                        <UiBadge v-if="site.id === configStore.activeSiteId" tone="success">
-                            selected
-                        </UiBadge>
+            <li
+                v-for="(site, index) in configStore.sites"
+                :key="site.id"
+                class="site-card"
+                :class="{ 'site-card--active': site.id === configStore.activeSiteId }"
+                :style="{ animationDelay: `${index * 60}ms` }"
+            >
+                <div class="site-card-accent"></div>
+                <div class="site-card-body">
+                    <div class="site-card-main">
+                        <div class="site-title-row">
+                            <strong>{{ site.name }}</strong>
+                            <UiBadge v-if="site.id === configStore.activeSiteId" tone="success">
+                                selected
+                            </UiBadge>
+                        </div>
+                        <p>{{ site.config.contentDir }}</p>
                     </div>
-                    <p>{{ site.config.contentDir }}</p>
-                </div>
-                <div class="site-card-meta">
-                    <span>local content</span>
-                    <span>{{ site.config.publicDir || 'public' }}</span>
-                </div>
-                <div class="site-card-actions">
-                    <UiButton
-                        tone="primary"
-                        :busy="(configStore.switching && site.id !== configStore.activeSiteId) || siteWorkspaceStore.loading"
-                        @click="openSite(site)"
-                    >
-                        Open site
-                    </UiButton>
-                    <ConfirmPrompt
-                        v-if="canDelete"
-                        label="Delete"
-                        confirm-label="Delete site"
-                        @confirm="deleteSite(site)"
-                    />
+                    <div class="site-card-meta">
+                        <span class="meta-chip">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                            local content
+                        </span>
+                        <span class="meta-chip">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                            {{ site.config.publicDir || 'public' }}
+                        </span>
+                    </div>
+                    <div class="site-card-actions">
+                        <UiButton
+                            tone="primary"
+                            :busy="(configStore.switching && site.id !== configStore.activeSiteId) || siteWorkspaceStore.loading"
+                            @click="openSite(site)"
+                        >
+                            Open site
+                        </UiButton>
+                        <ConfirmPrompt
+                            v-if="canDelete"
+                            label="Delete"
+                            confirm-label="Delete site"
+                            @confirm="deleteSite(site)"
+                        />
+                    </div>
                 </div>
             </li>
         </ul>
@@ -224,9 +239,7 @@ async function deleteSite(site) {
 .site-create-form,
 .site-path-grid,
 .site-library,
-.site-card,
-.site-card-main,
-.site-card-meta {
+.site-card-main {
     display: grid;
     gap: 0.75rem;
 }
@@ -237,12 +250,55 @@ async function deleteSite(site) {
     list-style: none;
 }
 
+@keyframes card-enter {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 .site-card {
-    align-items: center;
+    display: grid;
+    grid-template-columns: 4px minmax(0, 1fr);
     border: 1px solid var(--color-border);
-    border-radius: 8px;
-    padding: 0.9rem;
-    background: var(--color-surface);
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--color-surface) 0%, color-mix(in srgb, var(--color-surface-muted) 32%, var(--color-surface)) 100%);
+    box-shadow: 0 2px 8px rgb(15 23 42 / 4%);
+    transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+    animation: card-enter 0.36s ease both;
+    overflow: hidden;
+}
+
+.site-card:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--color-accent) 38%, var(--color-border));
+    box-shadow: 0 8px 24px rgb(15 23 42 / 8%), 0 0 0 1px color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.site-card--active {
+    border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+}
+
+.site-card-accent {
+    border-radius: 10px 0 0 10px;
+    background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+    opacity: 0.4;
+    transition: opacity 0.22s ease;
+}
+
+.site-card:hover .site-card-accent,
+.site-card--active .site-card-accent {
+    opacity: 1;
+}
+
+.site-card-body {
+    display: grid;
+    gap: 0.75rem;
+    padding: 1rem 1.1rem;
 }
 
 .site-title-row,
@@ -255,7 +311,9 @@ async function deleteSite(site) {
 
 .site-title-row strong {
     color: var(--color-heading);
-    font-size: 1rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
 }
 
 .site-card-main p,
@@ -266,15 +324,27 @@ async function deleteSite(site) {
 }
 
 .site-card-main p {
-    font-size: 0.9rem;
+    font-size: 0.88rem;
 }
 
 .site-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.meta-chip {
+    display: inline-flex;
+    align-items: center;
     gap: 0.35rem;
+    border-radius: 6px;
+    padding: 0.25rem 0.6rem;
+    background: color-mix(in srgb, var(--color-surface-muted) 72%, var(--color-surface));
     color: var(--color-muted);
-    font-size: 0.78rem;
-    font-weight: 800;
+    font-size: 0.74rem;
+    font-weight: 700;
     text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
 
 .site-id-preview {
@@ -305,8 +375,9 @@ async function deleteSite(site) {
         align-items: end;
     }
 
-    .site-card {
+    .site-card-body {
         grid-template-columns: minmax(0, 1fr) minmax(8rem, auto) auto;
+        align-items: center;
     }
 }
 </style>

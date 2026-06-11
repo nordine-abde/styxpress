@@ -17,6 +17,11 @@ const tokenInput = ref(authStore.token)
 const showTokenForm = computed(() => !authStore.hasToken || uiStore.unauthorized)
 const hasUnsavedChanges = computed(() => siteConfigStore.isDirty || postsStore.isDirty)
 
+const userInitial = computed(() => {
+    const name = configStore.config?.name || ''
+    return name.trim().charAt(0).toUpperCase() || 'S'
+})
+
 async function applyToken() {
     authStore.setToken(tokenInput.value)
     uiStore.clearMessages()
@@ -52,10 +57,18 @@ function confirmDiscardUnsavedChanges() {
 <template>
     <section class="session-box">
         <template v-if="!showTokenForm">
-            <p class="label">Local session</p>
-            <p class="session-state">
-                connected
-            </p>
+            <div class="session-profile">
+                <div class="avatar">
+                    <span>{{ userInitial }}</span>
+                </div>
+                <div class="session-info">
+                    <p class="label">Local session</p>
+                    <p class="session-state">
+                        <span class="status-dot"></span>
+                        connected
+                    </p>
+                </div>
+            </div>
             <div class="button-row">
                 <UiButton tone="ghost" @click="clearToken">
                     Clear
@@ -68,7 +81,7 @@ function confirmDiscardUnsavedChanges() {
                 label="Session token"
                 type="password"
                 placeholder="Paste token"
-                help="Printed by the local admin server."
+                help="Copy the API session token from the terminal where styxpress-admin is running."
                 @keydown.enter.prevent="applyToken"
             />
             <div class="button-row">
@@ -95,9 +108,38 @@ function confirmDiscardUnsavedChanges() {
 <style scoped>
 .session-box {
     display: grid;
-    gap: 0.45rem;
+    gap: 0.6rem;
     border-top: 1px solid var(--color-border);
     padding-top: 1rem;
+}
+
+.session-profile {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+}
+
+.avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+    color: #ffffff;
+    font-size: 0.88rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    user-select: none;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 28%, transparent);
+}
+
+.session-info {
+    display: grid;
+    gap: 0.1rem;
+    min-width: 0;
 }
 
 p {
@@ -114,7 +156,25 @@ p {
 }
 
 .session-state {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     color: var(--color-text);
     font-weight: 700;
+}
+
+@keyframes pulse-status {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+}
+
+.status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-success);
+    animation: pulse-status 2s ease infinite;
+    box-shadow: 0 0 6px color-mix(in srgb, var(--color-success) 36%, transparent);
 }
 </style>

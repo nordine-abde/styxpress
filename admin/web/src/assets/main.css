@@ -1,19 +1,46 @@
+/* ── Styxpress Admin – Dark Design System ────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
 :root {
-    color-scheme: light;
-    --color-background: #f7f8f8;
-    --color-surface: #ffffff;
-    --color-surface-muted: #eef3f2;
-    --color-heading: #15211f;
-    --color-text: #2f3b39;
-    --color-muted: #687574;
-    --color-border: #d8e1df;
-    --color-accent: #14b8a6;
-    --color-accent-strong: #0f766e;
-    --color-danger: #b42318;
-    --color-warning: #a15c07;
-    --color-success: #15803d;
-    --shadow-soft: 0 18px 42px rgb(15 23 42 / 8%);
+    color-scheme: dark;
+
+    /* ── Core palette ── */
+    --color-background: #090d1a;
+    --color-surface: #111827;
+    --color-surface-muted: #1a2235;
+    --color-surface-elevated: #1e293b;
+    --color-heading: #f1f5f9;
+    --color-text: #cbd5e1;
+    --color-muted: #64748b;
+    --color-border: rgba(148, 163, 184, 0.12);
+
+    /* ── Accent ── */
+    --color-accent: #06d6a0;
+    --color-accent-strong: #34d399;
+    --color-accent-glow: rgba(6, 214, 160, 0.15);
+
+    /* ── Semantic ── */
+    --color-danger: #f87171;
+    --color-warning: #fbbf24;
+    --color-success: #4ade80;
+
+    /* ── Shadows ── */
+    --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.25);
+    --shadow-glow: 0 0 20px var(--color-accent-glow);
+
+    /* ── Radii ── */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+
+    /* ── Transitions ── */
+    --transition-fast: 0.15s ease;
+    --transition-base: 0.25s ease;
+    --transition-slow: 0.4s ease;
 }
+
+/* ── Reset ── */
 
 *,
 *::before,
@@ -26,13 +53,16 @@ body {
     min-height: 100vh;
     margin: 0;
     color: var(--color-text);
-    background: linear-gradient(145deg, #ffffff 0%, #f2f7f6 58%, #dbe7e5 100%);
-    font-family:
-        Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-        'Segoe UI', sans-serif;
+    background: var(--color-background);
+    background-image:
+        radial-gradient(ellipse 80% 60% at 50% -20%, rgba(6, 214, 160, 0.06) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(99, 102, 241, 0.04) 0%, transparent 60%);
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    line-height: 1.5;
+    font-size: 0.875rem;
 }
 
 #app {
@@ -44,6 +74,7 @@ input,
 textarea,
 select {
     font: inherit;
+    color: inherit;
 }
 
 button {
@@ -55,25 +86,57 @@ input:disabled,
 textarea:disabled,
 select:disabled {
     cursor: not-allowed;
-    opacity: 0.64;
+    opacity: 0.5;
 }
 
 a {
-    color: inherit;
+    color: var(--color-accent);
+    text-decoration: none;
 }
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* ── Scrollbar ── */
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.18);
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.3);
+}
+
+/* ── App shell ── */
 
 .app-shell {
     display: grid;
     min-height: 100vh;
+    transition: grid-template-columns var(--transition-slow);
 }
+
+/* ── Site entry (landing) ── */
 
 .site-entry-shell {
     display: grid;
-    gap: 1rem;
-    align-content: start;
+    gap: 1.5rem;
+    align-content: center;
+    justify-items: center;
     min-height: 100vh;
-    padding: 1rem;
-    background: color-mix(in srgb, var(--color-surface) 24%, transparent);
+    padding: 2rem 1rem;
+    background:
+        radial-gradient(ellipse 70% 50% at 50% 30%, rgba(6, 214, 160, 0.05) 0%, transparent 70%);
 }
 
 .site-entry-header {
@@ -84,11 +147,13 @@ a {
     justify-content: space-between;
     width: min(100%, 980px);
     margin: 0 auto;
-    border: 1px solid color-mix(in srgb, var(--color-border) 72%, white);
-    border-radius: 8px;
-    padding: 0.95rem 1rem;
-    background: color-mix(in srgb, var(--color-surface) 88%, transparent);
-    box-shadow: 0 10px 26px rgb(89 47 15 / 9%);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 1.15rem 1.25rem;
+    background: rgba(17, 24, 39, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: var(--shadow-soft);
 }
 
 .site-entry-main {
@@ -98,15 +163,33 @@ a {
     margin: 0 auto;
 }
 
+/* ── Sidebar ── */
+
 .sidebar {
     display: grid;
     gap: 1.5rem;
     align-content: start;
-    padding: 1rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 78%, white);
-    background: color-mix(in srgb, var(--color-surface) 90%, transparent);
-    box-shadow: 0 10px 30px rgb(89 47 15 / 10%);
+    padding: 1.25rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+    background: rgba(17, 24, 39, 0.6);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    box-shadow: inset -1px 0 0 var(--color-border);
+    animation: sidebarSlideIn var(--transition-slow) ease both;
 }
+
+@keyframes sidebarSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-1rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* ── Brand ── */
 
 .brand {
     display: flex;
@@ -123,54 +206,75 @@ a {
     flex: 0 0 auto;
     width: 2.5rem;
     height: 2.5rem;
-    border: 1px solid color-mix(in srgb, var(--color-border) 72%, white);
+    border: 1px solid var(--color-border);
     border-radius: 999px;
-    background: #ffffff;
+    background: var(--color-surface);
     object-fit: cover;
+    box-shadow: 0 0 12px var(--color-accent-glow);
 }
 
 .brand h1,
 .topbar h2 {
     margin: 0;
     color: var(--color-heading);
-    font-size: 1.3rem;
+    font-size: 1.2rem;
+    font-weight: 800;
     line-height: 1.2;
+    letter-spacing: -0.02em;
 }
 
 .eyebrow {
-    margin: 0 0 0.2rem;
-    color: var(--color-muted);
-    font-size: 0.72rem;
+    margin: 0 0 0.15rem;
+    color: var(--color-accent);
+    font-size: 0.68rem;
     font-weight: 800;
     text-transform: uppercase;
+    letter-spacing: 0.12em;
 }
+
+/* ── Navigation ── */
 
 .nav {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.35rem;
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
 }
 
 .nav button {
     display: flex;
     align-items: center;
-    gap: 0.7rem;
+    gap: 0.65rem;
     width: 100%;
     min-height: 2.5rem;
     border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 0 0.8rem;
+    border-radius: var(--radius-sm);
+    padding: 0 0.85rem;
     background: transparent;
     color: var(--color-text);
     text-align: left;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition:
+        background var(--transition-fast),
+        border-color var(--transition-fast),
+        color var(--transition-fast),
+        box-shadow var(--transition-base);
 }
 
-.nav button:hover,
-.nav button.active {
-    border-color: color-mix(in srgb, var(--color-accent) 48%, var(--color-border));
-    background: color-mix(in srgb, var(--color-accent) 24%, var(--color-surface));
+.nav button:hover {
+    background: rgba(6, 214, 160, 0.06);
     color: var(--color-heading);
 }
+
+.nav button.active {
+    border-color: rgba(6, 214, 160, 0.2);
+    background: rgba(6, 214, 160, 0.1);
+    color: var(--color-accent);
+    box-shadow: inset 3px 0 0 var(--color-accent);
+    font-weight: 700;
+}
+
+/* ── Site context ── */
 
 .site-context {
     display: grid;
@@ -178,9 +282,9 @@ a {
     gap: 0.65rem;
     align-items: center;
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     padding: 0.85rem;
-    background: color-mix(in srgb, var(--color-surface) 76%, white);
+    background: rgba(30, 41, 59, 0.4);
 }
 
 .site-context .eyebrow {
@@ -190,15 +294,31 @@ a {
 .site-context strong {
     color: var(--color-heading);
     overflow-wrap: anywhere;
+    font-size: 0.88rem;
 }
+
+/* ── Workspace ── */
 
 .workspace {
     display: grid;
     gap: 1rem;
     align-content: start;
-    padding: 1rem;
-    background: color-mix(in srgb, var(--color-surface) 24%, transparent);
+    padding: 1.25rem;
+    animation: contentFadeIn var(--transition-slow) ease both;
 }
+
+@keyframes contentFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Topbar ── */
 
 .topbar {
     display: flex;
@@ -206,11 +326,13 @@ a {
     gap: 1rem;
     align-items: center;
     justify-content: space-between;
-    border: 1px solid color-mix(in srgb, var(--color-border) 72%, white);
-    border-radius: 8px;
-    padding: 0.95rem 1rem;
-    background: color-mix(in srgb, var(--color-surface) 88%, transparent);
-    box-shadow: 0 10px 26px rgb(89 47 15 / 9%);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.15rem;
+    background: rgba(17, 24, 39, 0.65);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: var(--shadow-soft);
 }
 
 .topbar-title {
@@ -245,10 +367,12 @@ a {
     flex: 0 0 auto;
 }
 
+/* ── Hamburger icon ── */
+
 .hamburger-icon {
     display: inline-grid;
-    gap: 0.18rem;
-    width: 1rem;
+    gap: 0.2rem;
+    width: 1.1rem;
 }
 
 .hamburger-icon span {
@@ -256,7 +380,10 @@ a {
     height: 2px;
     border-radius: 999px;
     background: currentColor;
+    transition: transform var(--transition-fast), opacity var(--transition-fast);
 }
+
+/* ── Utility rows ── */
 
 .status-row,
 .button-row,
@@ -268,6 +395,8 @@ a {
     align-items: center;
 }
 
+/* ── Modal ── */
+
 .modal-backdrop {
     position: fixed;
     inset: 0;
@@ -275,36 +404,61 @@ a {
     display: grid;
     place-items: center;
     padding: 1rem;
-    background: rgb(21 33 31 / 42%);
+    background: rgba(9, 13, 26, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    animation: modalFadeIn 0.2s ease;
+}
+
+@keyframes modalFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 .modal-panel {
-    width: min(100%, 26rem);
-    border: 1px solid color-mix(in srgb, var(--color-border) 78%, white);
-    border-radius: 8px;
+    width: min(calc(100vw - 2rem), 26rem);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
     background: var(--color-surface);
-    box-shadow: 0 22px 60px rgb(15 23 42 / 18%);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+    animation: modalSlideIn 0.25s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
 }
 
 .modal-content,
 .modal-heading {
     display: grid;
     gap: 0.8rem;
+    min-width: 0;
 }
 
 .modal-content {
-    padding: 1rem;
+    padding: 1.25rem;
 }
 
 .modal-heading h3,
 .modal-heading p {
     margin: 0;
+    overflow-wrap: anywhere;
 }
 
 .modal-heading h3 {
     color: var(--color-heading);
-    font-size: 1rem;
+    font-size: 1.05rem;
+    font-weight: 700;
 }
+
+/* ── Content layouts ── */
 
 .posts-layout,
 .single-layout,
@@ -337,6 +491,8 @@ a {
     gap: 1rem;
 }
 
+/* ── Text utilities ── */
+
 .muted {
     color: var(--color-muted);
 }
@@ -349,6 +505,8 @@ a {
     color: var(--color-success);
 }
 
+/* ── List ── */
+
 .list {
     display: grid;
     gap: 0.5rem;
@@ -356,6 +514,62 @@ a {
     padding: 0;
     list-style: none;
 }
+
+/* ── Toast notification ── */
+
+.toast-notification {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 50;
+    max-width: 24rem;
+    padding: 0.85rem 1.2rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-elevated);
+    color: var(--color-heading);
+    font-size: 0.82rem;
+    font-weight: 600;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+    animation: toastSlideIn 0.3s ease;
+}
+
+.toast-notification.toast-success {
+    border-left: 3px solid var(--color-success);
+}
+
+.toast-notification.toast-error {
+    border-left: 3px solid var(--color-danger);
+}
+
+@keyframes toastSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(1rem) translateY(0.5rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) translateY(0);
+    }
+}
+
+/* ── Spinner keyframes (shared) ── */
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(1.06); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Responsive ── */
 
 @media (min-width: 720px) {
     .two-column {
@@ -365,27 +579,47 @@ a {
 
 @media (min-width: 900px) {
     .app-shell.sidebar-open {
-        grid-template-columns: 16.5rem minmax(0, 1fr);
+        grid-template-columns: 17rem minmax(0, 1fr);
     }
 
     .site-entry-shell {
-        padding: 1.4rem;
+        padding: 2rem;
     }
 
     .sidebar {
         position: sticky;
         top: 0;
         min-height: 100vh;
-        border-right: 1px solid color-mix(in srgb, var(--color-border) 78%, white);
+        border-right: 1px solid var(--color-border);
         border-bottom: 0;
+        box-shadow: none;
     }
 
-    .nav {
-        grid-template-columns: 1fr;
+    .app-shell.sidebar-open .menu-button {
+        display: none;
     }
 
     .workspace {
-        padding: 1.4rem;
+        padding: 1.5rem;
+    }
+}
+
+@media (max-width: 899px) {
+    .app-shell {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 40;
+        width: min(22rem, calc(100vw - 2rem));
+        min-height: 100vh;
+        overflow-y: auto;
+        border-right: 1px solid var(--color-border);
+        border-bottom: 0;
+        background: rgba(17, 24, 39, 0.96);
+        box-shadow: 24px 0 64px rgba(0, 0, 0, 0.42);
     }
 }
 

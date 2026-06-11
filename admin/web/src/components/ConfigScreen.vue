@@ -135,23 +135,38 @@ onBeforeUnmount(() => {
     <div class="config-layout">
         <UiPanel title="Configuration" subtitle="Styxpress reads content locally and writes generated public files locally.">
             <form class="field-grid" @submit.prevent="save">
-                <UiField v-model="form.name" label="Site name" placeholder="My blog" />
-                <div class="two-column">
-                    <UiField
-                        v-model="form.contentDir"
-                        label="Content folder"
-                        help="Source Markdown, metadata, media, and site.toml live here."
-                    />
-                    <UiField
-                        v-model="form.publicDir"
-                        label="Public folder"
-                        help="Generated HTML, feed, sitemap, stylesheet, and assets are written here."
-                    />
-                </div>
+                <section class="config-section">
+                    <h3>
+                        <span class="section-icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        </span>
+                        General
+                    </h3>
+                    <div class="section-content">
+                        <UiField v-model="form.name" label="Site name" placeholder="My blog" />
+                        <div class="two-column">
+                            <UiField
+                                v-model="form.contentDir"
+                                label="Content folder"
+                                help="Source Markdown, metadata, media, and site.toml live here."
+                            />
+                            <UiField
+                                v-model="form.publicDir"
+                                label="Public folder"
+                                help="Generated HTML, feed, sitemap, stylesheet, and assets are written here."
+                            />
+                        </div>
+                    </div>
+                </section>
 
                 <section class="config-section">
-                    <h3>SFTP</h3>
-                    <div class="field-grid">
+                    <h3>
+                        <span class="section-icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                        </span>
+                        SFTP
+                    </h3>
+                    <div class="section-content">
                         <UiSwitch
                             v-model="form.deploy.enabled"
                             label="Enable SFTP deploy"
@@ -229,6 +244,7 @@ onBeforeUnmount(() => {
                     </UiButton>
                 </div>
                 <p v-if="configStore.saving && firstDeploySetup" class="progress-text">
+                    <span class="progress-indicator"></span>
                     Testing SFTP connection...
                 </p>
                 <p v-if="operationError" class="form-error" role="alert">
@@ -247,15 +263,40 @@ onBeforeUnmount(() => {
 
 .config-section {
     display: grid;
-    gap: 0.75rem;
+    gap: 0.85rem;
     border-top: 1px solid var(--color-border);
-    padding-top: 1rem;
+    padding-top: 1.15rem;
+}
+
+.config-section:first-child {
+    border-top: none;
+    padding-top: 0;
 }
 
 h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
     margin: 0;
     color: var(--color-heading);
     font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.section-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+    color: var(--color-accent-strong);
+}
+
+.section-content {
+    display: grid;
+    gap: 0.85rem;
 }
 
 .managed-warning,
@@ -264,9 +305,9 @@ h3 {
     display: grid;
     gap: 0.55rem;
     border: 1px solid color-mix(in srgb, var(--color-warning) 34%, var(--color-border));
-    border-radius: 8px;
-    padding: 0.8rem;
-    background: color-mix(in srgb, var(--color-warning) 9%, var(--color-surface));
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+    background: color-mix(in srgb, var(--color-warning) 7%, var(--color-surface));
 }
 
 .key-configured {
@@ -278,6 +319,7 @@ h3 {
 .setup-warning p {
     margin: 0;
     color: var(--color-muted);
+    font-size: 0.88rem;
 }
 
 .managed-warning strong,
@@ -303,7 +345,24 @@ h3 {
 }
 
 .progress-text {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     color: var(--color-muted);
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+.progress-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    animation: pulse-dot 1.2s ease infinite;
 }
 
 .form-error {

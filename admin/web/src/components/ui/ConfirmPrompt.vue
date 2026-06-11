@@ -14,6 +14,10 @@ defineProps({
     disabled: {
         type: Boolean,
         default: false
+    },
+    message: {
+        type: String,
+        default: ''
     }
 })
 
@@ -32,6 +36,9 @@ function confirm() {
             {{ label }}
         </UiButton>
         <template v-else>
+            <p v-if="message" class="confirm-message">
+                {{ message }}
+            </p>
             <UiButton tone="danger" :disabled="disabled" @click="confirm">
                 {{ confirmLabel }}
             </UiButton>
@@ -47,5 +54,13 @@ function confirm() {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
+    align-items: center;
+}
+
+.confirm-message {
+    flex: 1 1 100%;
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.78rem;
 }
 </style>

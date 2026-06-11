@@ -1,13 +1,68 @@
 <!DOCTYPE html>
-<html lang="">
-  <head>
-    <meta charset="UTF-8">
-    <link rel="icon" href="/favicon.ico">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Styxpress Admin — manage your static blog content, configuration, and deployments." />
+    <meta name="theme-color" content="#0a0e1a" />
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
     <title>Styxpress Admin</title>
-  </head>
-  <body>
+
+    <!-- Loading screen styles (visible until Vue mounts) -->
+    <style>
+        .app-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: fixed;
+            inset: 0;
+            background: #0a0e1a;
+            z-index: 9999;
+            transition: opacity 0.3s ease;
+        }
+
+        .app-loading-spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid rgba(255, 255, 255, 0.12);
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            animation: app-spin 0.8s linear infinite;
+        }
+
+        .app-loading-text {
+            margin-top: 16px;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.5);
+            letter-spacing: 0.02em;
+        }
+
+        @keyframes app-spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Hide the loading screen once Vue has mounted content into #app */
+        #app:not(:empty) + .app-loading,
+        #app:not(:empty) ~ .app-loading {
+            display: none;
+        }
+    </style>
+</head>
+<body>
     <div id="app"></div>
+    <div class="app-loading">
+        <div class="app-loading-spinner"></div>
+        <div class="app-loading-text">Loading Styxpress...</div>
+    </div>
     <script type="module" src="/src/main.js"></script>
-  </body>
+</body>
 </html>

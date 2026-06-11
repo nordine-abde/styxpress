@@ -91,7 +91,7 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="post-create-setup">
-        <UiPanel title="New post" subtitle="Set the post identity before opening the editor.">
+        <UiPanel title="New post" subtitle="Add a title and slug, then create the post to start writing.">
             <form class="field-grid" @submit.prevent="createPost">
                 <UiField v-model="title" label="Title" placeholder="Launch notes" />
                 <p v-if="submitted && titleError" class="error-text compact-text">
@@ -108,6 +108,14 @@ onBeforeUnmount(() => {
                 </p>
 
                 <div class="button-row">
+                    <UiButton
+                        tone="primary"
+                        type="submit"
+                        :busy="postsStore.saving"
+                        :disabled="!canCreate"
+                    >
+                        Create post
+                    </UiButton>
                     <UiButton tone="ghost" :disabled="postsStore.saving" @click="cancel">
                         Cancel
                     </UiButton>

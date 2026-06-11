@@ -20,6 +20,7 @@ const visualEditor = ref(null)
 
 const saving = computed(() => postsStore.saving || postsStore.deleting || buildStore.publishing)
 const modeLabel = computed(() => editorMode.value === 'markdown' ? 'Markdown' : 'Content')
+const deleteMessage = computed(() => `Delete "${postsStore.draft.title || postsStore.selectedSlug}" now. The generated site will need deploy afterward.`)
 
 async function importMarkdown(file) {
     if (!file) {
@@ -129,12 +130,13 @@ onBeforeUnmount(() => {
                     <div class="editor-actions">
                         <div class="editor-actions-left">
                             <UiButton tone="ghost" @click="backToList">
-                                Back to posts
+                                Back
                             </UiButton>
                             <ConfirmPrompt
                                 v-if="postsStore.selectedSlug"
                                 label="Delete"
                                 confirm-label="Delete post"
+                                :message="deleteMessage"
                                 :disabled="saving || postsStore.deleting"
                                 @confirm="deletePost"
                             />
@@ -157,16 +159,26 @@ onBeforeUnmount(() => {
                         </div>
                     </div>
 
-                    <div class="two-column">
-                        <UiField
-                            v-model="postsStore.draft.slug"
-                            label="Slug"
-                            placeholder="hello-world"
-                            help="Lowercase letters, numbers, and hyphens."
-                        />
-                        <UiField v-model="postsStore.draft.title" label="Title" />
-                    </div>
-                    <UiField v-model="postsStore.draft.description" label="Description" />
+                    <section class="metadata-section">
+                        <h4 class="metadata-heading">
+                            <span class="metadata-icon">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </span>
+                            Post metadata
+                        </h4>
+                        <div class="metadata-fields">
+                            <div class="two-column">
+                                <UiField
+                                    v-model="postsStore.draft.slug"
+                                    label="Slug"
+                                    placeholder="hello-world"
+                                    help="Lowercase letters, numbers, and hyphens."
+                                />
+                                <UiField v-model="postsStore.draft.title" label="Title" />
+                            </div>
+                            <UiField v-model="postsStore.draft.description" label="Description" />
+                        </div>
+                    </section>
 
                     <FileField
                         v-if="editorMode === 'markdown'"
@@ -235,14 +247,53 @@ onBeforeUnmount(() => {
 
 .mode-switch {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
+    gap: 0.25rem;
     align-items: center;
+    border-radius: 8px;
+    padding: 0.2rem;
+    background: color-mix(in srgb, var(--color-surface-muted) 60%, var(--color-surface));
+}
+
+.metadata-section {
+    display: grid;
+    gap: 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--color-border) 72%, white);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--color-surface-muted) 24%, var(--color-surface)) 0%, var(--color-surface) 100%);
+}
+
+.metadata-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    color: var(--color-heading);
+    font-size: 0.82rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.metadata-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+    color: var(--color-accent-strong);
+}
+
+.metadata-fields {
+    display: grid;
+    gap: 0.85rem;
 }
 
 .source-field {
     display: grid;
-    gap: 0.35rem;
+    gap: 0.45rem;
 }
 
 .source-field span {
@@ -255,13 +306,14 @@ textarea {
     width: 100%;
     min-height: 36rem;
     border: 1px solid color-mix(in srgb, var(--color-border) 86%, white);
-    border-radius: 8px;
-    padding: 0.9rem 1rem;
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
     background: color-mix(in srgb, var(--color-surface) 92%, white);
     color: var(--color-text);
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     line-height: 1.65;
     resize: vertical;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 textarea.markdown {
@@ -271,7 +323,8 @@ textarea.markdown {
 
 textarea:focus {
     border-color: color-mix(in srgb, var(--color-accent) 72%, var(--color-accent-strong));
-    outline: 3px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent);
 }
 
 .compact-text {
@@ -282,6 +335,16 @@ textarea:focus {
     .post-editor-layout {
         grid-template-columns: minmax(16rem, 0.36fr) minmax(0, 1fr);
         align-items: start;
+    }
+}
+
+@media (max-width: 1119px) {
+    .post-editor-layout > :first-child {
+        order: 2;
+    }
+
+    .post-editor-main {
+        order: 1;
     }
 }
 </style>
